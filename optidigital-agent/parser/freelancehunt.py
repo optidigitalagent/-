@@ -1,132 +1,257 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import logging
+import random
+import re
+from datetime import datetime
 from typing import Any
 
 import httpx
 
-from config import settings
+from parser.base import BasePlatformParser
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://api.freelancehunt.com/v2"
-PAGE_SIZE = 25
+BASE_URL = "https://freelancehunt.com"
+JSON_URL = f"{BASE_URL}/projects.json"
+HTML_URL = f"{BASE_URL}/projects"
 
-# Freelancehunt skill IDs for the API filter.
-# Full list: GET /skills endpoint (Authorization: Bearer <token>)
-# Common dev skills — extend after calling /skills:
-#   3=HTML/CSS, 14=JavaScript, 39=Python, 1=PHP, 7=MySQL, 50=Telegram
-SKILL_IDS: list[int] = [3, 14, 39, 1, 7, 50]
-
-# Ukrainian keyword filter applied locally on title + description
-SKILLS_FILTER: list[str] = [
-    "сайт",
-    "бот",
-    "crm",
-    "ai",
-    "автоматизація",
-    "telegram",
-    "розробка",
-    "додаток",
-    "парсинг",
-    "інтеграція",
-]
-
-
-def _build_params(page: int) -> list[tuple[str, Any]]:
-    params: list[tuple[str, Any]] = [
-        ("page[number]", page),
-        ("page[size]", PAGE_SIZE),
-    ]
-    for skill_id in SKILL_IDS:
-        params.append(("filter[skills][]", skill_id))
-    return params
-
-
-def _extract_project(item: dict[str, Any]) -> dict[str, Any]:
-    attrs = item.get("attributes", {})
-    budget = attrs.get("budget") or {}
-    employer = attrs.get("employer") or {}
-
-    # URL может быть в attributes или в links самого item
-    url = attrs.get("url") or (item.get("links") or {}).get("self", "")
-
-    return {
-        "platform": "Freelancehunt",
-        "title": attrs.get("name", ""),
-        "description": attrs.get("description") or "",
-        "budget_from": budget.get("amount_from"),
-        "budget_to": budget.get("amount_to"),
-        "currency": budget.get("currency", "UAH"),
-        "url": url,
-        "employer_name": employer.get("login") or employer.get("full_name") or "",
-        "bid_count": attrs.get("bid_count", 0),
-        "created_at": attrs.get("created_at", ""),
+_EXTRACT_JS = """
+() => {
+    const selectors = [
+        'article.project',
+        '.project-card',
+        'tr.project',
+        '[class*="project-item"]',
+        '[class*="project-card"]',
+        'div[data-id]',
+        '[class*="project"]',
+    ];
+    let cards = [];
+    for (const sel of selectors) {
+        const found = Array.from(document.querySelectorAll(sel)).filter(el =>
+            el.querySelector('a') !== null && el.textContent.trim().length > 10
+        );
+        if (found.length > 0) { cards = found; break; }
     }
 
+    return cards.map(el => {
+        const titleEl =
+            el.querySelector('a[href*="/project/"]') ||
+            el.querySelector('h2 a') ||
+            el.querySelector('h3 a') ||
+            el.querySelector('a');
+        const descEl =
+            el.querySelector('[class*="description"]') ||
+            el.querySelector('[class*="desc"]') ||
+            el.querySelector('p');
+        const budgetEl =
+            el.querySelector('[class*="budget"]') ||
+            el.querySelector('[class*="price"]') ||
+            el.querySelector('[class*="cost"]');
+        const bidsEl =
+            el.querySelector('[class*="bid"]') ||
+            el.querySelector('[class*="proposal"]') ||
+            el.querySelector('[class*="offer"]');
+        const timeEl = el.querySelector('time') || el.querySelector('[datetime]');
+        const skillEls = Array.from(
+            el.querySelectorAll('[class*="skill"], [class*="tag"], [class*="label"]')
+        );
 
-def _matches_filter(project: dict[str, Any]) -> bool:
-    text = f"{project['title']} {project['description']}".lower()
-    return any(kw in text for kw in SKILLS_FILTER)
+        return {
+            title:       titleEl  ? titleEl.textContent.trim()                     : '',
+            url:         titleEl  ? (titleEl.href || '')                           : '',
+            description: descEl   ? descEl.textContent.trim().slice(0, 300)        : '',
+            budget:      budgetEl ? budgetEl.textContent.trim()                    : '',
+            bid_count:   bidsEl   ? bidsEl.textContent.trim()                     : '0',
+            created_at:  timeEl   ? (timeEl.getAttribute('datetime') || '')        : '',
+            skills:      skillEls.map(s => s.textContent.trim()).filter(Boolean).join(', '),
+        };
+    }).filter(p => p.title.length > 0 && p.url.length > 0);
+}
+"""
+
+
+class FreelancehuntParser(BasePlatformParser):
+    PLATFORM = "Freelancehunt"
+
+    # ── JSON API ──────────────────────────────────────────────────────────────
+
+    def _parse_json_response(self, data: dict | list) -> list[dict[str, Any]]:
+        items: list = data.get("data", data) if isinstance(data, dict) else data
+        results: list[dict[str, Any]] = []
+
+        for item in items:
+            try:
+                attrs = item.get("attributes", item)
+                title = attrs.get("name", attrs.get("title", ""))
+                if not title:
+                    continue
+
+                description = attrs.get("description", "")[:300]
+
+                budget = attrs.get("budget", {})
+                if isinstance(budget, dict):
+                    budget_from = float(budget.get("from") or budget.get("min") or 0) or None
+                    budget_to   = float(budget.get("to")   or budget.get("max") or 0) or None
+                    currency    = budget.get("currency", "UAH")
+                else:
+                    budget_from = budget_to = None
+                    currency = "UAH"
+
+                links = item.get("links", {})
+                url = links.get("self", attrs.get("url", ""))
+                if url and not url.startswith("http"):
+                    url = f"{BASE_URL}{url}"
+
+                employer = attrs.get("employer", {})
+                employer_name = (
+                    employer.get("login", employer.get("name", ""))
+                    if isinstance(employer, dict) else ""
+                )
+
+                bid_count = int(
+                    attrs.get("bid_count") or attrs.get("offers_count") or 0
+                )
+                created_at = attrs.get("created_at", datetime.utcnow().isoformat())
+
+                results.append({
+                    "platform":      self.PLATFORM,
+                    "title":         title,
+                    "description":   description,
+                    "budget_from":   budget_from,
+                    "budget_to":     budget_to,
+                    "currency":      currency,
+                    "url":           url,
+                    "employer_name": employer_name,
+                    "bid_count":     bid_count,
+                    "created_at":    created_at,
+                })
+            except Exception:
+                self.logger.debug("Failed to parse JSON item", exc_info=True)
+
+        return results
+
+    async def _try_json_api(self) -> list[dict[str, Any]]:
+        try:
+            headers = {
+                "User-Agent": self._random_ua(),
+                "Accept": "application/json",
+                "Accept-Language": "uk-UA,uk;q=0.9",
+            }
+            async with httpx.AsyncClient(headers=headers, timeout=20.0, follow_redirects=True) as client:
+                resp = await client.get(JSON_URL)
+                self.logger.info("FreelanceHunt JSON API: status=%d", resp.status_code)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    projects = self._parse_json_response(data)
+                    self.logger.info(
+                        "FreelanceHunt JSON API: parsed %d projects", len(projects)
+                    )
+                    return projects
+        except Exception as exc:
+            self.logger.warning("FreelanceHunt JSON API failed: %s", exc)
+        return []
+
+    # ── Playwright fallback ───────────────────────────────────────────────────
+
+    def _parse_js_items(self, raw: list[dict]) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for item in raw:
+            try:
+                budget_from, budget_to = self._parse_budget(item.get("budget", ""))
+                bid_count = int(re.sub(r"\D", "", item.get("bid_count", "0") or "0") or 0)
+                results.append({
+                    "platform":      self.PLATFORM,
+                    "title":         item["title"],
+                    "description":   item.get("description", ""),
+                    "budget_from":   budget_from,
+                    "budget_to":     budget_to,
+                    "currency":      "UAH",
+                    "url":           item.get("url", ""),
+                    "employer_name": "",
+                    "bid_count":     bid_count,
+                    "created_at":    item.get("created_at", "") or datetime.utcnow().isoformat(),
+                })
+            except Exception:
+                self.logger.debug("Failed to parse JS item", exc_info=True)
+        return results
+
+    async def _playwright_extract(self, page: Any) -> list[dict[str, Any]]:
+        rows = await page.query_selector_all("tr")
+        print(f"[DEBUG] Total <tr> rows: {len(rows)}")
+        for i, row in enumerate(rows[:5]):
+            print(f"Row {i}: {await row.inner_text()}")
+
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            link = await row.query_selector("a[href*='/project/']")
+            if not link:
+                continue
+
+            href = await link.get_attribute("href") or ""
+            title = (await link.inner_text()).strip()
+            if not title or not href:
+                continue
+
+            url = href if href.startswith("http") else f"{BASE_URL}{href}"
+
+            # Budget: collect all td text after the title cell
+            cells = await row.query_selector_all("td")
+            budget_text = ""
+            for cell in cells:
+                cell_link = await cell.query_selector("a[href*='/project/']")
+                if cell_link:
+                    continue
+                text = (await cell.inner_text()).strip()
+                if text:
+                    budget_text = text
+                    break
+
+            budget_from, budget_to = self._parse_budget(budget_text)
+            results.append({
+                "platform":      self.PLATFORM,
+                "title":         title,
+                "description":   "",
+                "budget_from":   budget_from,
+                "budget_to":     budget_to,
+                "currency":      "UAH",
+                "url":           url,
+                "employer_name": "",
+                "bid_count":     0,
+                "created_at":    datetime.utcnow().isoformat(),
+            })
+
+        self.logger.info("FreelanceHunt Playwright: found %d projects from <tr> rows", len(results))
+
+        if not results:
+            await self._take_screenshot(page, "zero_results")
+            await self._send_alert(
+                "Playwright знайшов 0 проєктів на freelancehunt.com — скриншот збережено"
+            )
+        return results
+
+    # ── entry point ───────────────────────────────────────────────────────────
+
+    async def get_new_projects(self) -> list[dict[str, Any]]:
+        self.logger.info("FreelanceHunt: starting fetch")
+
+        projects = await self._try_json_api()
+
+        if not projects:
+            self.logger.info("FreelanceHunt: JSON API empty — falling back to Playwright")
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            projects = await self._browse(HTML_URL, self._playwright_extract) or []
+
+        matching = [p for p in projects if self._matches_filter(p)]
+        self.logger.info(
+            "FreelanceHunt: total=%d matching=%d", len(projects), len(matching)
+        )
+        return matching
 
 
 async def get_new_projects() -> list[dict[str, Any]]:
-    """Fetch fresh projects from Freelancehunt (pages 1–2), filtered by skills."""
-    headers = {
-        "Authorization": f"Bearer {settings.FREELANCEHUNT_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    results: list[dict[str, Any]] = []
-
-    async with httpx.AsyncClient(
-        base_url=BASE_URL, headers=headers, timeout=30.0
-    ) as client:
-        for page in range(1, 3):  # pages 1 and 2 only — freshest projects
-            await _fetch_page(client, page, results)
-
-    logger.info("Freelancehunt: fetched %d matching projects", len(results))
-    return results
-
-
-async def _fetch_page(
-    client: httpx.AsyncClient,
-    page: int,
-    results: list[dict[str, Any]],
-    max_retries: int = 3,
-) -> None:
-    for attempt in range(max_retries):
-        try:
-            response = await client.get("/projects", params=_build_params(page))
-
-            if response.status_code == 429:
-                retry_after = int(response.headers.get("Retry-After", 60))
-                logger.warning(
-                    "Rate limited on page %d. Sleeping %ds...", page, retry_after
-                )
-                await asyncio.sleep(retry_after)
-                continue  # retry same page
-
-            response.raise_for_status()
-            data = response.json()
-
-            for item in data.get("data", []):
-                project = _extract_project(item)
-                if _matches_filter(project):
-                    results.append(project)
-
-            logger.debug("Page %d: got %d items", page, len(data.get("data", [])))
-            return  # success
-
-        except httpx.HTTPStatusError as exc:
-            logger.error("HTTP %d on page %d: %s", exc.response.status_code, page, exc)
-            return  # don't retry on 4xx/5xx (except 429 handled above)
-
-        except httpx.RequestError as exc:
-            logger.warning(
-                "Request error page %d (attempt %d/%d): %s",
-                page, attempt + 1, max_retries, exc,
-            )
-            if attempt < max_retries - 1:
-                await asyncio.sleep(2**attempt)  # 1s, 2s
-            else:
-                logger.error("Giving up on page %d after %d attempts", page, max_retries)
+    return await FreelancehuntParser().get_new_projects()

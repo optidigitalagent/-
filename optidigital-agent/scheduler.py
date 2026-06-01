@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import asyncio
 import logging
 from datetime import datetime, timedelta
@@ -12,13 +16,16 @@ from config import settings
 from db import AsyncSessionLocal
 from db.crud import get_setting, save_order, save_response, update_order_status
 from db.models import Order
-from parser.freelancehunt import get_new_projects
+from parser.freelancehunt import get_new_projects as _fh_projects
+from parser.kabanchik import get_new_projects as _kb_projects
+from parser.freelance_ua import get_new_projects as _flua_projects
 
 logger = logging.getLogger(__name__)
 
-# Add new platform parsers here — each must return list[dict] with a "platform" key
 _PARSERS = [
-    get_new_projects,  # Freelancehunt
+    _fh_projects,   # Freelancehunt
+    _kb_projects,   # Kabanchik
+    _flua_projects, # FreelanceUA / free-lance.ru
 ]
 
 

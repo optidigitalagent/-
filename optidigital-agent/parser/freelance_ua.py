@@ -1,0 +1,225 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import asyncio
+import logging
+import random
+import re
+from datetime import datetime
+from typing import Any
+
+import httpx
+
+from parser.base import BasePlatformParser
+
+logger = logging.getLogger(__name__)
+
+BASE_URL_UA = "https://free-lance.ua"
+BASE_URL_RU = "https://www.free-lance.ru"
+HTML_URL_UA = f"{BASE_URL_UA}/projects/"
+HTML_URL_RU = f"{BASE_URL_RU}/projects/"
+
+API_CANDIDATES: list[str] = [
+    f"{BASE_URL_UA}/api/projects",
+    f"{BASE_URL_UA}/api/v1/projects",
+    f"{BASE_URL_RU}/api/projects",
+]
+
+_EXTRACT_JS = """
+() => {
+    const selectors = [
+        'div.project-item',
+        'li.b-post',
+        '[class*="project-item"]',
+        '[class*="project-card"]',
+        'tr[class*="project"]',
+        '[class*="project"]',
+        'article',
+    ];
+    let cards = [];
+    for (const sel of selectors) {
+        const found = Array.from(document.querySelectorAll(sel)).filter(el =>
+            el.querySelector('a') !== null && el.textContent.trim().length > 15
+        );
+        if (found.length > 2) { cards = found; break; }
+    }
+
+    return cards.map(el => {
+        const titleEl =
+            el.querySelector('a[href*="/project"]') ||
+            el.querySelector('h2 a') ||
+            el.querySelector('h3 a') ||
+            el.querySelector('[class*="title"] a') ||
+            el.querySelector('a');
+        const descEl =
+            el.querySelector('[class*="description"]') ||
+            el.querySelector('[class*="desc"]') ||
+            el.querySelector('p');
+        const priceEl =
+            el.querySelector('[class*="price"]') ||
+            el.querySelector('[class*="budget"]') ||
+            el.querySelector('[class*="cost"]');
+        const timeEl = el.querySelector('time') || el.querySelector('[datetime]');
+        const bidsEl =
+            el.querySelector('[class*="bid"]') ||
+            el.querySelector('[class*="offer"]') ||
+            el.querySelector('[class*="proposal"]');
+
+        return {
+            title:       titleEl  ? titleEl.textContent.trim()              : '',
+            url:         titleEl  ? (titleEl.href || '')                    : '',
+            description: descEl   ? descEl.textContent.trim().slice(0, 300) : '',
+            budget:      priceEl  ? priceEl.textContent.trim()              : '',
+            bid_count:   bidsEl   ? bidsEl.textContent.trim()               : '0',
+            created_at:  timeEl   ? (timeEl.getAttribute('datetime') || '') : '',
+        };
+    }).filter(p => p.title.length > 0 && p.url.length > 0);
+}
+"""
+
+
+class FreelanceUaParser(BasePlatformParser):
+    PLATFORM = "FreelanceUA"
+
+    # ── API probe ─────────────────────────────────────────────────────────────
+
+    def _parse_api_response(self, data: Any) -> list[dict[str, Any]]:
+        if isinstance(data, dict):
+            items = data.get("data", data.get("projects", data.get("items", [])))
+        elif isinstance(data, list):
+            items = data
+        else:
+            return []
+
+        results: list[dict[str, Any]] = []
+        for item in items:
+            try:
+                if not isinstance(item, dict):
+                    continue
+                title = item.get("title", item.get("name", ""))
+                if not title:
+                    continue
+
+                description = item.get("description", item.get("body", ""))[:300]
+                url = item.get("url", item.get("link", ""))
+                if url and not url.startswith("http"):
+                    url = f"{BASE_URL_UA}{url}"
+
+                budget_raw = item.get("budget", item.get("price", {}))
+                if isinstance(budget_raw, dict):
+                    budget_from = float(budget_raw.get("from") or 0) or None
+                    budget_to   = float(budget_raw.get("to")   or 0) or None
+                elif isinstance(budget_raw, (int, float)):
+                    budget_from, budget_to = None, float(budget_raw)
+                else:
+                    budget_from = budget_to = None
+
+                results.append({
+                    "platform":      self.PLATFORM,
+                    "title":         title,
+                    "description":   description,
+                    "budget_from":   budget_from,
+                    "budget_to":     budget_to,
+                    "currency":      "UAH",
+                    "url":           url,
+                    "employer_name": "",
+                    "bid_count":     int(item.get("bids", item.get("proposals", 0)) or 0),
+                    "created_at":    item.get("created_at", datetime.utcnow().isoformat()),
+                })
+            except Exception:
+                self.logger.debug("Failed to parse FreelanceUA API item", exc_info=True)
+
+        return results
+
+    async def _try_api(self) -> list[dict[str, Any]]:
+        headers = {
+            "User-Agent": self._random_ua(),
+            "Accept": "application/json",
+            "Accept-Language": "uk-UA,uk;q=0.9",
+        }
+        try:
+            async with httpx.AsyncClient(headers=headers, timeout=15.0, follow_redirects=True) as client:
+                for api_url in API_CANDIDATES:
+                    try:
+                        resp = await client.get(api_url)
+                        self.logger.info(
+                            "FreelanceUA API probe %s: status=%d", api_url, resp.status_code
+                        )
+                        if resp.status_code == 200 and "json" in resp.headers.get("content-type", ""):
+                            data = resp.json()
+                            items = self._parse_api_response(data)
+                            if items:
+                                self.logger.info(
+                                    "FreelanceUA: API %s returned %d items", api_url, len(items)
+                                )
+                                return items
+                    except Exception as exc:
+                        self.logger.debug("FreelanceUA API %s error: %s", api_url, exc)
+        except Exception as exc:
+            self.logger.warning("FreelanceUA API probe failed: %s", exc)
+        return []
+
+    # ── Playwright fallback ───────────────────────────────────────────────────
+
+    def _parse_js_items(self, raw: list[dict]) -> list[dict[str, Any]]:
+        results: list[dict[str, Any]] = []
+        for item in raw:
+            try:
+                budget_from, budget_to = self._parse_budget(item.get("budget", ""))
+                bid_count = int(re.sub(r"\D", "", item.get("bid_count", "0") or "0") or 0)
+                results.append({
+                    "platform":      self.PLATFORM,
+                    "title":         item["title"],
+                    "description":   item.get("description", ""),
+                    "budget_from":   budget_from,
+                    "budget_to":     budget_to,
+                    "currency":      "UAH",
+                    "url":           item.get("url", ""),
+                    "employer_name": "",
+                    "bid_count":     bid_count,
+                    "created_at":    item.get("created_at", "") or datetime.utcnow().isoformat(),
+                })
+            except Exception:
+                self.logger.debug("Failed to parse FreelanceUA JS item", exc_info=True)
+        return results
+
+    async def _playwright_extract(self, page: Any) -> list[dict[str, Any]]:
+        raw = await page.evaluate(_EXTRACT_JS)
+        self.logger.info(
+            "FreelanceUA Playwright: evaluate() found %d elements", len(raw)
+        )
+        if not raw:
+            await self._take_screenshot(page, "zero_results")
+            await self._send_alert(
+                "Playwright знайшов 0 проєктів на free-lance.ua — скриншот збережено"
+            )
+            return []
+        return self._parse_js_items(raw)
+
+    # ── entry point ───────────────────────────────────────────────────────────
+
+    async def get_new_projects(self) -> list[dict[str, Any]]:
+        self.logger.info("FreelanceUA: starting fetch")
+
+        projects = await self._try_api()
+
+        if not projects:
+            self.logger.info("FreelanceUA: API empty — trying Ukrainian URL")
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            projects = await self._browse(HTML_URL_UA, self._playwright_extract) or []
+
+        if not projects:
+            self.logger.info("FreelanceUA: Ukrainian URL empty — trying Russian URL")
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            projects = await self._browse(HTML_URL_RU, self._playwright_extract) or []
+
+        matching = [p for p in projects if self._matches_filter(p)]
+        self.logger.info(
+            "FreelanceUA: total=%d matching=%d", len(projects), len(matching)
+        )
+        return matching
+
+
+async def get_new_projects() -> list[dict[str, Any]]:
+    return await FreelanceUaParser().get_new_projects()

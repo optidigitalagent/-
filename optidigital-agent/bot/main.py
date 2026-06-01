@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import logging
 
@@ -11,7 +15,7 @@ from db import engine
 from db.models import init_db
 from scheduler import setup_scheduler
 
-from .handlers import router
+from bot.handlers import router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
