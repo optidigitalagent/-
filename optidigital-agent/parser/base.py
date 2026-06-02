@@ -285,6 +285,19 @@ class BasePlatformParser:
         except Exception as exc:
             self.logger.error("Telegram alert failed: %s", exc)
 
+    async def _send_screenshot_to_telegram(self, path: str) -> None:
+        if not path or not Path(path).exists():
+            return
+        try:
+            from config import settings
+            api_url = f"https://api.telegram.org/bot{settings.TELEGRAM_TOKEN}/sendPhoto"
+            async with httpx.AsyncClient(timeout=30) as client:
+                with open(path, "rb") as f:
+                    await client.post(api_url, data={"chat_id": settings.TELEGRAM_CHAT_ID}, files={"photo": f})
+            self.logger.info("Screenshot sent to Telegram: %s", path)
+        except Exception as exc:
+            self.logger.error("Telegram screenshot send failed: %s", exc)
+
     # ── stealth ───────────────────────────────────────────────────────────────
 
     async def _apply_manual_stealth(self, page: Any) -> None:

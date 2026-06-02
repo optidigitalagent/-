@@ -216,18 +216,8 @@ class FreelancehuntParser(BasePlatformParser):
         return results
 
     async def _playwright_extract(self, page: Any) -> list[dict[str, Any]]:
-        # 1. Try the JS multi-selector approach (covers modern card layouts)
-        try:
-            raw = await page.evaluate(_EXTRACT_JS)
-            self.logger.info("FreelanceHunt Playwright JS: found %d items", len(raw))
-            if raw:
-                return self._parse_js_items(raw)
-        except Exception as exc:
-            self.logger.warning("FreelanceHunt JS evaluate failed: %s", exc)
-
-        # 2. Fallback: scan <tr> rows (classic table layout)
         rows = await page.query_selector_all("tr")
-        self.logger.info("FreelanceHunt Playwright <tr> fallback: %d rows", len(rows))
+        self.logger.info("FreelanceHunt Playwright <tr>: %d rows total", len(rows))
 
         results: list[dict[str, Any]] = []
         for row in rows:
@@ -289,19 +279,27 @@ class FreelancehuntParser(BasePlatformParser):
                 '[class*="project-item"]', '[class*="project-card"]',
                 "div[data-id]", '[class*="project"]', "tr",
             ]
+            sel_counts: list[str] = []
             for sel in debug_selectors:
                 try:
                     cnt = await page.evaluate(
                         "(sel) => document.querySelectorAll(sel).length", sel
                     )
                     self.logger.warning("Selector %r → %d elements", sel, cnt)
+                    sel_counts.append(f"{sel}: {cnt}")
                 except Exception:
                     pass
 
-            await self._take_screenshot(page, "zero_results")
-            await self._send_alert(
-                "Playwright знайшов 0 проєктів на freelancehunt.com — скриншот збережено"
+            screenshot_path = await self._take_screenshot(page, "zero_results")
+            debug_msg = (
+                f"🔴 0 проєктів на freelancehunt.com\n"
+                f"URL: {page_url}\n"
+                f"Title: {page_title}\n"
+                f"Selectors:\n" + "\n".join(sel_counts) + "\n\n"
+                f"HTML (перші 500 симв.):\n{html[:500]}"
             )
+            await self._send_alert(debug_msg)
+            await self._send_screenshot_to_telegram(screenshot_path)
 
         return results
 

@@ -43,22 +43,17 @@ _EXTRACT_JS = """
     }
 
     return cards.map(el => {
-        // Project page link — must contain /projects/ (plural) or /project/
-        const projectLinkEl =
-            el.querySelector('a[href*="/projects/"]') ||
-            el.querySelector('a[href*="/project/"]') ||
-            el.querySelector('[class*="title"] a') ||
+        const titleEl =
+            el.querySelector('a[href*="/project"]') ||
             el.querySelector('h2 a') ||
-            el.querySelector('h3 a');
+            el.querySelector('h3 a') ||
+            el.querySelector('[class*="title"] a') ||
+            el.querySelector('a');
 
-        // Employer / customer profile link — user page
+        // employer/customer profile link — only user pages
         const employerLinkEl =
             el.querySelector('a[href*="/users/"]') ||
-            el.querySelector('a[href*="/user/"]') ||
-            el.querySelector('[class*="employer"] a') ||
-            el.querySelector('[class*="customer"] a') ||
-            el.querySelector('[class*="author"] a') ||
-            el.querySelector('[class*="login"] a');
+            el.querySelector('a[href*="/user/"]');
 
         const descEl =
             el.querySelector('[class*="description"]') ||
@@ -75,13 +70,13 @@ _EXTRACT_JS = """
             el.querySelector('[class*="proposal"]');
 
         return {
-            title:        projectLinkEl  ? projectLinkEl.textContent.trim()              : '',
-            url:          projectLinkEl  ? (projectLinkEl.href || '')                    : '',
-            employer_url: employerLinkEl ? (employerLinkEl.href || '')                   : '',
-            description:  descEl        ? descEl.textContent.trim().slice(0, 300)        : '',
-            budget:       priceEl       ? priceEl.textContent.trim()                     : '',
-            bid_count:    bidsEl        ? bidsEl.textContent.trim()                      : '0',
-            created_at:   timeEl        ? (timeEl.getAttribute('datetime') || '')        : '',
+            title:        titleEl        ? titleEl.textContent.trim()              : '',
+            url:          titleEl        ? (titleEl.href || '')                    : '',
+            employer_url: employerLinkEl ? (employerLinkEl.href || '')             : '',
+            description:  descEl        ? descEl.textContent.trim().slice(0, 300) : '',
+            budget:       priceEl       ? priceEl.textContent.trim()              : '',
+            bid_count:    bidsEl        ? bidsEl.textContent.trim()               : '0',
+            created_at:   timeEl        ? (timeEl.getAttribute('datetime') || '') : '',
         };
     }).filter(p => p.title.length > 0 && p.url.length > 0);
 }
@@ -191,6 +186,16 @@ class FreelanceUaParser(BasePlatformParser):
             try:
                 budget_from, budget_to = self._parse_budget(item.get("budget", ""))
                 bid_count = int(re.sub(r"\D", "", item.get("bid_count", "0") or "0") or 0)
+
+                url = item.get("url", "")
+                employer_url = item.get("employer_url", "")
+
+                # If the only link found is a user profile, don't use it as project URL
+                if url and "/users/" in url:
+                    if not employer_url:
+                        employer_url = url
+                    url = ""
+
                 results.append({
                     "platform":          self.PLATFORM,
                     "title":             item["title"],
@@ -198,9 +203,9 @@ class FreelanceUaParser(BasePlatformParser):
                     "budget_from":       budget_from,
                     "budget_to":         budget_to,
                     "currency":          "UAH",
-                    "url":               item.get("url", ""),
+                    "url":               url,
                     "employer_name":     "",
-                    "employer_url":      item.get("employer_url", ""),
+                    "employer_url":      employer_url,
                     "category":          "",
                     "deadline":          "",
                     "bid_count":         bid_count,
@@ -215,14 +220,42 @@ class FreelanceUaParser(BasePlatformParser):
 
     async def _playwright_extract(self, page: Any) -> list[dict[str, Any]]:
         raw = await page.evaluate(_EXTRACT_JS)
-        self.logger.info(
-            "FreelanceUA Playwright: evaluate() found %d elements", len(raw)
-        )
+        self.logger.info("FreelanceUA Playwright: evaluate() found %d elements", len(raw))
         if not raw:
-            await self._take_screenshot(page, "zero_results")
-            await self._send_alert(
-                "Playwright знайшов 0 проєктів на free-lance.ua — скриншот збережено"
+            page_title = await page.title()
+            page_url = page.url
+            html = await page.content()
+            self.logger.warning("=== FreelanceUA: 0 projects found ===")
+            self.logger.warning("Page title: %s", page_title)
+            self.logger.warning("Page URL: %s", page_url)
+            self.logger.warning("HTML (first 2000 chars):\n%s", html[:2000])
+
+            debug_selectors = [
+                "div.project-item", "li.b-post", '[class*="project-item"]',
+                '[class*="project-card"]', 'tr[class*="project"]',
+                '[class*="project"]', "article",
+            ]
+            sel_counts: list[str] = []
+            for sel in debug_selectors:
+                try:
+                    cnt = await page.evaluate(
+                        "(sel) => document.querySelectorAll(sel).length", sel
+                    )
+                    self.logger.warning("Selector %r → %d elements", sel, cnt)
+                    sel_counts.append(f"{sel}: {cnt}")
+                except Exception:
+                    pass
+
+            screenshot_path = await self._take_screenshot(page, "zero_results")
+            debug_msg = (
+                f"🔴 0 проєктів на free-lance.ua\n"
+                f"URL: {page_url}\n"
+                f"Title: {page_title}\n"
+                f"Selectors:\n" + "\n".join(sel_counts) + "\n\n"
+                f"HTML (перші 500 симв.):\n{html[:500]}"
             )
+            await self._send_alert(debug_msg)
+            await self._send_screenshot_to_telegram(screenshot_path)
             return []
         return self._parse_js_items(raw)
 
