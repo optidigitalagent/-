@@ -169,6 +169,83 @@ class BasePlatformParser:
                 rejected.append({**p, "_reject_reason": reason})
         return matched, rejected
 
+    async def _fetch_description_from_url(self, url: str) -> str:
+        """Fetch project page via httpx and extract description text."""
+        if not url:
+            return ""
+        try:
+            headers = {
+                "User-Agent": self._random_ua(),
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "uk-UA,uk;q=0.9",
+            }
+            async with httpx.AsyncClient(headers=headers, timeout=15.0, follow_redirects=True) as client:
+                resp = await client.get(url)
+            if resp.status_code != 200:
+                return ""
+            html = resp.text
+            html = re.sub(r'<(script|style|nav|header|footer)[^>]*>[\s\S]*?</\1>', '', html, flags=re.I)
+            for pat in [
+                r'<[^>]+class="[^"]*\b(?:b-description|description|project-desc|task-description|b-post-text|post-text|project__description)\b[^"]*"[^>]*>([\s\S]{0,5000})',
+                r'<[^>]+id="[^"]*\bdescription\b[^"]*"[^>]*>([\s\S]{0,5000})',
+            ]:
+                m = re.search(pat, html, re.I)
+                if m:
+                    raw = m.group(1)
+                    text = re.sub(r'<[^>]+>', ' ', raw)
+                    for ent, ch in [('&amp;', '&'), ('&lt;', '<'), ('&gt;', '>'), ('&nbsp;', ' '), ('&#39;', "'"), ('&quot;', '"')]:
+                        text = text.replace(ent, ch)
+                    text = re.sub(r'\s+', ' ', text).strip()
+                    if len(text) > 30:
+                        return text[:2000]
+        except Exception as exc:
+            self.logger.debug("_fetch_description_from_url %s: %s", url, exc)
+        return ""
+
+    async def _enrich_descriptions(
+        self,
+        projects: list[dict[str, Any]],
+        min_len: int = 50,
+        concurrency: int = 3,
+    ) -> list[dict[str, Any]]:
+        """For projects with empty/short description, fetch full text from project page."""
+        to_enrich = [
+            p for p in projects
+            if len(p.get("description") or "") < min_len and p.get("url")
+        ]
+        if not to_enrich:
+            return projects
+
+        self.logger.info(
+            "%s: enriching descriptions for %d/%d projects",
+            self.PLATFORM, len(to_enrich), len(projects),
+        )
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _fetch(p: dict[str, Any]) -> tuple[str, str]:
+            async with sem:
+                await asyncio.sleep(random.uniform(0.3, 0.8))
+                desc = await self._fetch_description_from_url(p["url"])
+                return p["url"], desc
+
+        results = await asyncio.gather(*[_fetch(p) for p in to_enrich], return_exceptions=True)
+        url_to_desc: dict[str, str] = {}
+        for r in results:
+            if isinstance(r, tuple):
+                u, d = r
+                if d:
+                    url_to_desc[u] = d
+
+        enriched_count = sum(1 for p in to_enrich if p.get("url") in url_to_desc)
+        self.logger.info(
+            "%s: enriched %d/%d descriptions",
+            self.PLATFORM, enriched_count, len(to_enrich),
+        )
+        return [
+            {**p, "description": url_to_desc[p["url"]]} if p.get("url") in url_to_desc else p
+            for p in projects
+        ]
+
     def _is_captcha(self, text: str) -> bool:
         lower = text.lower()
         return any(m in lower for m in _CAPTCHA_MARKERS)

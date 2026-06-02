@@ -287,6 +287,7 @@ class FreelancehuntParser(BasePlatformParser):
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL, self._playwright_extract) or []
 
+        projects = await self._enrich_descriptions(projects)
         matching = [p for p in projects if self._matches_filter(p)]
         self.logger.info(
             "FreelanceHunt: total=%d matching=%d", len(projects), len(matching)
@@ -303,6 +304,7 @@ class FreelancehuntParser(BasePlatformParser):
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL, self._playwright_extract) or []
 
+        projects = await self._enrich_descriptions(projects)
         matched, rejected = self._debug_split(projects)
         self.logger.info(
             "FreelanceHunt debug: total=%d matched=%d rejected=%d",

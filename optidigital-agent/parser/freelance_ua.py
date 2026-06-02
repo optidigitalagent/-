@@ -226,6 +226,7 @@ class FreelanceUaParser(BasePlatformParser):
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL_UA, self._playwright_extract) or []
 
+        projects = await self._enrich_descriptions(projects)
         matching = [p for p in projects if self._matches_filter(p)]
         self.logger.info(
             "FreelanceUA: total=%d matching=%d", len(projects), len(matching)
@@ -242,6 +243,7 @@ class FreelanceUaParser(BasePlatformParser):
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL_UA, self._playwright_extract) or []
 
+        projects = await self._enrich_descriptions(projects)
         matched, rejected = self._debug_split(projects)
         self.logger.info(
             "FreelanceUA debug: total=%d matched=%d rejected=%d",

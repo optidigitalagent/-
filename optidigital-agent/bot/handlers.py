@@ -339,27 +339,34 @@ async def _cmd_scan_debug(message: Message) -> None:
 
         await message.answer("\n".join(summary_lines))
 
-        top5 = all_rejected[:5]
-        if not top5:
+        if not all_rejected:
             await message.answer("✅ Відхилених проєктів немає — всі пройшли фільтр або платформи порожні")
             return
 
-        await message.answer(f"📋 <b>Перші {len(top5)} відхилених проєктів:</b>")
-        for i, proj in enumerate(top5, 1):
-            title = proj.get("title") or "—"
-            category = proj.get("category") or "—"
-            desc = (proj.get("description") or "")[:300]
-            reason = proj.get("_reject_reason") or "—"
-            url = proj.get("url") or "—"
+        rejected_allowed = [r for r in all_rejected if r.get("_reject_reason", "").startswith("ALLOWED")][:5]
+        rejected_excluded = [r for r in all_rejected if r.get("_reject_reason", "").startswith("EXCLUDED")][:5]
 
-            card = (
-                f"<b>{i}. {title}</b>\n"
-                f"🏷 Категорія: {category}\n"
-                f"📝 {desc}\n\n"
-                f"❌ Причина: <code>{reason}</code>\n"
-                f"🔗 <a href='{url}'>Посилання</a>"
-            )
-            await message.answer(card, disable_web_page_preview=True)
+        for group_title, group in [
+            ("Відхилено ALLOWED — немає ключових слів", rejected_allowed),
+            ("Відхилено EXCLUDED — заборонене слово", rejected_excluded),
+        ]:
+            if not group:
+                continue
+            await message.answer(f"📋 <b>{group_title} (показано {len(group)}):</b>")
+            for i, proj in enumerate(group, 1):
+                title = proj.get("title") or "—"
+                category = proj.get("category") or "—"
+                desc = (proj.get("description") or "")[:300]
+                reason = proj.get("_reject_reason") or "—"
+                url = proj.get("url") or "—"
+                card = (
+                    f"<b>{i}. {title}</b>\n"
+                    f"🏷 Категорія: {category}\n"
+                    f"📝 {desc}\n\n"
+                    f"❌ Причина: <code>{reason}</code>\n"
+                    f"🔗 <a href='{url}'>Посилання</a>"
+                )
+                await message.answer(card, disable_web_page_preview=True)
 
     except Exception as exc:
         logger.exception("Admin /scan debug failed")
