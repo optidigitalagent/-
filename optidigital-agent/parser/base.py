@@ -50,6 +50,8 @@ _STEALTH_SCRIPT = """
     });
 """
 
+_PLAYWRIGHT_UNAVAILABLE: bool = False  # set True once if binary missing; prevents spam
+
 _CHROMIUM_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
@@ -147,13 +149,22 @@ class BasePlatformParser:
         Retries up to MAX_RETRIES times; waits CAPTCHA_WAIT seconds on CAPTCHA.
         Returns callback result or None on total failure.
         """
+        global _PLAYWRIGHT_UNAVAILABLE
+
+        if _PLAYWRIGHT_UNAVAILABLE:
+            self.logger.debug(
+                "%s: Playwright disabled (Chromium binary missing) — skipping %s",
+                self.PLATFORM, url,
+            )
+            return None
+
         try:
             from playwright.async_api import async_playwright
         except ImportError:
             self.logger.error(
                 "playwright not installed — run:\n"
                 "  pip install playwright\n"
-                "  playwright install chromium"
+                "  python -m playwright install chromium --with-deps"
             )
             return None
 
@@ -237,6 +248,21 @@ class BasePlatformParser:
                     return result
 
                 except Exception as exc:
+                    err_str = str(exc).lower()
+                    if "executable" in err_str and ("exist" in err_str or "found" in err_str):
+                        _PLAYWRIGHT_UNAVAILABLE = True
+                        self.logger.error(
+                            "Playwright Chromium binary not found — browser-based parsing disabled. "
+                            "Fix: add to Railway build command: "
+                            "python -m playwright install chromium --with-deps"
+                        )
+                        await self._send_alert(
+                            "Chromium binary відсутній на сервері.\n"
+                            "Playwright fallback вимкнено до рестарту.\n\n"
+                            "Виправлення — Railway → Settings → Build Command:\n"
+                            "python -m playwright install chromium --with-deps"
+                        )
+                        return None
                     self.logger.error(
                         "%s: attempt %d error: %s", self.PLATFORM, attempt, exc
                     )

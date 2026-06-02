@@ -26,9 +26,37 @@ dp = Dispatcher()
 _scheduler: AsyncIOScheduler | None = None
 
 
+async def _check_playwright() -> None:
+    try:
+        import playwright as _pw_pkg
+        logger.info("Playwright version: %s", _pw_pkg.__version__)
+    except ImportError:
+        logger.error("playwright package not installed — run: pip install playwright")
+        return
+
+    try:
+        from pathlib import Path
+        from playwright.async_api import async_playwright
+        async with async_playwright() as pw:
+            browser_path = pw.chromium.executable_path
+            logger.info("Playwright Chromium path: %s", browser_path)
+            if Path(browser_path).exists():
+                logger.info("Playwright Chromium binary: OK")
+            else:
+                logger.error(
+                    "Playwright Chromium binary NOT FOUND at: %s — "
+                    "parsers will skip browser fallback. "
+                    "Fix: Railway build command → python -m playwright install chromium --with-deps",
+                    browser_path,
+                )
+    except Exception as exc:
+        logger.error("Playwright startup check failed: %s", exc)
+
+
 async def on_startup() -> None:
     global _scheduler
     await init_db()
+    await _check_playwright()
     logger.info("OptiDigital Agent started ✅")
     _scheduler = setup_scheduler(bot)
     _scheduler.start()

@@ -16,14 +16,11 @@ from parser.base import BasePlatformParser
 logger = logging.getLogger(__name__)
 
 BASE_URL_UA = "https://free-lance.ua"
-BASE_URL_RU = "https://www.free-lance.ru"
 HTML_URL_UA = f"{BASE_URL_UA}/projects/"
-HTML_URL_RU = f"{BASE_URL_RU}/projects/"
 
 API_CANDIDATES: list[str] = [
     f"{BASE_URL_UA}/api/projects",
     f"{BASE_URL_UA}/api/v1/projects",
-    f"{BASE_URL_RU}/api/projects",
 ]
 
 _EXTRACT_JS = """
@@ -205,14 +202,9 @@ class FreelanceUaParser(BasePlatformParser):
         projects = await self._try_api()
 
         if not projects:
-            self.logger.info("FreelanceUA: API empty — trying Ukrainian URL")
+            self.logger.info("FreelanceUA: API empty — trying %s", HTML_URL_UA)
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL_UA, self._playwright_extract) or []
-
-        if not projects:
-            self.logger.info("FreelanceUA: Ukrainian URL empty — trying Russian URL")
-            await asyncio.sleep(random.uniform(1.5, 3.0))
-            projects = await self._browse(HTML_URL_RU, self._playwright_extract) or []
 
         matching = [p for p in projects if self._matches_filter(p)]
         self.logger.info(
