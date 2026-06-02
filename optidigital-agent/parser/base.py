@@ -72,6 +72,17 @@ EXCLUDED_KEYWORDS: list[str] = [
     "таргетована реклама", "smm менеджер", "контент-план",
 ]
 
+# Pre-compiled word-boundary patterns (Unicode-aware, Cyrillic + Latin).
+# Using \b so "бот" does NOT match inside "розробота" / "розработать".
+_ALLOWED_PATTERNS: list[re.Pattern] = [
+    re.compile(r'\b' + re.escape(kw.strip()) + r'\b', re.UNICODE)
+    for kw in ALLOWED_KEYWORDS
+]
+_EXCLUDED_PATTERNS: list[re.Pattern] = [
+    re.compile(r'\b' + re.escape(kw.strip()) + r'\b', re.UNICODE)
+    for kw in EXCLUDED_KEYWORDS
+]
+
 _CAPTCHA_MARKERS: list[str] = [
     "captcha", "cloudflare", "recaptcha",
     "i am not a robot", "cf-challenge", "just a moment",
@@ -141,10 +152,10 @@ class BasePlatformParser:
             project.get("description", "") or "",
         ]).lower()
 
-        if any(kw in text for kw in EXCLUDED_KEYWORDS):
+        if any(pat.search(text) for pat in _EXCLUDED_PATTERNS):
             return False
 
-        return any(kw in text for kw in ALLOWED_KEYWORDS)
+        return any(pat.search(text) for pat in _ALLOWED_PATTERNS)
 
     def _matches_filter_verbose(self, project: dict[str, Any]) -> tuple[bool, str]:
         text = " ".join([
@@ -153,12 +164,12 @@ class BasePlatformParser:
             project.get("description", "") or "",
         ]).lower()
 
-        for kw in EXCLUDED_KEYWORDS:
-            if kw in text:
+        for kw, pat in zip(EXCLUDED_KEYWORDS, _EXCLUDED_PATTERNS):
+            if pat.search(text):
                 return False, f"EXCLUDED: '{kw}'"
 
-        for kw in ALLOWED_KEYWORDS:
-            if kw in text:
+        for kw, pat in zip(ALLOWED_KEYWORDS, _ALLOWED_PATTERNS):
+            if pat.search(text):
                 return True, f"ALLOWED: '{kw}'"
 
         return False, "ALLOWED: no keyword matched"

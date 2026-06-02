@@ -303,6 +303,18 @@ class FreelancehuntParser(BasePlatformParser):
 
         return results
 
+    # ── enrichment ────────────────────────────────────────────────────────────
+
+    async def _enrich_descriptions(
+        self,
+        projects: list[dict[str, Any]],
+        min_len: int = 50,
+        concurrency: int = 3,
+    ) -> list[dict[str, Any]]:
+        """Freelancehunt blocks direct HTTP requests with 403 — skip enrichment."""
+        self.logger.info("Freelancehunt description enrichment skipped (403 protected)")
+        return projects
+
     # ── entry point ───────────────────────────────────────────────────────────
 
     async def get_new_projects(self) -> list[dict[str, Any]]:
