@@ -43,12 +43,23 @@ _EXTRACT_JS = """
     }
 
     return cards.map(el => {
-        const titleEl =
-            el.querySelector('a[href*="/project"]') ||
-            el.querySelector('h2 a') ||
-            el.querySelector('h3 a') ||
+        // Project page link — must contain /projects/ (plural) or /project/
+        const projectLinkEl =
+            el.querySelector('a[href*="/projects/"]') ||
+            el.querySelector('a[href*="/project/"]') ||
             el.querySelector('[class*="title"] a') ||
-            el.querySelector('a');
+            el.querySelector('h2 a') ||
+            el.querySelector('h3 a');
+
+        // Employer / customer profile link — user page
+        const employerLinkEl =
+            el.querySelector('a[href*="/users/"]') ||
+            el.querySelector('a[href*="/user/"]') ||
+            el.querySelector('[class*="employer"] a') ||
+            el.querySelector('[class*="customer"] a') ||
+            el.querySelector('[class*="author"] a') ||
+            el.querySelector('[class*="login"] a');
+
         const descEl =
             el.querySelector('[class*="description"]') ||
             el.querySelector('[class*="desc"]') ||
@@ -64,12 +75,13 @@ _EXTRACT_JS = """
             el.querySelector('[class*="proposal"]');
 
         return {
-            title:       titleEl  ? titleEl.textContent.trim()              : '',
-            url:         titleEl  ? (titleEl.href || '')                    : '',
-            description: descEl   ? descEl.textContent.trim().slice(0, 300) : '',
-            budget:      priceEl  ? priceEl.textContent.trim()              : '',
-            bid_count:   bidsEl   ? bidsEl.textContent.trim()               : '0',
-            created_at:  timeEl   ? (timeEl.getAttribute('datetime') || '') : '',
+            title:        projectLinkEl  ? projectLinkEl.textContent.trim()              : '',
+            url:          projectLinkEl  ? (projectLinkEl.href || '')                    : '',
+            employer_url: employerLinkEl ? (employerLinkEl.href || '')                   : '',
+            description:  descEl        ? descEl.textContent.trim().slice(0, 300)        : '',
+            budget:       priceEl       ? priceEl.textContent.trim()                     : '',
+            bid_count:    bidsEl        ? bidsEl.textContent.trim()                      : '0',
+            created_at:   timeEl        ? (timeEl.getAttribute('datetime') || '')        : '',
         };
     }).filter(p => p.title.length > 0 && p.url.length > 0);
 }
@@ -188,7 +200,7 @@ class FreelanceUaParser(BasePlatformParser):
                     "currency":          "UAH",
                     "url":               item.get("url", ""),
                     "employer_name":     "",
-                    "employer_url":      "",
+                    "employer_url":      item.get("employer_url", ""),
                     "category":          "",
                     "deadline":          "",
                     "bid_count":         bid_count,

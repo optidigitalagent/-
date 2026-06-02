@@ -339,6 +339,25 @@ async def _cmd_scan_debug(message: Message) -> None:
 
         await message.answer("\n".join(summary_lines))
 
+        # Show matched projects with keyword info
+        all_matched: list[dict] = []
+        for p in platforms:
+            all_matched.extend(p.get("matched", []))
+
+        if all_matched:
+            sample = all_matched[:5]
+            await message.answer(f"✅ <b>Пройшли фільтр (показано {len(sample)} з {len(all_matched)}):</b>")
+            for i, proj in enumerate(sample, 1):
+                title = proj.get("title") or "—"
+                matched_kw = proj.get("_matched_keyword") or "—"
+                url = proj.get("url") or ""
+                card = (
+                    f"<b>{i}. {title}</b>\n"
+                    f"🔑 Ключове слово: <code>{matched_kw}</code>\n"
+                    f"🔗 <a href='{url}'>Посилання</a>"
+                )
+                await message.answer(card, disable_web_page_preview=True)
+
         if not all_rejected:
             await message.answer("✅ Відхилених проєктів немає — всі пройшли фільтр або платформи порожні")
             return

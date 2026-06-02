@@ -216,10 +216,18 @@ class FreelancehuntParser(BasePlatformParser):
         return results
 
     async def _playwright_extract(self, page: Any) -> list[dict[str, Any]]:
+        # 1. Try the JS multi-selector approach (covers modern card layouts)
+        try:
+            raw = await page.evaluate(_EXTRACT_JS)
+            self.logger.info("FreelanceHunt Playwright JS: found %d items", len(raw))
+            if raw:
+                return self._parse_js_items(raw)
+        except Exception as exc:
+            self.logger.warning("FreelanceHunt JS evaluate failed: %s", exc)
+
+        # 2. Fallback: scan <tr> rows (classic table layout)
         rows = await page.query_selector_all("tr")
-        print(f"[DEBUG] Total <tr> rows: {len(rows)}")
-        for i, row in enumerate(rows[:5]):
-            print(f"Row {i}: {await row.inner_text()}")
+        self.logger.info("FreelanceHunt Playwright <tr> fallback: %d rows", len(rows))
 
         results: list[dict[str, Any]] = []
         for row in rows:
@@ -234,7 +242,6 @@ class FreelancehuntParser(BasePlatformParser):
 
             url = href if href.startswith("http") else f"{BASE_URL}{href}"
 
-            # Budget: collect all td text after the title cell
             cells = await row.query_selector_all("td")
             budget_text = ""
             for cell in cells:
@@ -266,13 +273,36 @@ class FreelancehuntParser(BasePlatformParser):
                 "employer_email":    None,
             })
 
-        self.logger.info("FreelanceHunt Playwright: found %d projects from <tr> rows", len(results))
+        self.logger.info("FreelanceHunt Playwright <tr>: found %d projects", len(results))
 
         if not results:
+            page_title = await page.title()
+            page_url = page.url
+            html = await page.content()
+            self.logger.warning("=== FreelanceHunt: 0 projects found ===")
+            self.logger.warning("Page title: %s", page_title)
+            self.logger.warning("Page URL: %s", page_url)
+            self.logger.warning("HTML (first 2000 chars):\n%s", html[:2000])
+
+            debug_selectors = [
+                "article.project", ".project-card", "tr.project",
+                '[class*="project-item"]', '[class*="project-card"]',
+                "div[data-id]", '[class*="project"]', "tr",
+            ]
+            for sel in debug_selectors:
+                try:
+                    cnt = await page.evaluate(
+                        "(sel) => document.querySelectorAll(sel).length", sel
+                    )
+                    self.logger.warning("Selector %r → %d elements", sel, cnt)
+                except Exception:
+                    pass
+
             await self._take_screenshot(page, "zero_results")
             await self._send_alert(
                 "Playwright знайшов 0 проєктів на freelancehunt.com — скриншот збережено"
             )
+
         return results
 
     # ── entry point ───────────────────────────────────────────────────────────

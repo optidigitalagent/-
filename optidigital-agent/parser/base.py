@@ -42,7 +42,7 @@ ALLOWED_KEYWORDS: list[str] = [
     "сайт", "веб-сайт", "веб сайт", "веб-розробка", "web",
     "frontend", "backend", "fullstack", "full-stack",
     "react", "vue", "angular", "next.js", "nuxt",
-    "django", "fastapi", "flask", "node.js", "nodejs", "laravel", "php",
+    "django", "fastapi", "flask", "node.js", "nodejs", "node", "laravel", "php",
     "wordpress", "розробка сайту",
     # SaaS / MVP
     "saas", "software as a service", "mvp", "мвп",
@@ -54,6 +54,12 @@ ALLOWED_KEYWORDS: list[str] = [
     # General dev
     "розробка", "додаток", "мобільний додаток", "програма",
     "python", "javascript", "typescript", "парсинг", "скрапінг",
+    # Programmer roles (Ukrainian / Russian)
+    "програміст", "программист", "розробник", "разработчик", "developer",
+    # Scripts / parsers / bots
+    "парсер", "скрипт",
+    # App types
+    "web app", "веб додаток", "веб приложение",
 ]
 
 EXCLUDED_KEYWORDS: list[str] = [
@@ -151,8 +157,9 @@ class BasePlatformParser:
             if kw in text:
                 return False, f"EXCLUDED: '{kw}'"
 
-        if any(kw in text for kw in ALLOWED_KEYWORDS):
-            return True, ""
+        for kw in ALLOWED_KEYWORDS:
+            if kw in text:
+                return True, f"ALLOWED: '{kw}'"
 
         return False, "ALLOWED: no keyword matched"
 
@@ -164,7 +171,7 @@ class BasePlatformParser:
         for p in projects:
             passes, reason = self._matches_filter_verbose(p)
             if passes:
-                matched.append(p)
+                matched.append({**p, "_matched_keyword": reason})
             else:
                 rejected.append({**p, "_reject_reason": reason})
         return matched, rejected
