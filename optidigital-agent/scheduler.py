@@ -16,8 +16,11 @@ from db import AsyncSessionLocal
 from db.crud import get_setting, save_order, update_order_status
 from db.models import Order
 from parser.freelancehunt import get_new_projects as _fh_projects
+from parser.freelancehunt import get_debug_info as _fh_debug
 from parser.kabanchik import get_new_projects as _kb_projects
+from parser.kabanchik import get_debug_info as _kb_debug
 from parser.freelance_ua import get_new_projects as _flua_projects
+from parser.freelance_ua import get_debug_info as _flua_debug
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,12 @@ _PARSERS = [
     _fh_projects,   # Freelancehunt
     _kb_projects,   # Kabanchik
     _flua_projects, # FreelanceUA / free-lance.ru
+]
+
+_DEBUG_PARSERS = [
+    _fh_debug,
+    _kb_debug,
+    _flua_debug,
 ]
 
 
@@ -186,6 +195,25 @@ async def check_new_orders(bot: Bot) -> tuple[int, int]:
         found, scored, sent,
     )
     return found, sent
+
+
+async def check_new_orders_debug() -> list[dict]:
+    """Run all parsers in debug mode — returns per-platform filter stats."""
+    results = await asyncio.gather(*[p() for p in _DEBUG_PARSERS], return_exceptions=True)
+    platforms: list[dict] = []
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error("Debug parser[%d] failed: %s", i, result)
+            platforms.append({
+                "platform": f"Parser[{i}]",
+                "total": 0,
+                "matched": [],
+                "rejected": [],
+                "error": str(result),
+            })
+        else:
+            platforms.append(result)
+    return platforms
 
 
 async def weekly_report(bot: Bot) -> None:

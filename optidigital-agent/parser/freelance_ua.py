@@ -232,6 +232,32 @@ class FreelanceUaParser(BasePlatformParser):
         )
         return matching
 
+    async def get_new_projects_debug(self) -> dict[str, Any]:
+        self.logger.info("FreelanceUA: starting debug fetch")
+
+        projects = await self._try_api()
+
+        if not projects:
+            self.logger.info("FreelanceUA: API empty — trying %s", HTML_URL_UA)
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            projects = await self._browse(HTML_URL_UA, self._playwright_extract) or []
+
+        matched, rejected = self._debug_split(projects)
+        self.logger.info(
+            "FreelanceUA debug: total=%d matched=%d rejected=%d",
+            len(projects), len(matched), len(rejected),
+        )
+        return {
+            "platform": self.PLATFORM,
+            "total": len(projects),
+            "matched": matched,
+            "rejected": rejected,
+        }
+
 
 async def get_new_projects() -> list[dict[str, Any]]:
     return await FreelanceUaParser().get_new_projects()
+
+
+async def get_debug_info() -> dict[str, Any]:
+    return await FreelanceUaParser().get_new_projects_debug()

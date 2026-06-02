@@ -280,6 +280,11 @@ def _fmt_uptime(since: datetime) -> str:
 
 @admin_router.message(Command("scan"))
 async def cmd_scan(message: Message) -> None:
+    args = (message.text or "").strip().split()
+    if len(args) > 1 and args[1].lower() == "debug":
+        await _cmd_scan_debug(message)
+        return
+
     from scheduler import check_new_orders
 
     await message.answer("🔍 <b>Сканування запущено...</b>")
@@ -293,6 +298,72 @@ async def cmd_scan(message: Message) -> None:
     except Exception as exc:
         logger.exception("Admin /scan failed")
         await message.answer(f"❌ Помилка під час сканування:\n<code>{exc}</code>")
+
+
+async def _cmd_scan_debug(message: Message) -> None:
+    from scheduler import check_new_orders_debug
+
+    await message.answer("🐛 <b>Debug scan запущено...</b>")
+    try:
+        platforms = await check_new_orders_debug()
+
+        summary_lines = ["🐛 <b>Debug Scan — зведення по платформах</b>\n"]
+        all_rejected: list[dict] = []
+
+        for p in platforms:
+            name = p.get("platform", "Unknown")
+            total = p.get("total", 0)
+            matched = len(p.get("matched", []))
+            rejected = p.get("rejected", [])
+            error = p.get("error")
+
+            excluded_cnt = sum(
+                1 for r in rejected if r.get("_reject_reason", "").startswith("EXCLUDED")
+            )
+            no_kw_cnt = sum(
+                1 for r in rejected if r.get("_reject_reason", "").startswith("ALLOWED")
+            )
+
+            if error:
+                summary_lines.append(f"<b>{name}</b> — ❌ помилка: {error}\n")
+            else:
+                summary_lines.append(
+                    f"<b>{name}</b>\n"
+                    f"  📊 Всього знайдено: {total}\n"
+                    f"  ✅ Пройшли фільтр: {matched}\n"
+                    f"  🚫 Відсіяно EXCLUDED_KEYWORDS: {excluded_cnt}\n"
+                    f"  ❓ Відсіяно (немає ALLOWED_KEYWORDS): {no_kw_cnt}\n"
+                )
+
+            all_rejected.extend(rejected)
+
+        await message.answer("\n".join(summary_lines))
+
+        top5 = all_rejected[:5]
+        if not top5:
+            await message.answer("✅ Відхилених проєктів немає — всі пройшли фільтр або платформи порожні")
+            return
+
+        await message.answer(f"📋 <b>Перші {len(top5)} відхилених проєктів:</b>")
+        for i, proj in enumerate(top5, 1):
+            title = proj.get("title") or "—"
+            category = proj.get("category") or "—"
+            desc = (proj.get("description") or "")[:300]
+            reason = proj.get("_reject_reason") or "—"
+            url = proj.get("url") or "—"
+
+            card = (
+                f"<b>{i}. {title}</b>\n"
+                f"🏷 Категорія: {category}\n"
+                f"📝 {desc}\n\n"
+                f"❌ Причина: <code>{reason}</code>\n"
+                f"🔗 <a href='{url}'>Посилання</a>"
+            )
+            await message.answer(card, disable_web_page_preview=True)
+
+    except Exception as exc:
+        logger.exception("Admin /scan debug failed")
+        await message.answer(f"❌ Помилка debug scan:\n<code>{exc}</code>")
 
 
 @admin_router.message(Command("status"))

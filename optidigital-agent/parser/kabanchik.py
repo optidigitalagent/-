@@ -310,6 +310,14 @@ class KabanchikParser(BasePlatformParser):
         self.logger.info("Kabanchik: total=%d matching=%d", len(projects), len(matching))
         return matching
 
+    async def get_new_projects_debug(self) -> dict[str, Any]:
+        # Kabanchik temporarily disabled — return empty stats
+        return {"platform": self.PLATFORM, "total": 0, "matched": [], "rejected": []}
+
 
 async def get_new_projects() -> list[dict[str, Any]]:
     return await KabanchikParser().get_new_projects()
+
+
+async def get_debug_info() -> dict[str, Any]:
+    return await KabanchikParser().get_new_projects_debug()

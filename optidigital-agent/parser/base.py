@@ -140,6 +140,35 @@ class BasePlatformParser:
 
         return any(kw in text for kw in ALLOWED_KEYWORDS)
 
+    def _matches_filter_verbose(self, project: dict[str, Any]) -> tuple[bool, str]:
+        text = " ".join([
+            project.get("category", "") or "",
+            project.get("title", "") or "",
+            project.get("description", "") or "",
+        ]).lower()
+
+        for kw in EXCLUDED_KEYWORDS:
+            if kw in text:
+                return False, f"EXCLUDED: '{kw}'"
+
+        if any(kw in text for kw in ALLOWED_KEYWORDS):
+            return True, ""
+
+        return False, "ALLOWED: no keyword matched"
+
+    def _debug_split(
+        self, projects: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        matched: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        for p in projects:
+            passes, reason = self._matches_filter_verbose(p)
+            if passes:
+                matched.append(p)
+            else:
+                rejected.append({**p, "_reject_reason": reason})
+        return matched, rejected
+
     def _is_captcha(self, text: str) -> bool:
         lower = text.lower()
         return any(m in lower for m in _CAPTCHA_MARKERS)
