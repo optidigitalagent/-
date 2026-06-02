@@ -190,11 +190,25 @@ class FreelanceUaParser(BasePlatformParser):
                 url = item.get("url", "")
                 employer_url = item.get("employer_url", "")
 
-                # If the only link found is a user profile, don't use it as project URL
-                if url and "/users/" in url:
-                    if not employer_url:
+                # Validate project URL: must contain /project/ or /projects/
+                if url and not re.search(r"/projects?/", url):
+                    self.logger.debug(
+                        "project_url_missing: url=%r rejected (no /project(s)/ path), title=%r",
+                        url, item.get("title", ""),
+                    )
+                    # Salvage as employer_url only if it looks like a user profile
+                    if not employer_url and re.search(r"/users?/", url):
                         employer_url = url
                     url = ""
+
+                if not url:
+                    self.logger.debug(
+                        "project_url_missing: title=%r", item.get("title", "")
+                    )
+
+                # Validate employer URL: must contain /user/ or /users/
+                if employer_url and not re.search(r"/users?/", employer_url):
+                    employer_url = ""
 
                 results.append({
                     "platform":          self.PLATFORM,

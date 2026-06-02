@@ -232,6 +232,45 @@ class FreelancehuntParser(BasePlatformParser):
 
             url = href if href.startswith("http") else f"{BASE_URL}{href}"
 
+            # Extract description from card elements (description/desc/p)
+            description = ""
+            for desc_sel in ['[class*="description"]', '[class*="desc"]', 'p']:
+                try:
+                    desc_el = await row.query_selector(desc_sel)
+                    if desc_el:
+                        desc_text = (await desc_el.inner_text()).strip()
+                        if len(desc_text) > 10:
+                            description = desc_text[:300]
+                            break
+                except Exception:
+                    pass
+
+            # Extract category from skill/tag/label elements
+            category = ""
+            try:
+                skill_els = await row.query_selector_all(
+                    '[class*="skill"], [class*="tag"], [class*="label"], [class*="category"]'
+                )
+                skill_texts = []
+                for s in skill_els:
+                    t = (await s.inner_text()).strip()
+                    if t and t not in skill_texts:
+                        skill_texts.append(t)
+                if skill_texts:
+                    category = ", ".join(skill_texts[:5])
+            except Exception:
+                pass
+
+            # Fallback: use full row text (minus title) as description
+            if not description:
+                try:
+                    row_text = (await row.inner_text()).strip()
+                    row_extra = row_text.replace(title, "", 1).strip()
+                    if len(row_extra) > 5:
+                        description = row_extra[:300]
+                except Exception:
+                    pass
+
             cells = await row.query_selector_all("td")
             budget_text = ""
             for cell in cells:
@@ -247,14 +286,14 @@ class FreelancehuntParser(BasePlatformParser):
             results.append({
                 "platform":          self.PLATFORM,
                 "title":             title,
-                "description":       "",
+                "description":       description,
                 "budget_from":       budget_from,
                 "budget_to":         budget_to,
                 "currency":          "UAH",
                 "url":               url,
                 "employer_name":     "",
                 "employer_url":      "",
-                "category":          "",
+                "category":          category,
                 "deadline":          "",
                 "bid_count":         0,
                 "created_at":        datetime.utcnow().isoformat(),

@@ -23,8 +23,11 @@ USER_AGENTS: list[str] = [
 
 ALLOWED_KEYWORDS: list[str] = [
     # AI / ML / Voice AI
-    "ai", "штучний інтелект", "machine learning", "нейронна мережа", "нейромережа",
+    "ai", "аі", "штучний інтелект", "искусственный интеллект",
+    "machine learning", "нейронна мережа", "нейромережа", "нейросеть",
+    "image generation", "генерація зображень",
     "gpt", "openai", "llm", "chatgpt", "gemini", "claude",
+    "midjourney", "stable diffusion", "dall-e", "dalle",
     "voice ai", "голосовий асистент", "голосовий бот", "розпізнавання мови",
     "speech recognition", "tts", "stt", "whisper",
     # Automation
