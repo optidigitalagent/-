@@ -215,6 +215,53 @@ async def cb_cancel(callback: CallbackQuery) -> None:
     await callback.message.edit_reply_markup(reply_markup=None)
 
 
+# ─── /reply ──────────────────────────────────────────────────────────────────
+
+@router.message(Command("reply"))
+async def cmd_reply(message: Message) -> None:
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2 or not raw[1].strip().isdigit():
+        await message.answer(
+            "❌ Використання: <code>/reply &lt;project_id&gt;</code>\n"
+            "Приклад: <code>/reply 42</code>"
+        )
+        return
+
+    project_id = int(raw[1].strip())
+
+    async with AsyncSessionLocal() as session:
+        order = await session.get(Order, project_id)
+
+    if not order:
+        await message.answer(f"❌ Проєкт <code>#{project_id}</code> не знайдено в базі")
+        return
+
+    await message.answer(f"⏳ Генерую відгук для <b>{order.title}</b>…")
+
+    order_dict = {
+        "title":       order.title,
+        "description": order.description or "",
+        "budget_from": None,
+        "budget_to":   order.budget,
+        "currency":    "UAH",
+        "url":         order.url,
+    }
+
+    text = await generate_response(order_dict)
+    if not text:
+        await message.answer("❌ Не вдалося згенерувати відгук. Спробуй ще раз.")
+        return
+
+    async with AsyncSessionLocal() as session:
+        draft = await save_response(session, order.id, text, result="draft")
+
+    await message.answer(
+        f"📝 <b>Відгук для #{project_id}:</b>\n\n{text}\n\n"
+        f'🔗 <a href="{order.url}">Відкрити проєкт</a>',
+        reply_markup=response_keyboard(order.id, draft.id),
+    )
+
+
 # ─── Admin commands ───────────────────────────────────────────────────────────
 
 def _fmt_dt(dt: datetime | None) -> str:

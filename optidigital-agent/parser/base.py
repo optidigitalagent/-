@@ -21,10 +21,49 @@ USER_AGENTS: list[str] = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
 ]
 
-SKILLS_FILTER: list[str] = [
-    "сайт", "бот", "crm", "ai", "автоматизація", "telegram",
-    "розробка", "додаток", "парсинг", "інтеграція",
-    "python", "javascript", "react",
+ALLOWED_KEYWORDS: list[str] = [
+    # AI / ML / Voice AI
+    "ai", "штучний інтелект", "machine learning", "нейронна мережа", "нейромережа",
+    "gpt", "openai", "llm", "chatgpt", "gemini", "claude",
+    "voice ai", "голосовий асистент", "голосовий бот", "розпізнавання мови",
+    "speech recognition", "tts", "stt", "whisper",
+    # Automation
+    "автоматизація", "automation", "automate", "автоматично",
+    # CRM
+    "crm", "bitrix", "bitrix24", "salesforce", "hubspot", "zoho", "pipedrive",
+    # ERP
+    "erp", "1с", "sap", "управління підприємством",
+    # Integrations
+    "інтеграція", "інтегрувати", "integration", "api", "webhook",
+    "zapier", "make.com", "n8n", "пайплайн",
+    # Telegram Bots
+    "telegram", "телеграм", "tg", "бот", " bot ", "telegram bot",
+    # Web Development
+    "сайт", "веб-сайт", "веб сайт", "веб-розробка", "web",
+    "frontend", "backend", "fullstack", "full-stack",
+    "react", "vue", "angular", "next.js", "nuxt",
+    "django", "fastapi", "flask", "node.js", "nodejs", "laravel", "php",
+    "wordpress", "розробка сайту",
+    # SaaS / MVP
+    "saas", "software as a service", "mvp", "мвп",
+    # Landing Pages
+    "лендінг", "landing page", "лендинг", "посадочна сторінка",
+    # E-commerce
+    "інтернет-магазин", "онлайн-магазин", "e-commerce", "ecommerce",
+    "shopify", "woocommerce", "opencart", "магазин",
+    # General dev
+    "розробка", "додаток", "мобільний додаток", "програма",
+    "python", "javascript", "typescript", "парсинг", "скрапінг",
+]
+
+EXCLUDED_KEYWORDS: list[str] = [
+    "копірайтинг", "написання текстів", "написати текст", "seo-текст", "seo текст",
+    "переклад", "перекладач",
+    "дизайн логотипу", "логотип", "поліграфія", "друк", "банер",
+    "відеомонтаж", "монтаж відео", "відеозйомка", "фотографія", "фотосесія",
+    "озвучування", "озвучка",
+    "ведення instagram", "ведення facebook", "ведення tiktok", "ведення соцмереж",
+    "таргетована реклама", "smm менеджер", "контент-план",
 ]
 
 _CAPTCHA_MARKERS: list[str] = [
@@ -90,8 +129,16 @@ class BasePlatformParser:
         return None, None
 
     def _matches_filter(self, project: dict[str, Any]) -> bool:
-        text = f"{project.get('title', '')} {project.get('description', '')}".lower()
-        return any(kw in text for kw in SKILLS_FILTER)
+        text = " ".join([
+            project.get("category", "") or "",
+            project.get("title", "") or "",
+            project.get("description", "") or "",
+        ]).lower()
+
+        if any(kw in text for kw in EXCLUDED_KEYWORDS):
+            return False
+
+        return any(kw in text for kw in ALLOWED_KEYWORDS)
 
     def _is_captcha(self, text: str) -> bool:
         lower = text.lower()

@@ -11,10 +11,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import func, select
 
 from ai.scorer import score_order
-from ai.writer import generate_response
 from config import settings
 from db import AsyncSessionLocal
-from db.crud import get_setting, save_order, save_response, update_order_status
+from db.crud import get_setting, save_order, update_order_status
 from db.models import Order
 from parser.freelancehunt import get_new_projects as _fh_projects
 from parser.kabanchik import get_new_projects as _kb_projects
@@ -53,34 +52,63 @@ async def _fetch_all_projects() -> list[dict]:
     return projects
 
 
-async def _send_order_card(bot: Bot, order: Order, project: dict, score_data: dict, response_text: str) -> None:
+async def _send_order_card(bot: Bot, order: Order, project: dict) -> None:
     from bot.keyboards import order_card_keyboard
 
-    red_flags = score_data.get("red_flags", [])
-    flags_line = f"\n🚩 {', '.join(red_flags)}" if red_flags else ""
-    score = score_data.get("score", order.score or 0)
+    desc = (order.description or "").strip()
+    if len(desc) > 1000:
+        desc = desc[:1000] + "…"
 
-    card = (
-        "━━━━━━━━━━━━━━━\n"
-        f"🔥 <b>{score}/10</b> | {order.platform}\n"
-        f"📋 {order.title}\n"
-        f"💰 {_format_budget(project)}\n"
-        f"👤 Конкурентів: {project.get('bid_count', 0)}\n"
-        f"📊 {score_data.get('reason', '')}"
-        f"{flags_line}\n"
-        "━━━━━━━━━━━━━━━"
-    )
+    budget = _format_budget(project)
+    deadline = order.deadline or "—"
+    bid_count = order.bid_count if order.bid_count is not None else project.get("bid_count", 0)
+    category = order.category or "—"
+
+    lines = [
+        "━━━━━━━━━━━━━━━━━━━",
+        f"📌 <b>{order.title}</b>",
+        f"🆔 ID: <code>{order.id}</code>",
+        "",
+    ]
+
+    if desc:
+        lines += [f"📝 <b>Опис:</b>\n{desc}", ""]
+
+    lines += [
+        f"💰 <b>Бюджет:</b> {budget}",
+        f"⏰ <b>Строки:</b> {deadline}",
+        f"👥 <b>Конкурентів:</b> {bid_count}",
+        f"🏷 <b>Категорія:</b> {category}",
+        f"🖥 <b>Платформа:</b> {order.platform}",
+        "",
+        f'🔗 <a href="{order.url}">Відкрити проєкт</a>',
+    ]
+
+    if order.employer_url:
+        name = order.employer_name or "Профіль замовника"
+        lines.append(f'👤 <a href="{order.employer_url}">{name}</a>')
+    elif order.employer_name:
+        lines.append(f"👤 <b>Замовник:</b> {order.employer_name}")
+
+    contacts = []
+    if order.employer_phone:
+        contacts.append(f"📞 {order.employer_phone}")
+    if order.employer_telegram:
+        contacts.append(f"✈️ {order.employer_telegram}")
+    if order.employer_email:
+        contacts.append(f"📧 {order.employer_email}")
+
+    if contacts:
+        lines += ["", "<b>Контакти замовника:</b>"] + contacts
+
+    lines += ["", f"<i>Відповісти: /reply {order.id}</i>", "━━━━━━━━━━━━━━━━━━━"]
+
     await bot.send_message(
         chat_id=settings.TELEGRAM_CHAT_ID,
-        text=card,
+        text="\n".join(lines),
         reply_markup=order_card_keyboard(order.id, order.url),
+        disable_web_page_preview=True,
     )
-
-    if response_text:
-        await bot.send_message(
-            chat_id=settings.TELEGRAM_CHAT_ID,
-            text=f"📝 <b>Готовий відгук:</b>\n\n{response_text}",
-        )
 
 
 async def check_new_orders(bot: Bot) -> tuple[int, int]:
@@ -104,13 +132,21 @@ async def check_new_orders(bot: Bot) -> tuple[int, int]:
 
             budget_raw = project.get("budget_to") or project.get("budget_from")
             order_data = {
-                "platform": project.get("platform", "Unknown"),
-                "title": project["title"],
-                "description": project.get("description", ""),
-                "budget": float(budget_raw) if budget_raw else None,
-                "url": project["url"],
-                "score": score,
-                "status": "new",
+                "platform":          project.get("platform", "Unknown"),
+                "title":             project["title"],
+                "description":       project.get("description", ""),
+                "budget":            float(budget_raw) if budget_raw else None,
+                "url":               project["url"],
+                "score":             score,
+                "status":            "new",
+                "employer_name":     project.get("employer_name") or "",
+                "employer_url":      project.get("employer_url") or "",
+                "category":          project.get("category") or "",
+                "deadline":          project.get("deadline") or "",
+                "bid_count":         int(project.get("bid_count") or 0),
+                "employer_phone":    project.get("employer_phone"),
+                "employer_telegram": project.get("employer_telegram"),
+                "employer_email":    project.get("employer_email"),
             }
 
             async with AsyncSessionLocal() as session:
@@ -123,13 +159,7 @@ async def check_new_orders(bot: Bot) -> tuple[int, int]:
             found += 1
 
             if score >= min_score:
-                response_text = await generate_response(project)
-
-                if response_text:
-                    async with AsyncSessionLocal() as session:
-                        await save_response(session, order.id, response_text, result="draft")
-
-                await _send_order_card(bot, order, project, score_data, response_text)
+                await _send_order_card(bot, order, project)
 
                 async with AsyncSessionLocal() as session:
                     await update_order_status(session, order.id, "notified")

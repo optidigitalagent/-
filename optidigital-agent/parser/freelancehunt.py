@@ -91,7 +91,7 @@ class FreelancehuntParser(BasePlatformParser):
                 if not title:
                     continue
 
-                description = attrs.get("description", "")[:300]
+                description = attrs.get("description", "")[:2000]
 
                 budget = attrs.get("budget", {})
                 if isinstance(budget, dict):
@@ -108,27 +108,56 @@ class FreelancehuntParser(BasePlatformParser):
                     url = f"{BASE_URL}{url}"
 
                 employer = attrs.get("employer", {})
-                employer_name = (
-                    employer.get("login", employer.get("name", ""))
-                    if isinstance(employer, dict) else ""
-                )
+                employer_name = ""
+                employer_url = ""
+                employer_login = ""
+                if isinstance(employer, dict):
+                    employer_login = employer.get("login", "")
+                    employer_name = employer.get("first_name", "") or employer_login
+                    emp_links = employer.get("links", {})
+                    if isinstance(emp_links, dict):
+                        employer_url = emp_links.get("self", "")
+                    if not employer_url and employer_login:
+                        employer_url = f"{BASE_URL}/freelancer/{employer_login}"
 
                 bid_count = int(
                     attrs.get("bid_count") or attrs.get("offers_count") or 0
                 )
                 created_at = attrs.get("created_at", datetime.utcnow().isoformat())
 
+                # Category from skills list
+                skills = attrs.get("skills", [])
+                if isinstance(skills, list) and skills:
+                    category = ", ".join(
+                        s.get("name", str(s)) if isinstance(s, dict) else str(s)
+                        for s in skills[:5]
+                    )
+                else:
+                    category = attrs.get("category", {})
+                    if isinstance(category, dict):
+                        category = category.get("name", "")
+                    elif not isinstance(category, str):
+                        category = ""
+
+                deadline = attrs.get("expired_at") or attrs.get("deadline") or ""
+
                 results.append({
-                    "platform":      self.PLATFORM,
-                    "title":         title,
-                    "description":   description,
-                    "budget_from":   budget_from,
-                    "budget_to":     budget_to,
-                    "currency":      currency,
-                    "url":           url,
-                    "employer_name": employer_name,
-                    "bid_count":     bid_count,
-                    "created_at":    created_at,
+                    "platform":          self.PLATFORM,
+                    "title":             title,
+                    "description":       description,
+                    "budget_from":       budget_from,
+                    "budget_to":         budget_to,
+                    "currency":          currency,
+                    "url":               url,
+                    "employer_name":     employer_name,
+                    "employer_url":      employer_url,
+                    "category":          category,
+                    "deadline":          deadline,
+                    "bid_count":         bid_count,
+                    "created_at":        created_at,
+                    "employer_phone":    None,
+                    "employer_telegram": None,
+                    "employer_email":    None,
                 })
             except Exception:
                 self.logger.debug("Failed to parse JSON item", exc_info=True)
@@ -165,16 +194,22 @@ class FreelancehuntParser(BasePlatformParser):
                 budget_from, budget_to = self._parse_budget(item.get("budget", ""))
                 bid_count = int(re.sub(r"\D", "", item.get("bid_count", "0") or "0") or 0)
                 results.append({
-                    "platform":      self.PLATFORM,
-                    "title":         item["title"],
-                    "description":   item.get("description", ""),
-                    "budget_from":   budget_from,
-                    "budget_to":     budget_to,
-                    "currency":      "UAH",
-                    "url":           item.get("url", ""),
-                    "employer_name": "",
-                    "bid_count":     bid_count,
-                    "created_at":    item.get("created_at", "") or datetime.utcnow().isoformat(),
+                    "platform":          self.PLATFORM,
+                    "title":             item["title"],
+                    "description":       item.get("description", ""),
+                    "budget_from":       budget_from,
+                    "budget_to":         budget_to,
+                    "currency":          "UAH",
+                    "url":               item.get("url", ""),
+                    "employer_name":     "",
+                    "employer_url":      "",
+                    "category":          "",
+                    "deadline":          "",
+                    "bid_count":         bid_count,
+                    "created_at":        item.get("created_at", "") or datetime.utcnow().isoformat(),
+                    "employer_phone":    None,
+                    "employer_telegram": None,
+                    "employer_email":    None,
                 })
             except Exception:
                 self.logger.debug("Failed to parse JS item", exc_info=True)
@@ -213,16 +248,22 @@ class FreelancehuntParser(BasePlatformParser):
 
             budget_from, budget_to = self._parse_budget(budget_text)
             results.append({
-                "platform":      self.PLATFORM,
-                "title":         title,
-                "description":   "",
-                "budget_from":   budget_from,
-                "budget_to":     budget_to,
-                "currency":      "UAH",
-                "url":           url,
-                "employer_name": "",
-                "bid_count":     0,
-                "created_at":    datetime.utcnow().isoformat(),
+                "platform":          self.PLATFORM,
+                "title":             title,
+                "description":       "",
+                "budget_from":       budget_from,
+                "budget_to":         budget_to,
+                "currency":          "UAH",
+                "url":               url,
+                "employer_name":     "",
+                "employer_url":      "",
+                "category":          "",
+                "deadline":          "",
+                "bid_count":         0,
+                "created_at":        datetime.utcnow().isoformat(),
+                "employer_phone":    None,
+                "employer_telegram": None,
+                "employer_email":    None,
             })
 
         self.logger.info("FreelanceHunt Playwright: found %d projects from <tr> rows", len(results))

@@ -21,6 +21,15 @@ class Order(Base):
     status: Mapped[str] = mapped_column(String(50), default="new")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
+    employer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    employer_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    deadline: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    bid_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    employer_phone: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    employer_telegram: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    employer_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
     responses: Mapped[list["Response"]] = relationship("Response", back_populates="order")
 
 
@@ -43,7 +52,23 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(Text, nullable=True)
 
 
+_MIGRATIONS = [
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_name TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_url TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS category TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS bid_count INTEGER",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_phone TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_telegram TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_email TEXT",
+]
+
+
 async def init_db() -> None:
     from db import engine  # local import avoids circular reference at module level
+    from sqlalchemy import text
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for stmt in _MIGRATIONS:
+            await conn.execute(text(stmt))

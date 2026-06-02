@@ -109,7 +109,7 @@ class KabanchikParser(BasePlatformParser):
                 if not title:
                     continue
 
-                description = item.get("description", item.get("body", ""))[:300]
+                description = item.get("description", item.get("body", ""))[:2000]
                 url = item.get("url", item.get("link", ""))
                 if url and not url.startswith("http"):
                     url = f"{BASE_URL}{url}"
@@ -123,17 +123,31 @@ class KabanchikParser(BasePlatformParser):
                 else:
                     budget_from = budget_to = None
 
+                category_raw = item.get("category", item.get("tags", ""))
+                if isinstance(category_raw, list):
+                    category = ", ".join(str(c) for c in category_raw[:5])
+                elif isinstance(category_raw, dict):
+                    category = category_raw.get("name", "")
+                else:
+                    category = str(category_raw) if category_raw else ""
+
                 results.append({
-                    "platform":      self.PLATFORM,
-                    "title":         title,
-                    "description":   description,
-                    "budget_from":   budget_from,
-                    "budget_to":     budget_to,
-                    "currency":      "UAH",
-                    "url":           url,
-                    "employer_name": "",
-                    "bid_count":     int(item.get("bids", item.get("proposals", 0)) or 0),
-                    "created_at":    item.get("created_at", datetime.utcnow().isoformat()),
+                    "platform":          self.PLATFORM,
+                    "title":             title,
+                    "description":       description,
+                    "budget_from":       budget_from,
+                    "budget_to":         budget_to,
+                    "currency":          "UAH",
+                    "url":               url,
+                    "employer_name":     "",
+                    "employer_url":      "",
+                    "category":          category,
+                    "deadline":          item.get("deadline", item.get("expired_at", "")),
+                    "bid_count":         int(item.get("bids", item.get("proposals", 0)) or 0),
+                    "created_at":        item.get("created_at", datetime.utcnow().isoformat()),
+                    "employer_phone":    None,
+                    "employer_telegram": None,
+                    "employer_email":    None,
                 })
             except Exception:
                 self.logger.debug("Failed to parse Kabanchik API item", exc_info=True)
@@ -172,16 +186,22 @@ class KabanchikParser(BasePlatformParser):
             try:
                 budget_from, budget_to = self._parse_budget(item.get("budget", ""))
                 results.append({
-                    "platform":      self.PLATFORM,
-                    "title":         item["title"],
-                    "description":   item.get("description", ""),
-                    "budget_from":   budget_from,
-                    "budget_to":     budget_to,
-                    "currency":      "UAH",
-                    "url":           item.get("url", ""),
-                    "employer_name": item.get("employer_name", ""),
-                    "bid_count":     0,
-                    "created_at":    item.get("created_at", "") or datetime.utcnow().isoformat(),
+                    "platform":          self.PLATFORM,
+                    "title":             item["title"],
+                    "description":       item.get("description", ""),
+                    "budget_from":       budget_from,
+                    "budget_to":         budget_to,
+                    "currency":          "UAH",
+                    "url":               item.get("url", ""),
+                    "employer_name":     item.get("employer_name", ""),
+                    "employer_url":      "",
+                    "category":          "",
+                    "deadline":          "",
+                    "bid_count":         0,
+                    "created_at":        item.get("created_at", "") or datetime.utcnow().isoformat(),
+                    "employer_phone":    None,
+                    "employer_telegram": None,
+                    "employer_email":    None,
                 })
             except Exception:
                 self.logger.debug("Failed to parse Kabanchik JS item", exc_info=True)
