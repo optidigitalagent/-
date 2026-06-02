@@ -407,13 +407,24 @@ async def cmd_status(message: Message) -> None:
         sched_status = "❌ зупинено"
         next_run = "—"
 
+    auto_found = state.last_auto_found_total
+    auto_notified = state.last_auto_notified
+    auto_error = state.last_auto_error
+
+    error_line = f"\n❌ Остання помилка авто-скану: <b>{auto_error}</b>" if auto_error else ""
+
     await message.answer(
         "📊 <b>Статус бота</b>\n\n"
         f"⏱ Uptime: <b>{uptime}</b>\n"
         f"🎭 Playwright: <b>{pw_status}</b>\n"
         f"🕐 Scheduler: <b>{sched_status}</b>\n"
         f"⏭ Наступний скан: <b>{next_run}</b>\n"
-        f"🕓 Останній скан: <b>{_fmt_dt(state.last_scan_time)}</b>"
+        f"🕓 Останній скан (будь-який): <b>{_fmt_dt(state.last_scan_time)}</b>\n\n"
+        f"🤖 <b>Авто-скан (scheduler)</b>\n"
+        f"🕓 Час: <b>{_fmt_dt(state.last_auto_scan_time)}</b>\n"
+        f"📦 Знайдено: <b>{'—' if auto_found is None else auto_found}</b>\n"
+        f"📨 Сповіщено: <b>{'—' if auto_notified is None else auto_notified}</b>"
+        + error_line
     )
 
 

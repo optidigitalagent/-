@@ -60,7 +60,7 @@ def _format_order(order: dict) -> str:
 async def generate_response(order: dict) -> str:
     try:
         response = await _client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": _format_order(order)},

@@ -81,7 +81,7 @@ def _format_order(order: dict) -> str:
 async def score_order(order: dict) -> dict:
     try:
         response = await _client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4o-mini",
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},

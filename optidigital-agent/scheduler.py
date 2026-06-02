@@ -120,18 +120,20 @@ async def _send_order_card(bot: Bot, order: Order, project: dict) -> None:
     )
 
 
-async def check_new_orders(bot: Bot) -> tuple[int, int]:
-    """Returns (found_new, sent_notified) — safe to ignore from scheduler."""
-    logger.info("=== check_new_orders: start ===")
+async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int]:
+    """Returns (new_saved, notified) — safe to ignore from scheduler."""
+    mode = "AUTO" if is_auto else "MANUAL"
+    logger.info("=== %s SCAN STARTED ===", mode)
 
     async with AsyncSessionLocal() as session:
         raw = await get_setting(session, "min_score")
     min_score = int(raw) if raw else 6
 
     projects = await _fetch_all_projects()
-    logger.info("Fetched %d projects total across all platforms", len(projects))
+    found_total = len(projects)
+    logger.info("Fetched %d projects total across all platforms", found_total)
 
-    found = scored = sent = 0
+    new_saved = scored = notified = duplicates_skipped = below_min_score = errors = 0
 
     for project in projects:
         try:
@@ -163,9 +165,10 @@ async def check_new_orders(bot: Bot) -> tuple[int, int]:
 
             if order is None:
                 logger.debug("Duplicate skipped: %s", project.get("url"))
+                duplicates_skipped += 1
                 continue
 
-            found += 1
+            new_saved += 1
 
             if score >= min_score:
                 await _send_order_card(bot, order, project)
@@ -173,28 +176,77 @@ async def check_new_orders(bot: Bot) -> tuple[int, int]:
                 async with AsyncSessionLocal() as session:
                     await update_order_status(session, order.id, "notified")
 
-                sent += 1
+                notified += 1
                 logger.info(
                     "Notified: order_id=%d score=%.1f title=%r",
                     order.id, score, order.title,
                 )
             else:
+                below_min_score += 1
                 logger.info(
                     "Skipped: order_id=%d score=%.1f < min_score=%d",
                     order.id, score, min_score,
                 )
 
         except Exception:
+            errors += 1
             logger.exception("Error processing project: %s", project.get("url"))
 
     import state as _state
     _state.last_scan_time = datetime.utcnow()
 
     logger.info(
-        "=== check_new_orders: done — found=%d scored=%d sent=%d ===",
-        found, scored, sent,
+        "=== %s SCAN DONE — found_total=%d new_saved=%d duplicates_skipped=%d "
+        "scored=%d notified=%d below_min_score=%d errors=%d ===",
+        mode, found_total, new_saved, duplicates_skipped, scored, notified, below_min_score, errors,
     )
-    return found, sent
+
+    if is_auto:
+        _state.last_auto_scan_time = datetime.utcnow()
+        _state.last_auto_found_total = found_total
+        _state.last_auto_notified = notified
+        _state.last_auto_error = f"{errors} errors" if errors else None
+
+        summary = (
+            f"🤖 <b>AUTO SCAN DONE</b>\n\n"
+            f"found_total={found_total}\n"
+            f"new_saved={new_saved}\n"
+            f"duplicates_skipped={duplicates_skipped}\n"
+            f"scored={scored}\n"
+            f"notified={notified}\n"
+            f"below_min_score={below_min_score}\n"
+            f"errors={errors}"
+        )
+        try:
+            await bot.send_message(chat_id=settings.admin_chat_id, text=summary)
+        except Exception:
+            logger.exception("Failed to send auto-scan summary to admin")
+
+        if found_total > 0 and notified == 0:
+            reasons = []
+            if duplicates_skipped == found_total:
+                reasons.append("все проекты — дубликаты (уже в базе)")
+            else:
+                if duplicates_skipped > 0:
+                    reasons.append(f"{duplicates_skipped} дубликатов пропущено")
+                if below_min_score > 0:
+                    reasons.append(f"{below_min_score} проектов с score < {min_score} (мин. порог)")
+                if errors > 0:
+                    reasons.append(f"{errors} ошибок при обработке")
+                if new_saved == 0 and duplicates_skipped < found_total and errors < found_total:
+                    reasons.append("новые проекты не сохранены (неизвестная причина)")
+            reason_text = "\n• ".join(reasons) if reasons else "неизвестная причина"
+            alert = (
+                f"⚠️ <b>Автоскан прошёл, но уведомлений нет</b>\n\n"
+                f"Найдено: {found_total} | Сохранено: {new_saved} | Отправлено: {notified}\n\n"
+                f"Причины:\n• {reason_text}"
+            )
+            try:
+                await bot.send_message(chat_id=settings.admin_chat_id, text=alert)
+            except Exception:
+                logger.exception("Failed to send zero-notifications alert to admin")
+
+    return new_saved, notified
 
 
 async def check_new_orders_debug() -> list[dict]:
@@ -255,6 +307,7 @@ def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
         minutes=15,
         id="check_new_orders",
         args=[bot],
+        kwargs={"is_auto": True},
         max_instances=1,  # prevent overlap if job takes longer than 15 min
         coalesce=True,
     )
