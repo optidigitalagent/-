@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 router = Router()
 router.message.filter(F.chat.id == settings.TELEGRAM_CHAT_ID)
 router.callback_query.filter(F.message.chat.id == settings.TELEGRAM_CHAT_ID)
+
+admin_router = Router()
+admin_router.message.filter(F.chat.id == settings.admin_chat_id)
 
 DEFAULT_MIN_SCORE = 6
 
@@ -210,3 +213,93 @@ async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None
 async def cb_cancel(callback: CallbackQuery) -> None:
     await callback.answer("Скасовано")
     await callback.message.edit_reply_markup(reply_markup=None)
+
+
+# ─── Admin commands ───────────────────────────────────────────────────────────
+
+def _fmt_dt(dt: datetime | None) -> str:
+    if dt is None:
+        return "—"
+    return dt.strftime("%d.%m.%Y %H:%M:%S UTC")
+
+
+def _fmt_uptime(since: datetime) -> str:
+    delta = datetime.utcnow() - since
+    total = int(delta.total_seconds())
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}г {m}хв {s}с"
+
+
+@admin_router.message(Command("scan"))
+async def cmd_scan(message: Message) -> None:
+    from scheduler import check_new_orders
+
+    await message.answer("🔍 <b>Сканування запущено...</b>")
+    try:
+        found, sent = await check_new_orders(message.bot)
+        await message.answer(
+            f"✅ <b>Сканування завершено</b>\n\n"
+            f"📦 Нових заказів знайдено: <b>{found}</b>\n"
+            f"📨 Відправлено сповіщень: <b>{sent}</b>"
+        )
+    except Exception as exc:
+        logger.exception("Admin /scan failed")
+        await message.answer(f"❌ Помилка під час сканування:\n<code>{exc}</code>")
+
+
+@admin_router.message(Command("status"))
+async def cmd_status(message: Message) -> None:
+    import state
+
+    uptime = _fmt_uptime(state.start_time)
+    pw_status = "✅ OK" if state.playwright_ok else "❌ недоступний"
+
+    if state.scheduler is not None and state.scheduler.running:
+        sched_status = "✅ запущено"
+        job = state.scheduler.get_job("check_new_orders")
+        next_run = _fmt_dt(job.next_run_time) if job else "—"
+    else:
+        sched_status = "❌ зупинено"
+        next_run = "—"
+
+    await message.answer(
+        "📊 <b>Статус бота</b>\n\n"
+        f"⏱ Uptime: <b>{uptime}</b>\n"
+        f"🎭 Playwright: <b>{pw_status}</b>\n"
+        f"🕐 Scheduler: <b>{sched_status}</b>\n"
+        f"⏭ Наступний скан: <b>{next_run}</b>\n"
+        f"🕓 Останній скан: <b>{_fmt_dt(state.last_scan_time)}</b>"
+    )
+
+
+@admin_router.message(Command("testfh"))
+async def cmd_testfh(message: Message) -> None:
+    from parser.freelancehunt import get_new_projects
+
+    await message.answer("🔄 Запускаю Freelancehunt parser...")
+    try:
+        projects = await get_new_projects()
+        await message.answer(
+            f"✅ <b>Freelancehunt</b>\n\n"
+            f"📦 Знайдено проєктів: <b>{len(projects)}</b>"
+        )
+    except Exception as exc:
+        logger.exception("Admin /testfh failed")
+        await message.answer(f"❌ Помилка Freelancehunt parser:\n<code>{exc}</code>")
+
+
+@admin_router.message(Command("testua"))
+async def cmd_testua(message: Message) -> None:
+    from parser.freelance_ua import get_new_projects
+
+    await message.answer("🔄 Запускаю FreelanceUA parser...")
+    try:
+        projects = await get_new_projects()
+        await message.answer(
+            f"✅ <b>FreelanceUA</b>\n\n"
+            f"📦 Знайдено проєктів: <b>{len(projects)}</b>"
+        )
+    except Exception as exc:
+        logger.exception("Admin /testua failed")
+        await message.answer(f"❌ Помилка FreelanceUA parser:\n<code>{exc}</code>")

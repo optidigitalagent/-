@@ -83,7 +83,8 @@ async def _send_order_card(bot: Bot, order: Order, project: dict, score_data: di
         )
 
 
-async def check_new_orders(bot: Bot) -> None:
+async def check_new_orders(bot: Bot) -> tuple[int, int]:
+    """Returns (found_new, sent_notified) — safe to ignore from scheduler."""
     logger.info("=== check_new_orders: start ===")
 
     async with AsyncSessionLocal() as session:
@@ -147,10 +148,14 @@ async def check_new_orders(bot: Bot) -> None:
         except Exception:
             logger.exception("Error processing project: %s", project.get("url"))
 
+    import state as _state
+    _state.last_scan_time = datetime.utcnow()
+
     logger.info(
         "=== check_new_orders: done — found=%d scored=%d sent=%d ===",
         found, scored, sent,
     )
+    return found, sent
 
 
 async def weekly_report(bot: Bot) -> None:
