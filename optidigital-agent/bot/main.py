@@ -28,13 +28,14 @@ _scheduler: AsyncIOScheduler | None = None
 
 async def _check_playwright() -> None:
     try:
-        import playwright as _pw_pkg
-        logger.info("Playwright version: %s", _pw_pkg.__version__)
-    except ImportError:
-        logger.error("playwright package not installed — run: pip install playwright")
-        return
+        from importlib.metadata import version, PackageNotFoundError
+        try:
+            pw_version = version("playwright")
+            logger.info("Playwright version: %s", pw_version)
+        except PackageNotFoundError:
+            logger.error("playwright package not installed — run: pip install playwright")
+            return
 
-    try:
         from pathlib import Path
         from playwright.async_api import async_playwright
         async with async_playwright() as pw:
