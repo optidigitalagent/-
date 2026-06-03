@@ -305,6 +305,8 @@ class FreelancehuntParser(BasePlatformParser):
         self.logger.info("FreelanceHunt Playwright <tr>: found %d projects", len(results))
 
         if not results:
+            import state as _state
+
             page_title = await page.title()
             page_url = page.url
             html = await page.content()
@@ -329,16 +331,58 @@ class FreelancehuntParser(BasePlatformParser):
                 except Exception:
                     pass
 
-            screenshot_path = await self._take_screenshot(page, "zero_results")
-            debug_msg = (
-                f"🔴 0 проєктів на freelancehunt.com\n"
-                f"URL: {page_url}\n"
-                f"Title: {page_title}\n"
-                f"Selectors:\n" + "\n".join(sel_counts) + "\n\n"
-                f"HTML (перші 500 симв.):\n{html[:500]}"
+            is_cloudflare = (
+                "трохи зачекайте" in page_title.lower()
+                or "just a moment" in page_title.lower()
+                or "challenges.cloudflare.com" in html
             )
-            await self._send_alert(debug_msg)
-            await self._send_screenshot_to_telegram(screenshot_path)
+            is_debug = getattr(self, "_debug_mode", False)
+
+            if is_debug:
+                # Ручной режим — отправляем полный debug в Telegram
+                screenshot_path = await self._take_screenshot(page, "zero_results")
+                debug_msg = (
+                    f"🔴 0 проєктів на freelancehunt.com\n"
+                    f"URL: {page_url}\n"
+                    f"Title: {page_title}\n"
+                    f"Selectors:\n" + "\n".join(sel_counts) + "\n\n"
+                    f"HTML (перші 500 симв.):\n{html[:500]}"
+                )
+                await self._send_alert(debug_msg)
+                await self._send_screenshot_to_telegram(screenshot_path)
+            elif is_cloudflare:
+                # Auto-scan + Cloudflare: считаем streak, алертим редко
+                _state.freelancehunt_zero_streak += 1
+                streak = _state.freelancehunt_zero_streak
+                self.logger.warning(
+                    "FreelanceHunt Cloudflare challenge detected, streak=%d", streak
+                )
+
+                now = datetime.utcnow()
+                last_alert = _state.freelancehunt_last_cf_alert_time
+                hours_since = (
+                    (now - last_alert).total_seconds() / 3600
+                    if last_alert else float("inf")
+                )
+
+                if streak == 3 or (streak > 3 and hours_since >= 6):
+                    await self._send_alert(
+                        "Freelancehunt Cloudflare 3 рази поспіль.\n"
+                        "Платформа тимчасово недоступна через Playwright."
+                    )
+                    _state.freelancehunt_last_cf_alert_time = now
+            else:
+                # Auto-scan, 0 результатів, але не Cloudflare — шлемо стандартний alert
+                screenshot_path = await self._take_screenshot(page, "zero_results")
+                debug_msg = (
+                    f"🔴 0 проєктів на freelancehunt.com\n"
+                    f"URL: {page_url}\n"
+                    f"Title: {page_title}\n"
+                    f"Selectors:\n" + "\n".join(sel_counts) + "\n\n"
+                    f"HTML (перші 500 симв.):\n{html[:500]}"
+                )
+                await self._send_alert(debug_msg)
+                await self._send_screenshot_to_telegram(screenshot_path)
 
         return results
 
@@ -366,6 +410,15 @@ class FreelancehuntParser(BasePlatformParser):
             await asyncio.sleep(random.uniform(1.5, 3.0))
             projects = await self._browse(HTML_URL, self._playwright_extract) or []
 
+        if projects:
+            import state as _state
+            if _state.freelancehunt_zero_streak > 0:
+                self.logger.info(
+                    "FreelanceHunt: projects found — resetting CF streak (was %d)",
+                    _state.freelancehunt_zero_streak,
+                )
+                _state.freelancehunt_zero_streak = 0
+
         projects = await self._enrich_descriptions(projects)
         matching = [p for p in projects if self._matches_filter(p)]
         self.logger.info(
@@ -374,6 +427,7 @@ class FreelancehuntParser(BasePlatformParser):
         return matching
 
     async def get_new_projects_debug(self) -> dict[str, Any]:
+        self._debug_mode = True
         self.logger.info("FreelanceHunt: starting debug fetch")
 
         projects = await self._try_json_api()

@@ -23,3 +23,7 @@ daily_notified: int = 0
 daily_duplicates: int = 0
 daily_below_min: int = 0
 daily_errors: int = 0
+
+# Freelancehunt Cloudflare streak suppression
+freelancehunt_zero_streak: int = 0
+freelancehunt_last_cf_alert_time: Optional[datetime] = None
