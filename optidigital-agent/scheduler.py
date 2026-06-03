@@ -37,6 +37,12 @@ _DEBUG_PARSERS = [
 ]
 
 
+def _fmt_dt(dt: datetime | None) -> str:
+    if dt is None:
+        return "—"
+    return dt.strftime("%d.%m.%Y %H:%M UTC")
+
+
 def _format_budget(project: dict) -> str:
     bf = project.get("budget_from")
     bt = project.get("budget_to")
@@ -204,47 +210,32 @@ async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int
     if is_auto:
         _state.last_auto_scan_time = datetime.utcnow()
         _state.last_auto_found_total = found_total
+        _state.last_auto_new_saved = new_saved
         _state.last_auto_notified = notified
-        _state.last_auto_error = f"{errors} errors" if errors else None
+        _state.last_auto_duplicates = duplicates_skipped
+        _state.last_auto_below_min = below_min_score
+        _state.last_auto_errors = errors
+        _state.last_auto_error = f"{errors} помилок при обробці" if errors else None
 
-        summary = (
-            f"🤖 <b>AUTO SCAN DONE</b>\n\n"
-            f"found_total={found_total}\n"
-            f"new_saved={new_saved}\n"
-            f"duplicates_skipped={duplicates_skipped}\n"
-            f"scored={scored}\n"
-            f"notified={notified}\n"
-            f"below_min_score={below_min_score}\n"
-            f"errors={errors}"
-        )
-        try:
-            await bot.send_message(chat_id=settings.admin_chat_id, text=summary)
-        except Exception:
-            logger.exception("Failed to send auto-scan summary to admin")
+        _state.daily_found_total += found_total
+        _state.daily_new_saved += new_saved
+        _state.daily_notified += notified
+        _state.daily_duplicates += duplicates_skipped
+        _state.daily_below_min += below_min_score
+        _state.daily_errors += errors
 
-        if found_total > 0 and notified == 0:
-            reasons = []
-            if duplicates_skipped == found_total:
-                reasons.append("все проекты — дубликаты (уже в базе)")
-            else:
-                if duplicates_skipped > 0:
-                    reasons.append(f"{duplicates_skipped} дубликатов пропущено")
-                if below_min_score > 0:
-                    reasons.append(f"{below_min_score} проектов с score < {min_score} (мин. порог)")
-                if errors > 0:
-                    reasons.append(f"{errors} ошибок при обработке")
-                if new_saved == 0 and duplicates_skipped < found_total and errors < found_total:
-                    reasons.append("новые проекты не сохранены (неизвестная причина)")
-            reason_text = "\n• ".join(reasons) if reasons else "неизвестная причина"
+        if errors > 0:
             alert = (
-                f"⚠️ <b>Автоскан прошёл, но уведомлений нет</b>\n\n"
-                f"Найдено: {found_total} | Сохранено: {new_saved} | Отправлено: {notified}\n\n"
-                f"Причины:\n• {reason_text}"
+                f"🚨 <b>Auto Scan Error</b>\n\n"
+                f"found_total={found_total}\n"
+                f"new_saved={new_saved}\n"
+                f"notified={notified}\n"
+                f"errors={errors}"
             )
             try:
                 await bot.send_message(chat_id=settings.admin_chat_id, text=alert)
             except Exception:
-                logger.exception("Failed to send zero-notifications alert to admin")
+                logger.exception("Failed to send error alert to admin")
 
     return new_saved, notified
 
@@ -298,18 +289,60 @@ async def weekly_report(bot: Bot) -> None:
     logger.info("Weekly report sent: found=%d scored=%d sent=%d", found, scored, sent)
 
 
+async def daily_report(bot: Bot) -> None:
+    import state as _state
+
+    lines = [
+        "📊 <b>Daily Agent Report</b>\n",
+        "За останні 24 години:",
+        f"📦 Знайдено всього: <b>{_state.daily_found_total}</b>",
+        f"🆕 Нових збережено: <b>{_state.daily_new_saved}</b>",
+        f"♻️ Дублікатів: <b>{_state.daily_duplicates}</b>",
+        f"📨 Відправлено сповіщень: <b>{_state.daily_notified}</b>",
+        f"⬇️ Нижче порогу: <b>{_state.daily_below_min}</b>",
+        f"❌ Помилок: <b>{_state.daily_errors}</b>",
+        "",
+        "Останній авто-скан:",
+        f"🕓 {_fmt_dt(_state.last_auto_scan_time)}",
+        f"📦 Знайдено: {_state.last_auto_found_total if _state.last_auto_found_total is not None else '—'}",
+        f"📨 Сповіщено: {_state.last_auto_notified if _state.last_auto_notified is not None else '—'}",
+    ]
+
+    try:
+        await bot.send_message(chat_id=settings.admin_chat_id, text="\n".join(lines))
+        logger.info("Daily report sent")
+    except Exception:
+        logger.exception("Failed to send daily report")
+
+    _state.daily_found_total = 0
+    _state.daily_new_saved = 0
+    _state.daily_notified = 0
+    _state.daily_duplicates = 0
+    _state.daily_below_min = 0
+    _state.daily_errors = 0
+
+
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler(timezone="Europe/Kyiv")
 
     scheduler.add_job(
         check_new_orders,
         trigger="interval",
-        minutes=15,
+        hours=1,
         id="check_new_orders",
         args=[bot],
         kwargs={"is_auto": True},
-        max_instances=1,  # prevent overlap if job takes longer than 15 min
+        max_instances=1,
         coalesce=True,
+    )
+
+    scheduler.add_job(
+        daily_report,
+        trigger="cron",
+        hour=9,
+        minute=0,
+        id="daily_report",
+        args=[bot],
     )
 
     scheduler.add_job(

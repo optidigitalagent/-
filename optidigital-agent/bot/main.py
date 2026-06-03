@@ -68,7 +68,7 @@ async def on_startup() -> None:
     _scheduler = setup_scheduler(bot)
     _scheduler.start()
     state.scheduler = _scheduler
-    logger.info("Scheduler running (check every 15 min, weekly report Sun 09:00 Kyiv).")
+    logger.info("Scheduler running (check every 1 hour, daily report 09:00 Kyiv, weekly report Sun 09:00 Kyiv).")
 
 
 async def on_shutdown() -> None:

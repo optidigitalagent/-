@@ -407,11 +407,13 @@ async def cmd_status(message: Message) -> None:
         sched_status = "❌ зупинено"
         next_run = "—"
 
-    auto_found = state.last_auto_found_total
-    auto_notified = state.last_auto_notified
-    auto_error = state.last_auto_error
+    def _v(val) -> str:
+        return "—" if val is None else str(val)
 
-    error_line = f"\n❌ Остання помилка авто-скану: <b>{auto_error}</b>" if auto_error else ""
+    error_line = (
+        f"\n⚠️ Остання помилка: <b>{state.last_auto_error}</b>"
+        if state.last_auto_error else ""
+    )
 
     await message.answer(
         "📊 <b>Статус бота</b>\n\n"
@@ -419,11 +421,15 @@ async def cmd_status(message: Message) -> None:
         f"🎭 Playwright: <b>{pw_status}</b>\n"
         f"🕐 Scheduler: <b>{sched_status}</b>\n"
         f"⏭ Наступний скан: <b>{next_run}</b>\n"
-        f"🕓 Останній скан (будь-який): <b>{_fmt_dt(state.last_scan_time)}</b>\n\n"
+        f"🕓 Останній скан: <b>{_fmt_dt(state.last_scan_time)}</b>\n\n"
         f"🤖 <b>Авто-скан (scheduler)</b>\n"
-        f"🕓 Час: <b>{_fmt_dt(state.last_auto_scan_time)}</b>\n"
-        f"📦 Знайдено: <b>{'—' if auto_found is None else auto_found}</b>\n"
-        f"📨 Сповіщено: <b>{'—' if auto_notified is None else auto_notified}</b>"
+        f"🕓 Останній запуск: <b>{_fmt_dt(state.last_auto_scan_time)}</b>\n"
+        f"📦 Знайдено: <b>{_v(state.last_auto_found_total)}</b>\n"
+        f"🆕 Нових збережено: <b>{_v(state.last_auto_new_saved)}</b>\n"
+        f"♻️ Дублікатів: <b>{_v(state.last_auto_duplicates)}</b>\n"
+        f"📨 Уведомлень: <b>{_v(state.last_auto_notified)}</b>\n"
+        f"⬇️ Нижче порогу: <b>{_v(state.last_auto_below_min)}</b>\n"
+        f"❌ Помилок: <b>{_v(state.last_auto_errors)}</b>"
         + error_line
     )
 
