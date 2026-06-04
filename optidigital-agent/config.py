@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     GMAIL_CREDENTIALS_JSON: Optional[str] = None  # Railway-safe: JSON content
     GMAIL_TOKEN_JSON: Optional[str] = None        # Railway-safe: JSON content
     GMAIL_MIN_SCORE: float = 6.0
-    GMAIL_CHECK_INTERVAL_MINUTES: int = 30
+    GMAIL_CHECK_INTERVAL_MINUTES: int = 60
 
     @property
     def admin_chat_id(self) -> int:

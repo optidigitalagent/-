@@ -9,3 +9,7 @@ venv/
 
 credentials.json
 gmail_token*.json
+
+../credentials.json
+credentials.json
+gmail_token*.json

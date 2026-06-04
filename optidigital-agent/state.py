@@ -27,3 +27,7 @@ daily_errors: int = 0
 # Freelancehunt Cloudflare streak suppression
 freelancehunt_zero_streak: int = 0
 freelancehunt_last_cf_alert_time: Optional[datetime] = None
+
+# Gmail scan history — last 20 runs
+# Each entry: {timestamp, emails_found, relevant, sent, errors}
+gmail_scan_history: list = []

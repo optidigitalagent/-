@@ -22,6 +22,9 @@ class ProcessorStats:
     sent: int = 0
     errors: int = 0
     sent_analyses: list[JobAnalysis] = field(default_factory=list)
+    # First 5 samples for diagnostic display
+    rejected_samples: list[dict] = field(default_factory=list)
+    below_score_samples: list[dict] = field(default_factory=list)
 
 
 class GmailJobProcessor:
@@ -79,6 +82,12 @@ class GmailJobProcessor:
                     logger.info(
                         "Not relevant: email_id=%s subject=%r", email.id, email.subject
                     )
+                    if len(stats.rejected_samples) < 5:
+                        stats.rejected_samples.append({
+                            "from": email.sender[:50],
+                            "subject": email.subject[:60],
+                            "reason": analysis.reason or "not_job_alert",
+                        })
                     continue
 
                 if analysis.score < self._min_score:
@@ -87,6 +96,12 @@ class GmailJobProcessor:
                         "Below threshold: email_id=%s score=%.1f < %.1f",
                         email.id, analysis.score, self._min_score,
                     )
+                    if len(stats.below_score_samples) < 5:
+                        stats.below_score_samples.append({
+                            "subject": email.subject[:60],
+                            "score": analysis.score,
+                            "reason": analysis.reason,
+                        })
                     continue
 
                 await send_job_card(self._bot, self._chat_id, analysis)
@@ -121,3 +136,50 @@ class GmailJobProcessor:
             stats.below_threshold, stats.sent, stats.errors,
         )
         return stats
+
+    async def run_debug(self, max_emails: int = 20) -> list[dict]:
+        """Full pipeline analysis without sending to Telegram or marking as processed.
+
+        Does NOT call send_job_card and does NOT update dedup state.
+        Safe to run at any time without side effects.
+        """
+        results: list[dict] = []
+        try:
+            emails = await self._provider.get_new_emails()
+        except Exception as exc:
+            logger.exception("run_debug: failed to fetch emails")
+            return [{"error": str(exc), "subject": "FETCH ERROR", "email_id": ""}]
+
+        for email in emails[:max_emails]:
+            entry: dict = {
+                "email_id": email.id,
+                "from": email.sender,
+                "subject": email.subject,
+                "date": email.received_at.strftime("%d.%m.%Y %H:%M") if email.received_at else "—",
+                "is_duplicate": self._dedup.is_processed(email.id),
+                "is_relevant": None,
+                "score": None,
+                "reason": None,
+                "passed": False,
+                "error": None,
+            }
+            if entry["is_duplicate"]:
+                results.append(entry)
+                continue
+            try:
+                analysis = await analyze_email(
+                    email_id=email.id,
+                    subject=email.subject,
+                    sender=email.sender,
+                    body=email.body,
+                    client=self._openai_client,
+                )
+                entry["is_relevant"] = analysis.is_relevant
+                entry["score"] = analysis.score
+                entry["reason"] = analysis.reason
+                entry["passed"] = analysis.is_relevant and analysis.score >= self._min_score
+            except Exception as exc:
+                logger.exception("run_debug: analyze failed for email_id=%s", email.id)
+                entry["error"] = str(exc)
+            results.append(entry)
+        return results

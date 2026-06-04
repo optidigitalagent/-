@@ -486,6 +486,38 @@ async def cmd_status(message: Message) -> None:
         if state.last_auto_error else ""
     )
 
+    # Gmail Agent block
+    gmail_enabled = settings.GMAIL_ENABLED
+    gmail_mode = "MOCK" if settings.GMAIL_USE_MOCK else "REAL Gmail"
+    gmail_next_run = "—"
+    gmail_last_scan = "—"
+    gmail_last_found = "—"
+    gmail_last_sent = "—"
+    gmail_last_errors = "—"
+
+    if state.scheduler is not None and state.scheduler.running:
+        gmail_job = state.scheduler.get_job("check_gmail_jobs")
+        if gmail_job:
+            gmail_next_run = _fmt_dt(gmail_job.next_run_time)
+
+    if state.gmail_scan_history:
+        last = state.gmail_scan_history[-1]
+        gmail_last_scan = _fmt_dt(last.get("timestamp"))
+        gmail_last_found = str(last.get("emails_found", "—"))
+        gmail_last_sent = str(last.get("sent", "—"))
+        gmail_last_errors = str(last.get("errors", "—"))
+
+    gmail_block = (
+        "\n\n📬 <b>Gmail Agent</b>\n"
+        f"Enabled: <b>{'✅ так' if gmail_enabled else '❌ ні'}</b>\n"
+        f"Mode: <b>{gmail_mode}</b>\n"
+        f"Next scan: <b>{gmail_next_run}</b>\n"
+        f"Last scan: <b>{gmail_last_scan}</b>\n"
+        f"Found: <b>{gmail_last_found}</b>\n"
+        f"Sent: <b>{gmail_last_sent}</b>\n"
+        f"Errors: <b>{gmail_last_errors}</b>"
+    )
+
     await message.answer(
         "📊 <b>Статус бота</b>\n\n"
         f"⏱ Uptime: <b>{uptime}</b>\n"
@@ -502,6 +534,7 @@ async def cmd_status(message: Message) -> None:
         f"⬇️ Нижче порогу: <b>{_v(state.last_auto_below_min)}</b>\n"
         f"❌ Помилок: <b>{_v(state.last_auto_errors)}</b>"
         + error_line
+        + gmail_block
     )
 
 
@@ -544,9 +577,12 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
     Check Gmail connection without triggering browser OAuth flow.
     Sync — runs in executor. Never calls flow.run_local_server().
     Checks GMAIL_TOKEN_JSON env var first, falls back to token_file.
+    Returns up to 10 emails with: subject, from, date, msg_id, size_kb, links, attachments.
     """
+    import base64 as _b64
     import json as _json
     import os as _os
+    import re as _re
 
     result: dict = {"status": "unknown", "message": "", "emails": [], "job_alert_count": 0}
     try:
@@ -556,6 +592,24 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
         result["status"] = "missing_deps"
         result["message"] = "Залежності не встановлено. Запусти: pip install google-auth-oauthlib google-api-python-client"
         return result
+
+    def _extract_text(payload: dict) -> str:
+        body_data = payload.get("body", {}).get("data", "")
+        text = ""
+        if body_data:
+            try:
+                text = _b64.urlsafe_b64decode(body_data).decode("utf-8", errors="replace")
+            except Exception:
+                pass
+        for part in payload.get("parts", []):
+            text += _extract_text(part)
+        return text
+
+    def _has_attachments(payload: dict) -> bool:
+        fname = payload.get("filename", "")
+        if fname and payload.get("body", {}).get("size", 0) > 0:
+            return True
+        return any(_has_attachments(p) for p in payload.get("parts", []))
 
     try:
         scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -611,27 +665,36 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
 
         from gmail_agent.gmail_provider import _JOB_ALERT_SENDERS, _JOB_ALERT_SUBJECTS
 
-        for i, meta in enumerate(messages[:10]):
+        for meta in messages[:10]:
             raw = svc.users().messages().get(
                 userId="me",
                 id=meta["id"],
-                format="metadata",
-                metadataHeaders=["Subject", "From", "Date"],
+                format="full",
             ).execute()
+            payload = raw.get("payload", {})
             headers = {
                 h["name"].lower(): h["value"]
-                for h in raw.get("payload", {}).get("headers", [])
+                for h in payload.get("headers", [])
             }
-            sender = headers.get("from", "")
-            subject = headers.get("subject", "")
-            date = headers.get("date", "")
+            sender = headers.get("from", "—")
+            subject = headers.get("subject", "—")
+            date = headers.get("date", "—")
+            msg_id = raw.get("id", "—")
+            size_bytes = raw.get("sizeEstimate", 0)
 
-            if i < 5:
-                result["emails"].append({
-                    "subject": subject[:60] or "—",
-                    "from": sender[:45] or "—",
-                    "date": date[:30] or "—",
-                })
+            body_text = _extract_text(payload)
+            link_count = len(_re.findall(r'https?://', body_text))
+            has_att = _has_attachments(payload)
+
+            result["emails"].append({
+                "subject": subject[:60] or "—",
+                "from": sender[:50] or "—",
+                "date": date[:30] or "—",
+                "msg_id": msg_id,
+                "size_kb": round(size_bytes / 1024, 1),
+                "links": link_count,
+                "attachments": has_att,
+            })
 
             if any(s in sender.lower() for s in _JOB_ALERT_SENDERS) or \
                any(kw in subject.lower() for kw in _JOB_ALERT_SUBJECTS):
@@ -726,22 +789,28 @@ async def cmd_gmail_test(message: Message) -> None:
         return
 
     if diag["status"] == "ok":
-        result_lines = ["✅ <b>Gmail підключено!</b>\n"]
-        result_lines.append("📧 <b>Останні листи в Inbox:</b>")
-        for i, em in enumerate(diag["emails"], 1):
-            result_lines.append(
-                f"\n{i}. <b>{em['subject']}</b>\n"
-                f"   Від: {em['from']}\n"
-                f"   Дата: {em['date']}"
-            )
-        result_lines.append(
-            f"\n🎯 <b>Потенційних job alerts (з 10 нових): {diag['job_alert_count']}</b>"
-        )
+        header_lines = [
+            "✅ <b>Gmail підключено!</b>\n",
+            f"📬 Листів в Inbox: <b>{len(diag['emails'])}</b>",
+            f"🎯 Потенційних job alerts: <b>{diag['job_alert_count']}</b>",
+        ]
         if diag["job_alert_count"] == 0:
-            result_lines.append(
-                "💡 Підпишись на email-сповіщення на Freelancehunt/Work.ua/Upwork"
+            header_lines.append("💡 Підпишись на email-сповіщення на Freelancehunt/Work.ua/Upwork")
+        await message.answer("\n".join(header_lines))
+
+        for i, em in enumerate(diag["emails"], 1):
+            att_str = "yes" if em["attachments"] else "no"
+            card = (
+                f"📧 <b>Email #{i}</b>\n\n"
+                f"From: <code>{em['from']}</code>\n"
+                f"Subject: {em['subject']}\n"
+                f"Date: {em['date']}\n"
+                f"ID: <code>{em['msg_id']}</code>\n"
+                f"Size: {em['size_kb']} KB\n"
+                f"Links: {em['links']}\n"
+                f"Attachments: {att_str}"
             )
-        await message.answer("\n".join(result_lines))
+            await message.answer(card)
     else:
         status_labels = {
             "missing_deps": "❌ Відсутні залежності",
@@ -787,12 +856,18 @@ async def cmd_gmail_scan(message: Message) -> None:
 
         stats = await processor.run()
 
+        new_count = stats.emails_fetched - stats.duplicates_skipped
+        analyzed_count = max(0, new_count - stats.not_relevant)
+
         summary = (
             f"✅ <b>Gmail scan завершено</b>\n\n"
-            f"📬 Знайдено листів: <b>{stats.emails_fetched}</b>\n"
-            f"♻️ Дублікатів (вже оброблено): <b>{stats.duplicates_skipped}</b>\n"
+            f"📊 <b>Gmail Scan Details</b>\n\n"
+            f"📬 Всього листів: <b>{stats.emails_fetched}</b>\n"
+            f"🆕 Нових листів: <b>{new_count}</b>\n"
+            f"♻️ Дублікатів: <b>{stats.duplicates_skipped}</b>\n"
             f"🚫 Нерелевантних: <b>{stats.not_relevant}</b>\n"
-            f"⬇️ Нижче порогу score &lt; {settings.GMAIL_MIN_SCORE}: <b>{stats.below_threshold}</b>\n"
+            f"🎯 Пройшли аналіз (job alerts): <b>{analyzed_count}</b>\n"
+            f"⬇️ Нижче порогу score ({settings.GMAIL_MIN_SCORE}): <b>{stats.below_threshold}</b>\n"
             f"📨 Відправлено в Telegram: <b>{stats.sent}</b>\n"
             f"❌ Помилок: <b>{stats.errors}</b>"
         )
@@ -804,6 +879,183 @@ async def cmd_gmail_scan(message: Message) -> None:
 
         await message.answer(summary)
 
+        # Stage 3: Show first 5 rejected (not_relevant) emails
+        if stats.rejected_samples:
+            rej_lines = [f"❌ <b>Відхилені (нерелевантні) — перші {len(stats.rejected_samples)}:</b>"]
+            for r in stats.rejected_samples:
+                rej_lines.append(
+                    f"\n❌ <b>Ignored</b>\n"
+                    f"From: <code>{r['from']}</code>\n"
+                    f"Subject: {r['subject']}\n"
+                    f"Reason: {r['reason']}"
+                )
+                rej_lines.append("—" * 20)
+            await message.answer("\n".join(rej_lines))
+
+        # Stage 4: Show first 5 below-score emails
+        if stats.below_score_samples:
+            low_lines = [f"⚠️ <b>Нижче порогу score — перші {len(stats.below_score_samples)}:</b>"]
+            for s in stats.below_score_samples:
+                low_lines.append(
+                    f"\n⚠️ <b>Below Score Threshold</b>\n"
+                    f"Subject: {s['subject']}\n"
+                    f"Score: {s['score']:.1f}\n"
+                    f"Reason: {s['reason']}"
+                )
+                low_lines.append("—" * 20)
+            await message.answer("\n".join(low_lines))
+
+        # Stage 5: Show passed jobs
+        if stats.sent_analyses:
+            pass_lines = [f"✅ <b>Відправлено в Telegram — {len(stats.sent_analyses)}:</b>"]
+            for a in stats.sent_analyses[:5]:
+                pass_lines.append(
+                    f"\n✅ <b>Passed</b>\n"
+                    f"Subject: {a.title}\n"
+                    f"Score: {a.score_display}\n"
+                    f"Budget: {a.budget or '—'}\n"
+                    f"URL: {a.url or '—'}\n"
+                    f"Reason: {a.reason}"
+                )
+                pass_lines.append("—" * 20)
+            await message.answer("\n".join(pass_lines))
+
+        # Stage 6: Save to scan history
+        import state as _state
+        _state.gmail_scan_history.append({
+            "timestamp": datetime.utcnow(),
+            "emails_found": stats.emails_fetched,
+            "relevant": analyzed_count,
+            "sent": stats.sent,
+            "errors": stats.errors,
+        })
+        if len(_state.gmail_scan_history) > 20:
+            _state.gmail_scan_history = _state.gmail_scan_history[-20:]
+
     except Exception as exc:
         logger.exception("gmail_scan failed")
         await message.answer(f"❌ Помилка gmail scan:\n<code>{exc}</code>")
+
+
+# ─── /gmail_history ───────────────────────────────────────────────────────────
+
+@admin_router.message(Command("gmail_history"))
+async def cmd_gmail_history(message: Message) -> None:
+    import state as _state
+
+    history = _state.gmail_scan_history
+    if not history:
+        await message.answer(
+            "📋 <b>Gmail Scan History</b>\n\nІсторія порожня. Запусти /gmail_scan спочатку."
+        )
+        return
+
+    lines = [f"📋 <b>Gmail Scan History</b> (останні {len(history)})\n"]
+    for i, entry in enumerate(reversed(history[-20:]), 1):
+        ts = entry["timestamp"].strftime("%d.%m %H:%M")
+        lines.append(
+            f"{i}. <b>{ts}</b> — "
+            f"листів: {entry['emails_found']}, "
+            f"job alerts: {entry['relevant']}, "
+            f"відправлено: {entry['sent']}, "
+            f"помилок: {entry['errors']}"
+        )
+    await message.answer("\n".join(lines))
+
+
+# ─── /gmail_debug ─────────────────────────────────────────────────────────────
+
+@admin_router.message(Command("gmail_debug"))
+async def cmd_gmail_debug(message: Message) -> None:
+    if not settings.GMAIL_ENABLED:
+        await message.answer(
+            "⚠️ Gmail агент вимкнено.\n"
+            "Встанови <code>GMAIL_ENABLED=true</code>."
+        )
+        return
+
+    mode = "MOCK" if settings.GMAIL_USE_MOCK else "REAL Gmail"
+    await message.answer(
+        f"🔍 <b>Gmail Debug (dry-run)</b>\n"
+        f"Режим: <b>{mode}</b>\n"
+        f"⚠️ Нічого не відправляється в Telegram"
+    )
+
+    try:
+        from gmail_agent.gmail_provider import build_provider
+        from gmail_agent.processor import GmailJobProcessor
+
+        mock_emails = None
+        if settings.GMAIL_USE_MOCK:
+            from gmail_agent.tests.mock_emails import ALL_MOCK_EMAILS
+            mock_emails = ALL_MOCK_EMAILS
+
+        provider = build_provider(
+            use_mock=settings.GMAIL_USE_MOCK,
+            mock_emails=mock_emails,
+            credentials_file=settings.GMAIL_CREDENTIALS_FILE,
+            token_file=settings.GMAIL_TOKEN_FILE,
+        )
+
+        processor = GmailJobProcessor(
+            provider=provider,
+            bot=message.bot,
+            chat_id=settings.TELEGRAM_CHAT_ID,
+            min_score=settings.GMAIL_MIN_SCORE,
+        )
+
+        results = await processor.run_debug(max_emails=20)
+
+        if not results:
+            await message.answer("📭 Листів не знайдено.")
+            return
+
+        await message.answer(f"📊 <b>Gmail Debug — {len(results)} листів</b>\n(score threshold: {settings.GMAIL_MIN_SCORE})")
+
+        for i, r in enumerate(results, 1):
+            if r.get("error"):
+                card = (
+                    f"<b>#{i} ❌ ПОМИЛКА</b>\n"
+                    f"Subject: {r.get('subject', '—')}\n"
+                    f"Error: <code>{r['error']}</code>"
+                )
+            elif r.get("is_duplicate"):
+                card = (
+                    f"<b>#{i} ♻️ ДУБЛІКАТ</b>\n"
+                    f"From: {(r.get('from') or '—')[:40]}\n"
+                    f"Subject: {r.get('subject', '—')}\n"
+                    f"Date: {r.get('date', '—')}"
+                )
+            elif r.get("is_relevant") is False:
+                card = (
+                    f"<b>#{i} ❌ НЕ РЕЛЕВАНТНО</b>\n"
+                    f"From: {(r.get('from') or '—')[:40]}\n"
+                    f"Subject: {r.get('subject', '—')}\n"
+                    f"Date: {r.get('date', '—')}\n"
+                    f"Reason: {r.get('reason') or '—'}"
+                )
+            elif r.get("passed"):
+                score = r.get("score") or 0.0
+                card = (
+                    f"<b>#{i} ✅ ПРОЙШОВ</b>\n"
+                    f"From: {(r.get('from') or '—')[:40]}\n"
+                    f"Subject: {r.get('subject', '—')}\n"
+                    f"Date: {r.get('date', '—')}\n"
+                    f"Score: {score:.1f}/10\n"
+                    f"Reason: {r.get('reason') or '—'}"
+                )
+            else:
+                score = r.get("score") or 0.0
+                card = (
+                    f"<b>#{i} ⚠️ НИЖЧЕ ПОРОГУ</b>\n"
+                    f"From: {(r.get('from') or '—')[:40]}\n"
+                    f"Subject: {r.get('subject', '—')}\n"
+                    f"Date: {r.get('date', '—')}\n"
+                    f"Score: {score:.1f}/10 (мін: {settings.GMAIL_MIN_SCORE})\n"
+                    f"Reason: {r.get('reason') or '—'}"
+                )
+            await message.answer(card)
+
+    except Exception as exc:
+        logger.exception("gmail_debug failed")
+        await message.answer(f"❌ Помилка gmail_debug:\n<code>{exc}</code>")
