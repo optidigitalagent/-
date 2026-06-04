@@ -8,4 +8,4 @@ venv/
 *.log
 
 credentials.json
-gmail_token.json
+gmail_token*.json
