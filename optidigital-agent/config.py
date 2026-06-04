@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     GMAIL_USE_MOCK: bool = True
     GMAIL_CREDENTIALS_FILE: str = "credentials.json"
     GMAIL_TOKEN_FILE: str = "gmail_token.json"
+    GMAIL_CREDENTIALS_JSON: Optional[str] = None  # Railway-safe: JSON content
+    GMAIL_TOKEN_JSON: Optional[str] = None        # Railway-safe: JSON content
     GMAIL_MIN_SCORE: float = 6.0
     GMAIL_CHECK_INTERVAL_MINUTES: int = 30
 

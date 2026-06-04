@@ -543,7 +543,11 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
     """
     Check Gmail connection without triggering browser OAuth flow.
     Sync — runs in executor. Never calls flow.run_local_server().
+    Checks GMAIL_TOKEN_JSON env var first, falls back to token_file.
     """
+    import json as _json
+    import os as _os
+
     result: dict = {"status": "unknown", "message": "", "emails": [], "job_alert_count": 0}
     try:
         from google.oauth2.credentials import Credentials
@@ -555,21 +559,45 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
 
     try:
         scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
-        creds = Credentials.from_authorized_user_file(token_file, scopes)
+        token_json_env = _os.getenv("GMAIL_TOKEN_JSON")
+        _from_env = False
+
+        if token_json_env:
+            try:
+                creds = Credentials.from_authorized_user_info(
+                    _json.loads(token_json_env), scopes
+                )
+                _from_env = True
+            except Exception as exc:
+                result["status"] = "error"
+                result["message"] = f"Invalid GMAIL_TOKEN_JSON: {exc}"
+                return result
+        elif _os.path.exists(token_file):
+            creds = Credentials.from_authorized_user_file(token_file, scopes)
+        else:
+            result["status"] = "no_token"
+            result["message"] = (
+                "Токен не знайдено.\n"
+                "На Railway: встанови GMAIL_TOKEN_JSON\n"
+                "Локально: запусти OAuth flow та збережи gmail_token.json"
+            )
+            return result
 
         if not creds.valid:
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                with open(token_file, "w") as f:
-                    f.write(creds.to_json())
+                if not _from_env:
+                    try:
+                        with open(token_file, "w") as f:
+                            f.write(creds.to_json())
+                    except OSError:
+                        pass
             else:
                 result["status"] = "need_reauth"
                 result["message"] = (
                     "Токен недійсний або прострочений без refresh_token.\n"
-                    "Потрібна повторна авторизація локально:\n"
-                    "1. Встанови GMAIL_USE_MOCK=false локально\n"
-                    "2. Запусти бот — відкриється браузер\n"
-                    "3. Завантаж оновлений gmail_token.json на сервер"
+                    "Запусти OAuth локально, отримай новий token.json,\n"
+                    "встанови GMAIL_TOKEN_JSON на Railway."
                 )
                 return result
 
@@ -621,25 +649,33 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
 @admin_router.message(Command("gmail_test"))
 async def cmd_gmail_test(message: Message) -> None:
     import asyncio
+    import os as _os
     from pathlib import Path
 
     lines = ["🔍 <b>Gmail Agent — Діагностика</b>\n"]
     lines.append(f"GMAIL_ENABLED: <code>{'true' if settings.GMAIL_ENABLED else 'false'}</code>")
     lines.append(f"GMAIL_USE_MOCK: <code>{'true' if settings.GMAIL_USE_MOCK else 'false'}</code>")
     lines.append(f"GMAIL_MIN_SCORE: <code>{settings.GMAIL_MIN_SCORE}</code>")
-    lines.append(f"GMAIL_CHECK_INTERVAL: <code>{settings.GMAIL_CHECK_INTERVAL_MINUTES} хв</code>\n")
+    lines.append(f"GMAIL_CHECK_INTERVAL: <code>{settings.GMAIL_CHECK_INTERVAL_MINUTES} хв</code>")
 
     creds_file = settings.GMAIL_CREDENTIALS_FILE
     token_file = settings.GMAIL_TOKEN_FILE
     creds_exists = Path(creds_file).exists()
     token_exists = Path(token_file).exists()
+    creds_json_set = bool(_os.getenv("GMAIL_CREDENTIALS_JSON"))
+    token_json_set = bool(_os.getenv("GMAIL_TOKEN_JSON"))
 
+    lines.append("\n<b>Railway env vars:</b>")
+    lines.append(f"GMAIL_CREDENTIALS_JSON: {'✅ set' if creds_json_set else '❌ missing'}")
+    lines.append(f"GMAIL_TOKEN_JSON: {'✅ set' if token_json_set else '❌ missing'}")
+
+    lines.append("\n<b>File fallback:</b>")
     lines.append(
-        f"credentials.json: {'✅ знайдено' if creds_exists else '❌ відсутній'} "
+        f"credentials file: {'✅ знайдено' if creds_exists else '❌ відсутній'} "
         f"(<code>{creds_file}</code>)"
     )
     lines.append(
-        f"token.json: {'✅ знайдено' if token_exists else '❌ відсутній'} "
+        f"token file: {'✅ знайдено' if token_exists else '❌ відсутній'} "
         f"(<code>{token_file}</code>)"
     )
 
@@ -654,23 +690,25 @@ async def cmd_gmail_test(message: Message) -> None:
         await message.answer("\n".join(lines))
         return
 
-    if not creds_exists:
+    if not creds_json_set and not creds_exists:
         lines.append(
-            "\n❌ <b>credentials.json не знайдено.</b>\n"
-            "Отримай в Google Cloud Console:\n"
-            "APIs &amp; Services → Credentials → OAuth 2.0 → Desktop app → Download JSON"
+            "\n❌ <b>Credentials не налаштовано.</b>\n"
+            "Railway: встанови <code>GMAIL_CREDENTIALS_JSON</code> (вміст credentials.json)\n"
+            "Локально: завантаж credentials.json з Google Cloud Console\n"
+            "(APIs &amp; Services → Credentials → OAuth 2.0 → Desktop app → Download JSON)"
         )
         await message.answer("\n".join(lines))
         return
 
-    if not token_exists:
+    if not token_json_set and not token_exists:
         lines.append(
-            "\n⚠️ <b>gmail_token.json не знайдено.</b>\n"
-            "Потрібна перша авторизація:\n"
+            "\n⚠️ <b>Token не знайдено.</b>\n"
+            "Railway: встанови <code>GMAIL_TOKEN_JSON</code> (вміст gmail_token.json)\n"
+            "Для отримання токену:\n"
             "1. Локально: <code>GMAIL_ENABLED=true</code>, <code>GMAIL_USE_MOCK=false</code>\n"
             "2. Запусти бот — браузер відкриється\n"
-            "3. Увійди в Google — token.json збережеться\n"
-            "4. Завантаж <code>gmail_token.json</code> на сервер"
+            "3. Увійди в Google — збережеться gmail_token.json\n"
+            "4. Скопіюй вміст у <code>GMAIL_TOKEN_JSON</code> на Railway"
         )
         await message.answer("\n".join(lines))
         return

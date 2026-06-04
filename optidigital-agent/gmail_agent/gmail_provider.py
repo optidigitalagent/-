@@ -88,16 +88,16 @@ class RealGmailProvider(GmailProvider):
     """
     Reads job alert emails from Gmail via OAuth2 API.
 
-    Requires:
-        GMAIL_CREDENTIALS_FILE — path to Google OAuth2 credentials JSON
-        GMAIL_TOKEN_FILE — path to token storage file (created on first auth)
+    Railway-safe (env vars take priority over files):
+        GMAIL_TOKEN_JSON       — full JSON content of OAuth2 token
+        GMAIL_CREDENTIALS_JSON — full JSON content of OAuth2 credentials (for reference)
 
-    Setup:
-        1. Go to Google Cloud Console → Create project
-        2. Enable Gmail API
-        3. Create OAuth2 credentials (Desktop app)
-        4. Download as credentials.json
-        5. On first run: browser opens for auth, token saved to GMAIL_TOKEN_FILE
+    File fallback (local development):
+        GMAIL_CREDENTIALS_FILE — path to credentials JSON file
+        GMAIL_TOKEN_FILE       — path to token JSON file
+
+    OAuth browser flow (run_local_server) is never triggered automatically.
+    Generate a token locally first, then set GMAIL_TOKEN_JSON on Railway.
     """
 
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -112,7 +112,6 @@ class RealGmailProvider(GmailProvider):
         try:
             from google.auth.transport.requests import Request
             from google.oauth2.credentials import Credentials
-            from google_auth_oauthlib.flow import InstalledAppFlow
             from googleapiclient.discovery import build
         except ImportError:
             raise RuntimeError(
@@ -120,21 +119,40 @@ class RealGmailProvider(GmailProvider):
                 "Run: pip install google-auth-oauthlib google-api-python-client"
             )
 
-        creds = None
         import os
-        if os.path.exists(self._token_file):
+        token_json_env = os.getenv("GMAIL_TOKEN_JSON")
+
+        creds = None
+        _from_env = False
+
+        if token_json_env:
+            try:
+                creds = Credentials.from_authorized_user_info(
+                    json.loads(token_json_env), self.SCOPES
+                )
+                _from_env = True
+            except Exception as exc:
+                raise RuntimeError(f"Invalid GMAIL_TOKEN_JSON: {exc}") from exc
+        elif os.path.exists(self._token_file):
             creds = Credentials.from_authorized_user_file(self._token_file, self.SCOPES)
 
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
+        if creds and not creds.valid:
+            if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+                if not _from_env:
+                    try:
+                        with open(self._token_file, "w") as f:
+                            f.write(creds.to_json())
+                    except OSError:
+                        logger.warning("Could not save refreshed token to %s", self._token_file)
             else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    self._credentials_file, self.SCOPES
-                )
-                creds = flow.run_local_server(port=0)
-            with open(self._token_file, "w") as f:
-                f.write(creds.to_json())
+                creds = None
+
+        if not creds or not creds.valid:
+            raise RuntimeError(
+                "Real Gmail requires valid GMAIL_TOKEN_JSON on server. "
+                "Run OAuth locally first."
+            )
 
         return build("gmail", "v1", credentials=creds)
 
