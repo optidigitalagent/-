@@ -66,6 +66,19 @@ async def on_startup() -> None:
     state.playwright_ok = await _check_playwright()
     logger.info("OptiDigital Agent started ✅")
     _scheduler = setup_scheduler(bot)
+
+    # Register Gmail job if enabled
+    if settings.GMAIL_ENABLED:
+        from gmail_agent.scheduler import register_gmail_job
+        register_gmail_job(
+            _scheduler,
+            bot,
+            interval_minutes=settings.GMAIL_CHECK_INTERVAL_MINUTES,
+        )
+        logger.info("Gmail agent enabled: check every %d min", settings.GMAIL_CHECK_INTERVAL_MINUTES)
+    else:
+        logger.info("Gmail agent disabled (GMAIL_ENABLED=false)")
+
     _scheduler.start()
     state.scheduler = _scheduler
     logger.info("Scheduler running (check every 1 hour, daily report 09:00 Kyiv, weekly report Sun 09:00 Kyiv).")

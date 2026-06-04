@@ -6,3 +6,6 @@ __pycache__/
 venv/
 .idea/
 *.log
+
+credentials.json
+gmail_token.json

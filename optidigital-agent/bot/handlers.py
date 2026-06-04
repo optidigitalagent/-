@@ -262,6 +262,77 @@ async def cmd_reply(message: Message) -> None:
     )
 
 
+# ─── Gmail agent commands (/reply_job, /skip_job) ────────────────────────────
+
+_gmail_job_store: dict[str, dict] = {}
+
+
+def register_gmail_job_analysis(analysis_dict: dict) -> None:
+    """Called by gmail_agent.processor to register analyses for /reply_job."""
+    _gmail_job_store[str(analysis_dict["email_id"])] = analysis_dict
+
+
+@router.message(Command("reply_job"))
+async def cmd_reply_job(message: Message) -> None:
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2:
+        await message.answer(
+            "❌ Використання: <code>/reply_job &lt;email_id&gt;</code>"
+        )
+        return
+
+    job_id = raw[1].strip()
+    job = _gmail_job_store.get(job_id)
+
+    if not job:
+        await message.answer(
+            f"❌ Замовлення <code>{job_id}</code> не знайдено.\n"
+            "Можливо, воно вже застаріло або бот перезапускався."
+        )
+        return
+
+    await message.answer(f"⏳ Генерую відгук для <b>{job.get('title', job_id)}</b>…")
+
+    import sys, os
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from gmail_agent.reply_generator import generate_reply
+
+    text = await generate_reply(
+        title=job.get("title", ""),
+        description=job.get("reason", "") + "\n" + job.get("why_relevant", ""),
+        platform=job.get("platform", ""),
+        budget=job.get("budget", "не вказано"),
+        url=job.get("url", ""),
+    )
+
+    if not text:
+        await message.answer("❌ Не вдалося згенерувати відгук. Спробуй ще раз.")
+        return
+
+    url = job.get("url", "")
+    link = f'\n\n🔗 <a href="{url}">Відкрити замовлення</a>' if url else ""
+    await message.answer(
+        f"📝 <b>Відгук для {job.get('platform', '')} — {job.get('title', job_id)}:</b>\n\n"
+        f"{text}"
+        f"{link}"
+    )
+
+
+@router.message(Command("skip_job"))
+async def cmd_skip_job(message: Message) -> None:
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2:
+        await message.answer("❌ Використання: <code>/skip_job &lt;email_id&gt;</code>")
+        return
+
+    job_id = raw[1].strip()
+    if job_id in _gmail_job_store:
+        del _gmail_job_store[job_id]
+        await message.answer(f"✅ Замовлення <code>{job_id}</code> пропущено.")
+    else:
+        await message.answer(f"⚠️ Замовлення <code>{job_id}</code> не знайдено (вже пропущено або не існує).")
+
+
 # ─── Admin commands ───────────────────────────────────────────────────────────
 
 def _fmt_dt(dt: datetime | None) -> str:
@@ -464,3 +535,237 @@ async def cmd_testua(message: Message) -> None:
     except Exception as exc:
         logger.exception("Admin /testua failed")
         await message.answer(f"❌ Помилка FreelanceUA parser:\n<code>{exc}</code>")
+
+
+# ─── /gmail_test ──────────────────────────────────────────────────────────────
+
+def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
+    """
+    Check Gmail connection without triggering browser OAuth flow.
+    Sync — runs in executor. Never calls flow.run_local_server().
+    """
+    result: dict = {"status": "unknown", "message": "", "emails": [], "job_alert_count": 0}
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+    except ImportError:
+        result["status"] = "missing_deps"
+        result["message"] = "Залежності не встановлено. Запусти: pip install google-auth-oauthlib google-api-python-client"
+        return result
+
+    try:
+        scopes = ["https://www.googleapis.com/auth/gmail.readonly"]
+        creds = Credentials.from_authorized_user_file(token_file, scopes)
+
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                with open(token_file, "w") as f:
+                    f.write(creds.to_json())
+            else:
+                result["status"] = "need_reauth"
+                result["message"] = (
+                    "Токен недійсний або прострочений без refresh_token.\n"
+                    "Потрібна повторна авторизація локально:\n"
+                    "1. Встанови GMAIL_USE_MOCK=false локально\n"
+                    "2. Запусти бот — відкриється браузер\n"
+                    "3. Завантаж оновлений gmail_token.json на сервер"
+                )
+                return result
+
+        from googleapiclient.discovery import build
+        svc = build("gmail", "v1", credentials=creds)
+
+        resp = svc.users().messages().list(
+            userId="me", labelIds=["INBOX"], maxResults=10
+        ).execute()
+        messages = resp.get("messages", [])
+
+        from gmail_agent.gmail_provider import _JOB_ALERT_SENDERS, _JOB_ALERT_SUBJECTS
+
+        for i, meta in enumerate(messages[:10]):
+            raw = svc.users().messages().get(
+                userId="me",
+                id=meta["id"],
+                format="metadata",
+                metadataHeaders=["Subject", "From", "Date"],
+            ).execute()
+            headers = {
+                h["name"].lower(): h["value"]
+                for h in raw.get("payload", {}).get("headers", [])
+            }
+            sender = headers.get("from", "")
+            subject = headers.get("subject", "")
+            date = headers.get("date", "")
+
+            if i < 5:
+                result["emails"].append({
+                    "subject": subject[:60] or "—",
+                    "from": sender[:45] or "—",
+                    "date": date[:30] or "—",
+                })
+
+            if any(s in sender.lower() for s in _JOB_ALERT_SENDERS) or \
+               any(kw in subject.lower() for kw in _JOB_ALERT_SUBJECTS):
+                result["job_alert_count"] += 1
+
+        result["status"] = "ok"
+        return result
+
+    except Exception as exc:
+        result["status"] = "error"
+        result["message"] = str(exc)
+        return result
+
+
+@admin_router.message(Command("gmail_test"))
+async def cmd_gmail_test(message: Message) -> None:
+    import asyncio
+    from pathlib import Path
+
+    lines = ["🔍 <b>Gmail Agent — Діагностика</b>\n"]
+    lines.append(f"GMAIL_ENABLED: <code>{'true' if settings.GMAIL_ENABLED else 'false'}</code>")
+    lines.append(f"GMAIL_USE_MOCK: <code>{'true' if settings.GMAIL_USE_MOCK else 'false'}</code>")
+    lines.append(f"GMAIL_MIN_SCORE: <code>{settings.GMAIL_MIN_SCORE}</code>")
+    lines.append(f"GMAIL_CHECK_INTERVAL: <code>{settings.GMAIL_CHECK_INTERVAL_MINUTES} хв</code>\n")
+
+    creds_file = settings.GMAIL_CREDENTIALS_FILE
+    token_file = settings.GMAIL_TOKEN_FILE
+    creds_exists = Path(creds_file).exists()
+    token_exists = Path(token_file).exists()
+
+    lines.append(
+        f"credentials.json: {'✅ знайдено' if creds_exists else '❌ відсутній'} "
+        f"(<code>{creds_file}</code>)"
+    )
+    lines.append(
+        f"token.json: {'✅ знайдено' if token_exists else '❌ відсутній'} "
+        f"(<code>{token_file}</code>)"
+    )
+
+    if not settings.GMAIL_ENABLED:
+        lines.append("\n⚠️ Gmail агент вимкнено. Встанови <code>GMAIL_ENABLED=true</code>.")
+        await message.answer("\n".join(lines))
+        return
+
+    if settings.GMAIL_USE_MOCK:
+        lines.append("\n📋 Режим: <b>MOCK</b> — реальний Gmail не використовується.")
+        lines.append("Для реального Gmail: <code>GMAIL_USE_MOCK=false</code>")
+        await message.answer("\n".join(lines))
+        return
+
+    if not creds_exists:
+        lines.append(
+            "\n❌ <b>credentials.json не знайдено.</b>\n"
+            "Отримай в Google Cloud Console:\n"
+            "APIs &amp; Services → Credentials → OAuth 2.0 → Desktop app → Download JSON"
+        )
+        await message.answer("\n".join(lines))
+        return
+
+    if not token_exists:
+        lines.append(
+            "\n⚠️ <b>gmail_token.json не знайдено.</b>\n"
+            "Потрібна перша авторизація:\n"
+            "1. Локально: <code>GMAIL_ENABLED=true</code>, <code>GMAIL_USE_MOCK=false</code>\n"
+            "2. Запусти бот — браузер відкриється\n"
+            "3. Увійди в Google — token.json збережеться\n"
+            "4. Завантаж <code>gmail_token.json</code> на сервер"
+        )
+        await message.answer("\n".join(lines))
+        return
+
+    await message.answer("\n".join(lines) + "\n\n⏳ Підключення до Gmail...")
+
+    try:
+        loop = asyncio.get_running_loop()
+        diag = await asyncio.wait_for(
+            loop.run_in_executor(None, _diagnose_gmail_connection, creds_file, token_file),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        await message.answer("⏱ Timeout (30с) при підключенні до Gmail. Перевір credentials.")
+        return
+
+    if diag["status"] == "ok":
+        result_lines = ["✅ <b>Gmail підключено!</b>\n"]
+        result_lines.append("📧 <b>Останні листи в Inbox:</b>")
+        for i, em in enumerate(diag["emails"], 1):
+            result_lines.append(
+                f"\n{i}. <b>{em['subject']}</b>\n"
+                f"   Від: {em['from']}\n"
+                f"   Дата: {em['date']}"
+            )
+        result_lines.append(
+            f"\n🎯 <b>Потенційних job alerts (з 10 нових): {diag['job_alert_count']}</b>"
+        )
+        if diag["job_alert_count"] == 0:
+            result_lines.append(
+                "💡 Підпишись на email-сповіщення на Freelancehunt/Work.ua/Upwork"
+            )
+        await message.answer("\n".join(result_lines))
+    else:
+        status_labels = {
+            "missing_deps": "❌ Відсутні залежності",
+            "need_reauth": "⚠️ Потрібна повторна авторизація",
+            "invalid": "❌ Токен недійсний",
+            "error": "❌ Помилка підключення",
+        }
+        label = status_labels.get(diag["status"], "❌ Помилка")
+        await message.answer(f"{label}:\n\n{diag['message']}")
+
+
+
+# ─── /gmail_scan ──────────────────────────────────────────────────────────────
+
+@admin_router.message(Command("gmail_scan"))
+async def cmd_gmail_scan(message: Message) -> None:
+    if not settings.GMAIL_ENABLED:
+        await message.answer(
+            "⚠️ Gmail агент вимкнено.\n"
+            "Встанови <code>GMAIL_ENABLED=true</code> в .env для активації."
+        )
+        return
+
+    mode = "MOCK" if settings.GMAIL_USE_MOCK else "REAL Gmail"
+    await message.answer(f"⏳ <b>Gmail scan запущено...</b>\nРежим: <b>{mode}</b>")
+
+    try:
+        from gmail_agent.gmail_provider import build_provider
+        from gmail_agent.processor import GmailJobProcessor
+
+        provider = build_provider(
+            use_mock=settings.GMAIL_USE_MOCK,
+            credentials_file=settings.GMAIL_CREDENTIALS_FILE,
+            token_file=settings.GMAIL_TOKEN_FILE,
+        )
+
+        processor = GmailJobProcessor(
+            provider=provider,
+            bot=message.bot,
+            chat_id=settings.TELEGRAM_CHAT_ID,
+            min_score=settings.GMAIL_MIN_SCORE,
+        )
+
+        stats = await processor.run()
+
+        summary = (
+            f"✅ <b>Gmail scan завершено</b>\n\n"
+            f"📬 Знайдено листів: <b>{stats.emails_fetched}</b>\n"
+            f"♻️ Дублікатів (вже оброблено): <b>{stats.duplicates_skipped}</b>\n"
+            f"🚫 Нерелевантних: <b>{stats.not_relevant}</b>\n"
+            f"⬇️ Нижче порогу score &lt; {settings.GMAIL_MIN_SCORE}: <b>{stats.below_threshold}</b>\n"
+            f"📨 Відправлено в Telegram: <b>{stats.sent}</b>\n"
+            f"❌ Помилок: <b>{stats.errors}</b>"
+        )
+
+        if stats.emails_fetched == 0:
+            summary += "\n\n📭 Inbox порожній або немає нових листів."
+        elif stats.sent == 0 and stats.emails_fetched > 0:
+            summary += "\n\n💡 Листи знайдено, але жоден не пройшов фільтр."
+
+        await message.answer(summary)
+
+    except Exception as exc:
+        logger.exception("gmail_scan failed")
+        await message.answer(f"❌ Помилка gmail scan:\n<code>{exc}</code>")

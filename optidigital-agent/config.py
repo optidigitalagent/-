@@ -13,6 +13,14 @@ class Settings(BaseSettings):
     FREELANCEHUNT_TOKEN: str
     DATABASE_URL: str
 
+    # Gmail agent settings (all optional — disabled by default)
+    GMAIL_ENABLED: bool = False
+    GMAIL_USE_MOCK: bool = True
+    GMAIL_CREDENTIALS_FILE: str = "credentials.json"
+    GMAIL_TOKEN_FILE: str = "gmail_token.json"
+    GMAIL_MIN_SCORE: float = 6.0
+    GMAIL_CHECK_INTERVAL_MINUTES: int = 30
+
     @property
     def admin_chat_id(self) -> int:
         return self.ADMIN_CHAT_ID if self.ADMIN_CHAT_ID is not None else self.TELEGRAM_CHAT_ID
