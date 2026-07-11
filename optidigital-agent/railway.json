@@ -1,6 +1,6 @@
 {
   "build": {
-    "builder": "nixpacks",
+    "builder": "RAILPACK",
     "buildCommand": "python -m playwright install chromium --with-deps"
   },
   "deploy": {
