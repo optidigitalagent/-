@@ -61,7 +61,7 @@ async def send_job_card(
     bot: Any,
     chat_id: int,
     analysis: JobAnalysis,
-) -> None:
+) -> bool:
     text = format_job_card(analysis)
     try:
         await bot.send_message(
@@ -73,7 +73,9 @@ async def send_job_card(
             "Sent job card to Telegram: email_id=%s score=%.1f title=%r",
             analysis.email_id, analysis.score, analysis.title,
         )
+        return True
     except Exception:
         logger.exception(
             "Failed to send job card: email_id=%s", analysis.email_id
         )
+        return False

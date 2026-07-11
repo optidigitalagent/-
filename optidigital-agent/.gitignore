@@ -9,6 +9,7 @@ venv/
 
 credentials.json
 gmail_token*.json
+gmail_jobs.json
 
 ../credentials.json
 credentials.json

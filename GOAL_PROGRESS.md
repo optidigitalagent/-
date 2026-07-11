@@ -242,3 +242,31 @@ token.json: ✅ знайдено
 - [ ] Лог: `fetched=N sent=1 errors=0`
 - [ ] Дублікат не надсилається повторно
 - [ ] /reply_job генерує відгук
+
+---
+
+## 2026-07-09 Gmail auto-scan incident
+
+- Symptom: Telegram reported `Gmail Auto Scan errors` with `fetched=0 sent=0 errors=1` every hour.
+- Reproduced locally with the real Gmail provider: `RefreshError invalid_grant`.
+- Root cause: the Gmail OAuth refresh token is no longer accepted by Google. The local `gmail_token.json` access token expired on 2026-06-04, and refresh now fails.
+- Code fix: `RealGmailProvider` now converts `invalid_grant` into clear reauthorization instructions.
+- Code fix: `ProcessorStats` now carries `error_details`.
+- Code fix: auto scan and `/gmail_scan` now show error details instead of only `errors=1`.
+- Code fix: Gmail scheduler now reads config from `config.settings`, keeping `.env` and Railway env parsing consistent.
+- Proof: `python -m unittest gmail_agent.tests.test_dedup gmail_agent.tests.test_analyzer gmail_agent.tests.test_processor gmail_agent.tests.test_diagnostics -v` -> 34 tests OK.
+- Proof: `python -m py_compile gmail_agent\gmail_provider.py gmail_agent\processor.py gmail_agent\scheduler.py bot\handlers.py` -> OK.
+- Remaining manual action: run OAuth login and update Railway `GMAIL_TOKEN_JSON` with the new `gmail_token.json` content.
+
+---
+
+## 2026-07-11 Codex migration hardening
+
+- Verified local real Gmail API path with `gmail_token.json`: provider connected successfully and returned `fetched_job_alerts=0` from the checked inbox window, with no OAuth/API error.
+- Code fix: `send_job_card()` now returns success/failure instead of silently swallowing Telegram errors.
+- Code fix: `GmailJobProcessor` no longer marks a high-score relevant email as processed until the Telegram card is actually sent. If Telegram is down, the email remains retryable on the next scan.
+- Code fix: Gmail job analyses are persisted in `gmail_agent/gmail_jobs.json` via `gmail_agent/job_store.py`, so `/reply_job <email_id>` can recover after a normal process restart instead of relying only on in-memory `_gmail_job_store`.
+- Code fix: `gmail_jobs.json` is ignored by git as runtime state.
+- Test coverage added: Telegram send failure is not deduped, and persistent job store save/get/delete behavior is covered.
+- Proof: `python -m unittest gmail_agent.tests.test_dedup gmail_agent.tests.test_analyzer gmail_agent.tests.test_processor gmail_agent.tests.test_diagnostics gmail_agent.tests.test_job_store -v` -> 37 tests OK.
+- Proof: `python -m py_compile gmail_agent\gmail_provider.py gmail_agent\processor.py gmail_agent\scheduler.py gmail_agent\telegram_notifier.py gmail_agent\job_store.py bot\handlers.py gmail_agent\oauth_local.py bot\main.py config.py` -> OK.

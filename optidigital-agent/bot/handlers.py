@@ -270,6 +270,11 @@ _gmail_job_store: dict[str, dict] = {}
 def register_gmail_job_analysis(analysis_dict: dict) -> None:
     """Called by gmail_agent.processor to register analyses for /reply_job."""
     _gmail_job_store[str(analysis_dict["email_id"])] = analysis_dict
+    try:
+        from gmail_agent.job_store import save_job
+        save_job(analysis_dict)
+    except Exception:
+        logger.exception("Failed to persist Gmail job analysis")
 
 
 @router.message(Command("reply_job"))
@@ -283,6 +288,14 @@ async def cmd_reply_job(message: Message) -> None:
 
     job_id = raw[1].strip()
     job = _gmail_job_store.get(job_id)
+    if not job:
+        try:
+            from gmail_agent.job_store import get_job
+            job = get_job(job_id)
+            if job:
+                _gmail_job_store[job_id] = job
+        except Exception:
+            logger.exception("Failed to load Gmail job analysis")
 
     if not job:
         await message.answer(
@@ -326,8 +339,16 @@ async def cmd_skip_job(message: Message) -> None:
         return
 
     job_id = raw[1].strip()
-    if job_id in _gmail_job_store:
+    removed = job_id in _gmail_job_store
+    if removed:
         del _gmail_job_store[job_id]
+    try:
+        from gmail_agent.job_store import delete_job
+        removed = delete_job(job_id) or removed
+    except Exception:
+        logger.exception("Failed to delete persisted Gmail job analysis")
+
+    if removed:
         await message.answer(f"✅ Замовлення <code>{job_id}</code> пропущено.")
     else:
         await message.answer(f"⚠️ Замовлення <code>{job_id}</code> не знайдено (вже пропущено або не існує).")
@@ -639,7 +660,19 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
 
         if not creds.valid:
             if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except Exception as exc:
+                    if "invalid_grant" in str(exc):
+                        result["status"] = "need_reauth"
+                        result["message"] = (
+                            "Gmail OAuth token cannot be refreshed (invalid_grant).\n"
+                            "Run locally: python -m gmail_agent.oauth_local "
+                            "--credentials credentials.json --token gmail_token.json\n"
+                            "Then update GMAIL_TOKEN_JSON on Railway."
+                        )
+                        return result
+                    raise
                 if not _from_env:
                     try:
                         with open(token_file, "w") as f:
@@ -876,6 +909,9 @@ async def cmd_gmail_scan(message: Message) -> None:
             summary += "\n\n📭 Inbox порожній або немає нових листів."
         elif stats.sent == 0 and stats.emails_fetched > 0:
             summary += "\n\n💡 Листи знайдено, але жоден не пройшов фільтр."
+
+        if stats.error_details:
+            summary += "\n\n<b>Error details:</b>\n<code>" + "\n".join(stats.error_details[:3]) + "</code>"
 
         await message.answer(summary)
 

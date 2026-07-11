@@ -70,6 +70,7 @@ class TestProcessorDiagnosticSamples(unittest.IsolatedAsyncioTestCase):
             chat_id=123456789,
             min_score=min_score,
             dedup=dedup,
+            job_store_path=f"{dedup_path}.jobs",
         )
 
     async def test_rejected_sample_populated_for_not_relevant(self):
@@ -150,6 +151,7 @@ class TestRunDebug(unittest.IsolatedAsyncioTestCase):
             chat_id=123456789,
             min_score=min_score,
             dedup=dedup,
+            job_store_path=f"{dedup_path}.jobs",
         ), bot
 
     async def test_debug_does_not_send_telegram(self):

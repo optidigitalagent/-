@@ -13,6 +13,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _gmail_reauth_message(reason: str) -> str:
+    return (
+        f"Gmail OAuth token cannot be refreshed ({reason}). "
+        "Run local re-authorization: "
+        "python -m gmail_agent.oauth_local --credentials credentials.json --token gmail_token.json. "
+        "Then update GMAIL_TOKEN_JSON on Railway with the new gmail_token.json content."
+    )
+
+
 @dataclass
 class EmailMessage:
     id: str
@@ -138,7 +147,13 @@ class RealGmailProvider(GmailProvider):
 
         if creds and not creds.valid:
             if creds.expired and creds.refresh_token:
-                creds.refresh(Request())
+                try:
+                    creds.refresh(Request())
+                except Exception as exc:
+                    detail = str(exc)
+                    if "invalid_grant" in detail:
+                        raise RuntimeError(_gmail_reauth_message("invalid_grant")) from exc
+                    raise RuntimeError(f"Gmail token refresh failed: {detail}") from exc
                 if not _from_env:
                     try:
                         with open(self._token_file, "w") as f:

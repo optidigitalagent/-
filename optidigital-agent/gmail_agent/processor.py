@@ -21,6 +21,7 @@ class ProcessorStats:
     below_threshold: int = 0
     sent: int = 0
     errors: int = 0
+    error_details: list[str] = field(default_factory=list)
     sent_analyses: list[JobAnalysis] = field(default_factory=list)
     # First 5 samples for diagnostic display
     rejected_samples: list[dict] = field(default_factory=list)
@@ -37,6 +38,7 @@ class GmailJobProcessor:
         dedup: EmailDedup | None = None,
         openai_client: Any | None = None,
         dedup_path: str | Path | None = None,
+        job_store_path: str | Path | None = None,
     ):
         self._provider = provider
         self._bot = bot
@@ -44,15 +46,21 @@ class GmailJobProcessor:
         self._min_score = min_score
         self._dedup = dedup or EmailDedup(dedup_path or Path(__file__).parent / "processed_emails.json")
         self._openai_client = openai_client
+        self._job_store_path = job_store_path
+
+    async def _mark_processed(self, email_id: str) -> None:
+        self._dedup.mark_processed(email_id)
+        await self._provider.mark_as_processed(email_id)
 
     async def run(self) -> ProcessorStats:
         stats = ProcessorStats()
 
         try:
             emails = await self._provider.get_new_emails()
-        except Exception:
+        except Exception as exc:
             logger.exception("GmailJobProcessor: failed to fetch emails")
             stats.errors += 1
+            stats.error_details.append(str(exc))
             return stats
 
         stats.emails_fetched = len(emails)
@@ -73,11 +81,8 @@ class GmailJobProcessor:
                     client=self._openai_client,
                 )
 
-                # Mark processed regardless of score — prevents reprocessing
-                self._dedup.mark_processed(email.id)
-                await self._provider.mark_as_processed(email.id)
-
                 if not analysis.is_relevant:
+                    await self._mark_processed(email.id)
                     stats.not_relevant += 1
                     logger.info(
                         "Not relevant: email_id=%s subject=%r", email.id, email.subject
@@ -91,6 +96,7 @@ class GmailJobProcessor:
                     continue
 
                 if analysis.score < self._min_score:
+                    await self._mark_processed(email.id)
                     stats.below_threshold += 1
                     logger.info(
                         "Below threshold: email_id=%s score=%.1f < %.1f",
@@ -101,17 +107,23 @@ class GmailJobProcessor:
                             "subject": email.subject[:60],
                             "score": analysis.score,
                             "reason": analysis.reason,
-                        })
+                    })
                     continue
 
-                await send_job_card(self._bot, self._chat_id, analysis)
+                sent_ok = await send_job_card(self._bot, self._chat_id, analysis)
+                if not sent_ok:
+                    stats.errors += 1
+                    stats.error_details.append(f"{email.id}: Telegram send failed")
+                    continue
+
+                await self._mark_processed(email.id)
                 stats.sent += 1
                 stats.sent_analyses.append(analysis)
 
-                # Register in handler store so /reply_job can find it
+                # Persist so /reply_job can find the job after a process restart.
                 try:
-                    from bot.handlers import register_gmail_job_analysis
-                    register_gmail_job_analysis({
+                    from .job_store import save_job
+                    save_job({
                         "email_id": analysis.email_id,
                         "title": analysis.title,
                         "platform": analysis.platform,
@@ -121,12 +133,15 @@ class GmailJobProcessor:
                         "url": analysis.url,
                         "urgency": analysis.urgency,
                         "why_relevant": analysis.why_relevant,
-                    })
-                except ImportError:
-                    pass
+                    }, path=self._job_store_path)
+                except Exception as exc:
+                    stats.errors += 1
+                    stats.error_details.append(f"{email.id}: job store save failed: {exc}")
+                    logger.exception("Failed to persist Gmail job analysis")
 
-            except Exception:
+            except Exception as exc:
                 stats.errors += 1
+                stats.error_details.append(f"{email.id}: {exc}")
                 logger.exception("Error processing email_id=%s", email.id)
 
         logger.info(

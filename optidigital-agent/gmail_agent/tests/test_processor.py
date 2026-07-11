@@ -21,6 +21,11 @@ from gmail_agent.tests.mock_emails import (
 )
 
 
+class FailingGmailProvider(MockGmailProvider):
+    async def get_new_emails(self):
+        raise RuntimeError("Gmail OAuth token cannot be refreshed (invalid_grant).")
+
+
 def _make_analysis(email_id: str, score: float, is_relevant: bool) -> JobAnalysis:
     return JobAnalysis(
         email_id=email_id,
@@ -52,6 +57,7 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
             chat_id=123456789,
             min_score=min_score,
             dedup=dedup,
+            job_store_path=f"{dedup_path}.jobs",
         )
         return processor, bot
 
@@ -136,6 +142,7 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
             chat_id=123456789,
             min_score=6.0,
             dedup=dedup,
+            job_store_path=f"{dedup_path}.jobs",
         )
 
         high_score_analysis = _make_analysis("mock_fh_001", 8.5, True)
@@ -166,6 +173,54 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.emails_fetched, 0)
         self.assertEqual(stats.sent, 0)
         self.assertEqual(stats.errors, 0)
+
+    async def test_telegram_send_failure_is_not_deduped(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            dedup_path = f.name
+
+        processor, bot = self._make_processor(
+            emails=[EMAIL_FREELANCEHUNT_AI_BOT],
+            analyze_fn=None,
+            dedup_path=dedup_path,
+        )
+        bot.send_message.side_effect = RuntimeError("telegram down")
+
+        high_score_analysis = _make_analysis("mock_fh_001", 8.5, True)
+        with patch(
+            "gmail_agent.processor.analyze_email",
+            AsyncMock(return_value=high_score_analysis),
+        ):
+            stats = await processor.run()
+
+        self.assertEqual(stats.sent, 0)
+        self.assertEqual(stats.errors, 1)
+        self.assertIn("Telegram send failed", stats.error_details[0])
+        self.assertFalse(processor._dedup.is_processed("mock_fh_001"))
+
+    async def test_fetch_error_reports_error_details(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            dedup_path = f.name
+
+        bot = MagicMock()
+        bot.send_message = AsyncMock()
+        dedup = EmailDedup(dedup_path)
+        dedup.clear()
+        processor = GmailJobProcessor(
+            provider=FailingGmailProvider(),
+            bot=bot,
+            chat_id=123456789,
+            min_score=6.0,
+            dedup=dedup,
+            job_store_path=f"{dedup_path}.jobs",
+        )
+
+        stats = await processor.run()
+
+        self.assertEqual(stats.emails_fetched, 0)
+        self.assertEqual(stats.sent, 0)
+        self.assertEqual(stats.errors, 1)
+        self.assertIn("invalid_grant", stats.error_details[0])
+        bot.send_message.assert_not_called()
 
 
 if __name__ == "__main__":
