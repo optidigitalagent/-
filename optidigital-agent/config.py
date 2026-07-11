@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     TELEGRAM_TOKEN: str
     TELEGRAM_CHAT_ID: int
     ADMIN_CHAT_ID: Optional[int] = None
-    OPENAI_API_KEY: str
-    FREELANCEHUNT_TOKEN: str
+    OPENAI_API_KEY: Optional[str] = None
+    FREELANCEHUNT_TOKEN: Optional[str] = None
     DATABASE_URL: str
 
     # Gmail agent settings (all optional — disabled by default)

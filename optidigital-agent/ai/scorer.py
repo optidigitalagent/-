@@ -5,13 +5,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import json
 import logging
 
-from openai import AsyncOpenAI
-
 from config import settings
 
 logger = logging.getLogger(__name__)
-
-_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 _SYSTEM_PROMPT = """\
 Ти — AI-асистент для оцінки фріланс-замовлень агентства OptiDigital. \
@@ -80,7 +76,11 @@ def _format_order(order: dict) -> str:
 
 async def score_order(order: dict) -> dict:
     try:
-        response = await _client.chat.completions.create(
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        response = await client.chat.completions.create(
             model="gpt-4o-mini",
             response_format={"type": "json_object"},
             messages=[

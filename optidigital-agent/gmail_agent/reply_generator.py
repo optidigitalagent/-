@@ -40,6 +40,8 @@ async def generate_reply(
         import sys, os
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from config import settings
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
     user_content = (

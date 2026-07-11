@@ -4,13 +4,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
 
-from openai import AsyncOpenAI
-
 from config import settings
 
 logger = logging.getLogger(__name__)
-
-_client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
 _MAX_CHARS = 800
 
@@ -59,7 +55,11 @@ def _format_order(order: dict) -> str:
 
 async def generate_response(order: dict) -> str:
     try:
-        response = await _client.chat.completions.create(
+        if not settings.OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY is not configured")
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        response = await client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
