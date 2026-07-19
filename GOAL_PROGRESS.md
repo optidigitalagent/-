@@ -378,3 +378,18 @@ token.json: ✅ знайдено
 - Local imports: `gmail_agent.telegram_notifier` and `gmail_agent.scheduler` → OK. `bot.handlers` remains blocked only because the host Python 3.14 environment does not have the repository's pinned `aiogram` dependency installed; the same import must be repeated in the dependency-complete Railway Python 3.13 runtime.
 - `git diff --check` is clean. Credential/token files remain ignored, and the pre-existing debug PNG deletions remain outside the intended commit scope.
 - The root-level `test_parsers.py` is a live external parser smoke script (it executes network/browser parsing at import), not an isolated unit suite; it was not run because parser behavior is explicitly out of scope and unchanged.
+
+### Railway deployment and production proof ✅
+
+- Code commit: `3571967fd4c9fcf3548ca1de0e8675b97361d385` (`Escape dynamic Gmail content in Telegram HTML`), pushed to `main`.
+- Railway deployment: `45bc3fc6-0eae-497e-892e-1daf8f5c680b`, status `SUCCESS`, repository `optidigitalagent/-`, branch `main`, Root Directory `/optidigital-agent`, Config File `/optidigital-agent/railway.json`.
+- Build completed with Python 3.13.14 and Playwright Chromium/Headless Shell/ffmpeg; image build and push succeeded.
+- Startup logs: one container start; bot started; Playwright Chromium binary OK; Gmail job registered at 60 minutes; APScheduler started; Telegram polling connected.
+- Current deployment log audit: zero startup tracebacks, zero `invalid_grant`, zero Telegram polling conflicts, zero `can't parse entities`, and zero `Unsupported start tag`.
+- Railway SSH imports on Python 3.13.14: `bot.handlers`, `gmail_agent.telegram_notifier`, and `gmail_agent.scheduler` all exit 0.
+- Railway SSH suite: 57/57 Gmail tests pass inside the deployed image.
+- Production `/status` equivalent: service is running, polling is connected, Gmail is enabled, and the 60-minute scheduler job is registered.
+- Production `/gmail_test` + `/gmail_debug` equivalent (real Railway env, header-only): OAuth status OK; enabled=true; mock=false; interval=60; Inbox inspected=10; sender-domain matches=0; subject-keyword matches=0; job-alert matches=0. No bodies, full IDs, tokens, AI, dedup, or job cards were used.
+- Production `/gmail_scan` equivalent used the real provider with temporary dedup/job-store and a bot that cannot send: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0, send_attempts=0. Production dedup was not cleared or mutated.
+- Real Telegram server parse proof: a clearly-labelled synthetic Gmail HTML verification block containing `Freelancehunt <noreply@freelancehunt.com>`, subject markup, ampersands, and comparison operators was escaped with the shared helper and sent through the production Bot API. Result: HTTP 200, `ok=true`, message ID returned, no parse-entity error.
+- A new real platform alert remains pending: the inspected Inbox window contained no sender/subject match, so no legitimate job card or `/reply_job` draft was generated during this verification.
