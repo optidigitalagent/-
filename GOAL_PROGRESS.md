@@ -512,3 +512,16 @@ token.json: ✅ знайдено
 - Targeted backfill does not drain unrelated global jobs and processes only Freelancehunt digests returned by its requested date-window search.
 - Independent final verifier result: PASS with no remaining findings. It confirmed side-effect-free preview, idempotent backfill, persistent PostgreSQL source of truth, non-destructive migrations, restart/lease behavior, legacy single-job compatibility, and isolation when `GMAIL_ENABLED=false`.
 - Full QA proof: `python -m unittest discover -s gmail_agent\\tests -v` → 111/111 OK; `python -m compileall -q .` → OK; Gmail module import checks → OK; `git diff --check` → clean apart from line-ending notices.
+
+### Stage 12 — Railway production proof ✅
+
+- Targeted implementation commit `ec78f4f049c13811165cc1fcce00630e6c82f43c` was pushed to `main`; pre-deploy Railway deployment `7b7f2fb4-2d5e-48ec-8831-ab6d1fda5a9d` reached `SUCCESS` on Python 3.13.14. Startup completed, migrations ran before polling, and the Gmail scheduler registered at 60 minutes.
+- Production account proof after deploy: `tijgadymg@gmail.com`, OAuth `OK`, Inbox count 611. No token, credential, Gmail message ID, or body was printed.
+- Read-only `/gmail_digest_preview 7` equivalent found exactly two real Freelancehunt digests and extracted 2 + 1 individual jobs. Scores were 0.0, 2.0, and 2.0; no item met the unchanged 6.0 threshold. Preview returned zero errors and changed neither PostgreSQL nor dedup.
+- First production backfill: emails=2, candidates=3, relevant=2, not_relevant=1, below_threshold=2, sent=0, duplicates=0, errors=0. No Telegram card was sent because no child met score 6.0.
+- Immediate repeated backfill: emails=2, candidates=3, duplicates=3, sent=0, errors=0. It did not repeat AI analysis or Telegram delivery.
+- `GMAIL_DIGEST_ENABLED=true` was set only after successful preview/backfill. The resulting restart deployment `c3d5929e-455a-4219-a1ec-d9b4a5fc9607` reached `SUCCESS` on the same code SHA.
+- Post-restart PostgreSQL proof: all three tables exist; child decisions remain `not_relevant=1` and `below_threshold=2`; the two latest `gmail_scan_runs` preserve the first and duplicate backfill statistics. `gmail_jobs` is empty by design because no score-qualified child was queued or sent.
+- Metadata-only Work.ua production check (50 recent messages) classified 2 as `informational_newsletter`; these are deterministically rejected before AI. No subject, body, or message ID was printed.
+- Restart log scan: zero tracebacks, `invalid_grant`, migration errors, Telegram HTML parse errors, or high-confidence secret patterns. One transient Telegram polling conflict during deployment overlap was followed by a successful connection restoration.
+- The temporary Railway SSH key created while diagnosing CLI SSH was removed from Railway and both local key files were deleted; it cannot be recovered. Production proof ultimately used Railway environment injection plus the public PostgreSQL endpoint held only in process memory.
