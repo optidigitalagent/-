@@ -425,3 +425,13 @@ token.json: ✅ знайдено
 - QA proof: `python -m unittest discover -s gmail_agent\\tests -v` -> 58/58 OK.
 - Compile proof: `python -m py_compile gmail_agent\\gmail_provider.py bot\\handlers.py` -> OK.
 - `git diff --check` -> clean apart from existing line-ending notices; credential/token files remain ignored.
+
+### Railway deployment and production pipeline proof ✅
+
+- Code commit `76209b87e2f2d48da8055c5849d4685e80c5c416` (`Add safe Gmail account identity command`) was pushed to `main`.
+- Railway deployment `9943e8c3-7dde-4eed-8e0b-35c2662ab762` reached `SUCCESS` with Root Directory `/optidigital-agent`, Config File `/optidigital-agent/railway.json`, and start command `python bot/main.py`.
+- Runtime proof: Playwright Chromium binary OK; bot started; scheduler started; Gmail job registered at 60 minutes; Telegram polling connected.
+- Filtered startup log review found no traceback, `invalid_grant`, polling conflict, or Telegram HTML parse error.
+- Isolated production-env pipeline used the real Gmail provider and OpenAI analyzer with temporary dedup/job-store and a non-sending bot: `fetched=8`, `duplicates=0`, `not_relevant=8`, `below_threshold=0`, `would_send=0`, `errors=0`, `send_attempts=0`.
+- The isolated scan did not clear or mutate production dedup and did not send Telegram cards.
+- Telegram Desktop already showed previous user-issued `/gmail_test`, `/gmail_debug`, and `/gmail_scan` results. No new command was sent through UI automation because user input was detected in that window and representational UI messages require action-time confirmation.
