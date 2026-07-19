@@ -7,7 +7,8 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from email import message_from_bytes
+from email.header import decode_header, make_header
+from email.utils import parseaddr
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,20 @@ class EmailMessage:
     raw_headers: dict[str, str] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class EmailMatchDiagnostic:
+    """Header-only job-alert match details safe for diagnostic output."""
+
+    sender_display_name: str
+    sender_email: str
+    subject: str
+    date: str
+    platform: str
+    sender_matched: bool
+    subject_matched: bool
+    is_job_alert: bool
+
+
 class GmailProvider(ABC):
     @abstractmethod
     async def get_new_emails(self) -> list[EmailMessage]:
@@ -40,6 +55,12 @@ class GmailProvider(ABC):
     @abstractmethod
     async def mark_as_processed(self, email_id: str) -> None:
         """Mark email as processed so it won't be returned again."""
+
+    @abstractmethod
+    async def get_recent_email_diagnostics(
+        self, max_results: int = 10
+    ) -> list[EmailMatchDiagnostic]:
+        """Inspect recent email headers without bodies or processing side effects."""
 
 
 # ── Mock provider ─────────────────────────────────────────────────────────────
@@ -61,29 +82,38 @@ class MockGmailProvider(GmailProvider):
     async def mark_as_processed(self, email_id: str) -> None:
         pass
 
+    async def get_recent_email_diagnostics(
+        self, max_results: int = 10
+    ) -> list[EmailMatchDiagnostic]:
+        return [
+            build_email_diagnostic(
+                sender=email.sender,
+                subject=email.subject,
+                date=email.received_at.isoformat() if email.received_at else "—",
+            )
+            for email in self._emails[:max_results]
+        ]
+
 
 # ── Real Gmail provider ───────────────────────────────────────────────────────
 
-_JOB_ALERT_SENDERS = [
-    "noreply@freelancehunt.com",
-    "no-reply@freelancehunt.com",
-    "info@freelancehunt.com",
-    "notifications@work.ua",
-    "noreply@work.ua",
-    "noreply@robota.ua",
-    "notification@robota.ua",
-    "donotreply@upwork.com",
-    "no-reply@upwork.com",
-]
+_JOB_ALERT_DOMAINS = {
+    "freelancehunt.com": "Freelancehunt",
+    "work.ua": "Work.ua",
+    "robota.ua": "Robota.ua",
+    "upwork.com": "Upwork",
+}
 
 _JOB_ALERT_SUBJECTS = [
     "новий проект",
+    "новий проєкт",
     "new project",
     "нова вакансія",
     "new job",
     "job alert",
     "нові замовлення",
     "нові проекти",
+    "нові проєкти",
     "підходящі вакансії",
     "matching jobs",
     "freelancehunt",
@@ -91,6 +121,53 @@ _JOB_ALERT_SUBJECTS = [
     "robota.ua",
     "upwork",
 ]
+
+
+def _decode_email_header(value: str) -> str:
+    try:
+        return str(make_header(decode_header(value)))
+    except Exception:
+        return value
+
+
+def _match_sender_domain(domain: str) -> str:
+    """Return the platform for an approved sender domain or subdomain."""
+    normalized = domain.strip().lower().rstrip(".")
+    for approved_domain, platform in _JOB_ALERT_DOMAINS.items():
+        if normalized == approved_domain or normalized.endswith(f".{approved_domain}"):
+            return platform
+    return "Unknown"
+
+
+def build_email_diagnostic(
+    sender: str, subject: str, date: str = "—"
+) -> EmailMatchDiagnostic:
+    decoded_sender = _decode_email_header(sender)
+    decoded_subject = _decode_email_header(subject)
+    display_name, sender_email = parseaddr(decoded_sender)
+    sender_email = sender_email.strip().lower()
+    sender_domain = sender_email.rsplit("@", 1)[1] if "@" in sender_email else ""
+    platform = _match_sender_domain(sender_domain)
+    sender_matched = platform != "Unknown"
+    subject_lower = decoded_subject.casefold()
+    subject_matched = any(keyword.casefold() in subject_lower for keyword in _JOB_ALERT_SUBJECTS)
+
+    if platform == "Unknown":
+        for domain, detected_platform in _JOB_ALERT_DOMAINS.items():
+            if domain in subject_lower:
+                platform = detected_platform
+                break
+
+    return EmailMatchDiagnostic(
+        sender_display_name=display_name.strip(),
+        sender_email=sender_email,
+        subject=decoded_subject,
+        date=date,
+        platform=platform,
+        sender_matched=sender_matched,
+        subject_matched=subject_matched,
+        is_job_alert=sender_matched or subject_matched,
+    )
 
 
 class RealGmailProvider(GmailProvider):
@@ -224,13 +301,44 @@ class RealGmailProvider(GmailProvider):
             return None
 
     def _is_job_alert(self, msg: EmailMessage) -> bool:
-        sender_lower = msg.sender.lower()
-        subject_lower = msg.subject.lower()
+        return build_email_diagnostic(msg.sender, msg.subject).is_job_alert
 
-        sender_match = any(s in sender_lower for s in _JOB_ALERT_SENDERS)
-        subject_match = any(kw in subject_lower for kw in _JOB_ALERT_SUBJECTS)
+    @staticmethod
+    def _metadata_diagnostic(raw_msg: dict) -> EmailMatchDiagnostic:
+        payload = raw_msg.get("payload", {})
+        headers = {
+            header["name"].lower(): header["value"]
+            for header in payload.get("headers", [])
+        }
+        return build_email_diagnostic(
+            sender=headers.get("from", ""),
+            subject=headers.get("subject", ""),
+            date=headers.get("date", "—"),
+        )
 
-        return sender_match or subject_match
+    def _fetch_recent_diagnostics(self, max_results: int) -> list[EmailMatchDiagnostic]:
+        svc = self.service
+        result = svc.users().messages().list(
+            userId="me",
+            labelIds=["INBOX"],
+            maxResults=max_results,
+        ).execute()
+        diagnostics: list[EmailMatchDiagnostic] = []
+        for meta in result.get("messages", []):
+            raw = svc.users().messages().get(
+                userId="me",
+                id=meta["id"],
+                format="metadata",
+                metadataHeaders=["From", "Subject", "Date"],
+            ).execute()
+            diagnostics.append(self._metadata_diagnostic(raw))
+        return diagnostics
+
+    async def get_recent_email_diagnostics(
+        self, max_results: int = 10
+    ) -> list[EmailMatchDiagnostic]:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._fetch_recent_diagnostics, max_results)
 
     async def get_new_emails(self) -> list[EmailMessage]:
         def _sync_fetch() -> list[EmailMessage]:
@@ -243,21 +351,37 @@ class RealGmailProvider(GmailProvider):
 
             messages_meta = result.get("messages", [])
             emails: list[EmailMessage] = []
+            sender_matches = 0
+            subject_matches = 0
 
             for meta in messages_meta:
-                raw = svc.users().messages().get(
+                metadata = svc.users().messages().get(
                     userId="me",
                     id=meta["id"],
-                    format="full",
+                    format="metadata",
+                    metadataHeaders=["From", "Subject", "Date"],
+                ).execute()
+                diagnostic = self._metadata_diagnostic(metadata)
+                sender_matches += int(diagnostic.sender_matched)
+                subject_matches += int(diagnostic.subject_matched)
+                if not diagnostic.is_job_alert:
+                    continue
+
+                raw = svc.users().messages().get(
+                    userId="me", id=meta["id"], format="full"
                 ).execute()
                 email = self._parse_message(raw)
-                if email and self._is_job_alert(email):
+                if email:
                     emails.append(email)
 
-            logger.info("RealGmailProvider: fetched %d job alert emails", len(emails))
+            logger.info(
+                "RealGmailProvider: Inbox inspected: %d; Matched sender domain: %d; "
+                "Matched subject keyword: %d; Returned job alerts: %d",
+                len(messages_meta), sender_matches, subject_matches, len(emails),
+            )
             return emails
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, _sync_fetch)
 
     async def mark_as_processed(self, email_id: str) -> None:

@@ -605,7 +605,14 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
     import os as _os
     import re as _re
 
-    result: dict = {"status": "unknown", "message": "", "emails": [], "job_alert_count": 0}
+    result: dict = {
+        "status": "unknown",
+        "message": "",
+        "emails": [],
+        "sender_match_count": 0,
+        "subject_match_count": 0,
+        "job_alert_count": 0,
+    }
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request
@@ -696,7 +703,7 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
         ).execute()
         messages = resp.get("messages", [])
 
-        from gmail_agent.gmail_provider import _JOB_ALERT_SENDERS, _JOB_ALERT_SUBJECTS
+        from gmail_agent.gmail_provider import build_email_diagnostic
 
         for meta in messages[:10]:
             raw = svc.users().messages().get(
@@ -729,8 +736,10 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
                 "attachments": has_att,
             })
 
-            if any(s in sender.lower() for s in _JOB_ALERT_SENDERS) or \
-               any(kw in subject.lower() for kw in _JOB_ALERT_SUBJECTS):
+            match = build_email_diagnostic(sender=sender, subject=subject, date=date)
+            result["sender_match_count"] += int(match.sender_matched)
+            result["subject_match_count"] += int(match.subject_matched)
+            if match.is_job_alert:
                 result["job_alert_count"] += 1
 
         result["status"] = "ok"
@@ -825,6 +834,8 @@ async def cmd_gmail_test(message: Message) -> None:
         header_lines = [
             "✅ <b>Gmail підключено!</b>\n",
             f"📬 Листів в Inbox: <b>{len(diag['emails'])}</b>",
+            f"📨 Збіг sender domain: <b>{diag['sender_match_count']}</b>",
+            f"📝 Збіг subject keyword: <b>{diag['subject_match_count']}</b>",
             f"🎯 Потенційних job alerts: <b>{diag['job_alert_count']}</b>",
         ]
         if diag["job_alert_count"] == 0:
@@ -1001,6 +1012,42 @@ async def cmd_gmail_history(message: Message) -> None:
 
 # ─── /gmail_debug ─────────────────────────────────────────────────────────────
 
+def _format_gmail_debug_results(results: list) -> list[str]:
+    """Format header-only diagnostics; result objects cannot contain email bodies or IDs."""
+    from html import escape
+
+    inspected = len(results)
+    sender_matches = sum(item.sender_matched for item in results)
+    subject_matches = sum(item.subject_matched for item in results)
+    job_alerts = sum(item.is_job_alert for item in results)
+    messages = [
+        "📊 <b>Gmail Debug — header-only</b>\n"
+        f"Inbox inspected: <b>{inspected}</b>\n"
+        f"Matched sender domain: <b>{sender_matches}</b>\n"
+        f"Matched subject keyword: <b>{subject_matches}</b>\n"
+        f"Returned job alerts: <b>{job_alerts}</b>"
+    ]
+
+    for index, item in enumerate(results, 1):
+        display_name = escape((item.sender_display_name or "—")[:80], quote=False)
+        sender_email = escape((item.sender_email or "—")[:120], quote=False)
+        subject = escape((item.subject or "—").replace("\n", " ")[:200], quote=False)
+        date = escape((item.date or "—")[:80], quote=False)
+        platform = escape(item.platform or "Unknown", quote=False)
+        messages.append(
+            f"📧 <b>Email #{index}</b>\n"
+            f"Sender name: {display_name}\n"
+            f"Sender email: <code>{sender_email}</code>\n"
+            f"Subject: {subject}\n"
+            f"Date: {date}\n"
+            f"Platform: <b>{platform}</b>\n"
+            f"Sender matched: <b>{'yes' if item.sender_matched else 'no'}</b>\n"
+            f"Subject matched: <b>{'yes' if item.subject_matched else 'no'}</b>\n"
+            f"Final job-alert match: <b>{'yes' if item.is_job_alert else 'no'}</b>"
+        )
+    return messages
+
+
 @admin_router.message(Command("gmail_debug"))
 async def cmd_gmail_debug(message: Message) -> None:
     if not settings.GMAIL_ENABLED:
@@ -1014,12 +1061,11 @@ async def cmd_gmail_debug(message: Message) -> None:
     await message.answer(
         f"🔍 <b>Gmail Debug (dry-run)</b>\n"
         f"Режим: <b>{mode}</b>\n"
-        f"⚠️ Нічого не відправляється в Telegram"
+        "⚠️ Body не читається; AI, dedup і job cards не запускаються"
     )
 
     try:
         from gmail_agent.gmail_provider import build_provider
-        from gmail_agent.processor import GmailJobProcessor
 
         mock_emails = None
         if settings.GMAIL_USE_MOCK:
@@ -1033,65 +1079,20 @@ async def cmd_gmail_debug(message: Message) -> None:
             token_file=settings.GMAIL_TOKEN_FILE,
         )
 
-        processor = GmailJobProcessor(
-            provider=provider,
-            bot=message.bot,
-            chat_id=settings.TELEGRAM_CHAT_ID,
-            min_score=settings.GMAIL_MIN_SCORE,
-        )
-
-        results = await processor.run_debug(max_emails=20)
+        results = await provider.get_recent_email_diagnostics(max_results=10)
 
         if not results:
             await message.answer("📭 Листів не знайдено.")
             return
 
-        await message.answer(f"📊 <b>Gmail Debug — {len(results)} листів</b>\n(score threshold: {settings.GMAIL_MIN_SCORE})")
-
-        for i, r in enumerate(results, 1):
-            if r.get("error"):
-                card = (
-                    f"<b>#{i} ❌ ПОМИЛКА</b>\n"
-                    f"Subject: {r.get('subject', '—')}\n"
-                    f"Error: <code>{r['error']}</code>"
-                )
-            elif r.get("is_duplicate"):
-                card = (
-                    f"<b>#{i} ♻️ ДУБЛІКАТ</b>\n"
-                    f"From: {(r.get('from') or '—')[:40]}\n"
-                    f"Subject: {r.get('subject', '—')}\n"
-                    f"Date: {r.get('date', '—')}"
-                )
-            elif r.get("is_relevant") is False:
-                card = (
-                    f"<b>#{i} ❌ НЕ РЕЛЕВАНТНО</b>\n"
-                    f"From: {(r.get('from') or '—')[:40]}\n"
-                    f"Subject: {r.get('subject', '—')}\n"
-                    f"Date: {r.get('date', '—')}\n"
-                    f"Reason: {r.get('reason') or '—'}"
-                )
-            elif r.get("passed"):
-                score = r.get("score") or 0.0
-                card = (
-                    f"<b>#{i} ✅ ПРОЙШОВ</b>\n"
-                    f"From: {(r.get('from') or '—')[:40]}\n"
-                    f"Subject: {r.get('subject', '—')}\n"
-                    f"Date: {r.get('date', '—')}\n"
-                    f"Score: {score:.1f}/10\n"
-                    f"Reason: {r.get('reason') or '—'}"
-                )
-            else:
-                score = r.get("score") or 0.0
-                card = (
-                    f"<b>#{i} ⚠️ НИЖЧЕ ПОРОГУ</b>\n"
-                    f"From: {(r.get('from') or '—')[:40]}\n"
-                    f"Subject: {r.get('subject', '—')}\n"
-                    f"Date: {r.get('date', '—')}\n"
-                    f"Score: {score:.1f}/10 (мін: {settings.GMAIL_MIN_SCORE})\n"
-                    f"Reason: {r.get('reason') or '—'}"
-                )
-            await message.answer(card)
+        for output in _format_gmail_debug_results(results):
+            await message.answer(output)
 
     except Exception as exc:
-        logger.exception("gmail_debug failed")
-        await message.answer(f"❌ Помилка gmail_debug:\n<code>{exc}</code>")
+        error_type = type(exc).__name__
+        logger.warning("gmail_debug failed (%s)", error_type)
+        if "invalid_grant" in str(exc):
+            detail = "Gmail OAuth token потребує повторної авторизації."
+        else:
+            detail = f"{error_type}. Перевір Gmail configuration і server logs."
+        await message.answer(f"❌ Помилка gmail_debug:\n<code>{detail}</code>")

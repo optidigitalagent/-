@@ -270,3 +270,29 @@ token.json: ✅ знайдено
 - Test coverage added: Telegram send failure is not deduped, and persistent job store save/get/delete behavior is covered.
 - Proof: `python -m unittest gmail_agent.tests.test_dedup gmail_agent.tests.test_analyzer gmail_agent.tests.test_processor gmail_agent.tests.test_diagnostics gmail_agent.tests.test_job_store -v` -> 37 tests OK.
 - Proof: `python -m py_compile gmail_agent\gmail_provider.py gmail_agent\processor.py gmail_agent\scheduler.py gmail_agent\telegram_notifier.py gmail_agent\job_store.py bot\handlers.py gmail_agent\oauth_local.py bot\main.py config.py` -> OK.
+
+---
+
+## 2026-07-19 Gmail prefilter audit
+
+- Read-only audit completed before code changes.
+- Root cause of `Inbox: 10` / `Potential job alerts: 0`: `RealGmailProvider.get_new_emails()` downloads the Inbox window but returns only messages for which parsing succeeds and `_is_job_alert()` matches a configured sender substring or subject keyword.
+- Current sender filtering recognizes only nine literal address substrings. A Freelancehunt display name works when it wraps one of those addresses, but alternate local parts and subdomains can be rejected before AI analysis.
+- Current subject fallback recognizes 14 literal substrings and can miss wording variants.
+- Safety finding: the existing `/gmail_debug` runs after provider filtering and invokes AI with message bodies, so it does not meet the requested header-only dry-run contract.
+- Next safe step: parse `From` with `email.utils.parseaddr()`, match approved domains and subdomains, expose shared match diagnostics, and make `/gmail_debug` read only sender/subject/date metadata without updating dedup or sending Telegram cards.
+
+## 2026-07-19 Gmail prefilter hardening
+
+- `From` is now decoded and parsed with `email.utils.parseaddr()`; matching uses approved sender domains and their subdomains: `freelancehunt.com`, `work.ua`, `robota.ua`, and `upwork.com`.
+- Platform detection is shared with the prefilter and reports Freelancehunt, Work.ua, Robota.ua, Upwork, or Unknown.
+- Subject keywords remain a fallback; Ukrainian `проєкт/проєкти` variants were added. A personal Gmail subject containing only `робота` is rejected.
+- `RealGmailProvider.get_new_emails()` now fetches header metadata first and downloads a full body only after the platform/job-subject prefilter passes.
+- Provider logs the requested zero-result statistics: Inbox inspected, sender-domain matches, subject-keyword matches, and returned alerts.
+- `/gmail_debug` now inspects at most 10 recent messages using only `From`, `Subject`, and `Date`. It does not expose message IDs or bodies and does not invoke OpenAI, dedup mutation, or Telegram job-card delivery.
+- `/gmail_test` now uses the same domain/subject matching logic and reports sender and subject match counts.
+- Tests added in `gmail_agent/tests/test_gmail_prefilter.py` for all required platform, rejection, dry-run, privacy, and metadata-only cases.
+- Proof: `python -m unittest discover -s gmail_agent\tests -v` -> 45 tests OK.
+- Proof: `python -m py_compile gmail_agent\gmail_provider.py bot\handlers.py` -> OK.
+- Real header-only Gmail proof: Inbox inspected 10; matched sender domain 0; matched subject keyword 0; returned job alerts 0; no OAuth/API error.
+- Production status: code path is verified, but real Freelancehunt → AI → Telegram end-to-end proof is still pending because no real platform alert was present in the inspected Inbox window.
