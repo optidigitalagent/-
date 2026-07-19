@@ -296,6 +296,43 @@ class TestInMemoryGmailRepository(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(oldest.id, [run.id for run in recent])
         self.assertEqual(await self.repository.list_scan_runs(limit=0), [])
 
+    async def test_scan_run_preserves_explicit_multi_job_telemetry(self):
+        run = ScanRun(
+            trigger="manual",
+            started_at=datetime(2026, 7, 19, 18, 40, tzinfo=timezone.utc),
+            finished_at=datetime(2026, 7, 19, 18, 41, tzinfo=timezone.utc),
+            emails_inspected=8,
+            candidates_found=3,
+            ai_analyzed=1,
+            relevant=1,
+            qualified=1,
+            duplicates=3,
+            sent=1,
+            sent_from_queue=1,
+            errors=0,
+        )
+
+        saved = await self.repository.append_scan_run(run)
+        restarted = InMemoryGmailRepository(state=self.repository._state)
+        loaded = (await restarted.list_scan_runs(limit=1))[0]
+
+        self.assertEqual(loaded, saved)
+        self.assertEqual(loaded.ai_analyzed, 1)
+        self.assertEqual(loaded.qualified, 1)
+        self.assertEqual(loaded.sent_from_queue, 1)
+
+    async def test_legacy_scan_run_defaults_new_telemetry_to_zero(self):
+        saved = await self.repository.append_scan_run(
+            ScanRun(
+                trigger="backfill",
+                started_at=datetime(2026, 7, 19, 10, 0, tzinfo=timezone.utc),
+            )
+        )
+
+        self.assertEqual(saved.ai_analyzed, 0)
+        self.assertEqual(saved.qualified, 0)
+        self.assertEqual(saved.sent_from_queue, 0)
+
     async def test_job_and_history_survive_repository_recreation_with_shared_state(self):
         shared_state: dict[str, object] = {}
         first_repository = InMemoryGmailRepository(state=shared_state)
@@ -340,11 +377,14 @@ class TestGmailOrmSchema(unittest.TestCase):
             "finished_at",
             "emails_inspected",
             "candidates_found",
+            "ai_analyzed",
             "relevant",
+            "qualified",
             "duplicates",
             "not_relevant",
             "below_threshold",
             "sent",
+            "sent_from_queue",
             "errors",
         },
         "gmail_jobs": {
@@ -434,6 +474,17 @@ class TestGmailOrmSchema(unittest.TestCase):
                 for destructive in ("drop table", "drop column", "truncate")
             )
         )
+
+    def test_scan_telemetry_uses_additive_non_destructive_migrations(self):
+        source = MODELS_PATH.read_text(encoding="utf-8").casefold()
+        for column in ("ai_analyzed", "qualified", "sent_from_queue"):
+            self.assertIn(
+                f"alter table gmail_scan_runs add column if not exists {column} "
+                "integer not null default 0",
+                source,
+            )
+        self.assertNotIn("drop table gmail_scan_runs", source)
+        self.assertNotIn("truncate gmail_scan_runs", source)
 
 
 if __name__ == "__main__":

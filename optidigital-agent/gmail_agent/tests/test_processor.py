@@ -79,7 +79,11 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
             stats = await processor.run()
 
         self.assertEqual(stats.emails_fetched, 1)
+        self.assertEqual(stats.ai_analyzed, 1)
+        self.assertEqual(stats.relevant, 1)
+        self.assertEqual(stats.qualified, 1)
         self.assertEqual(stats.sent, 1)
+        self.assertEqual(stats.sent_from_queue, 0)
         self.assertEqual(stats.errors, 0)
         bot.send_message.assert_called_once()
 
@@ -101,6 +105,9 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
             stats = await processor.run()
 
         self.assertEqual(stats.not_relevant, 1)
+        self.assertEqual(stats.ai_analyzed, 1)
+        self.assertEqual(stats.relevant, 0)
+        self.assertEqual(stats.qualified, 0)
         self.assertEqual(stats.sent, 0)
         bot.send_message.assert_not_called()
 
@@ -123,6 +130,9 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
             stats = await processor.run()
 
         self.assertEqual(stats.below_threshold, 1)
+        self.assertEqual(stats.ai_analyzed, 1)
+        self.assertEqual(stats.relevant, 1)
+        self.assertEqual(stats.qualified, 0)
         self.assertEqual(stats.sent, 0)
         bot.send_message.assert_not_called()
 
@@ -155,6 +165,7 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(stats1.sent, 1)
         self.assertEqual(stats2.duplicates_skipped, 1)
+        self.assertEqual(stats2.ai_analyzed, 0)
         self.assertEqual(stats2.sent, 0)
         self.assertEqual(bot.send_message.call_count, 1)
 
@@ -220,6 +231,30 @@ class TestGmailJobProcessor(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.sent, 0)
         self.assertEqual(stats.errors, 1)
         self.assertIn("invalid_grant", stats.error_details[0])
+        bot.send_message.assert_not_called()
+
+    async def test_ai_failure_fallback_is_an_error_not_a_completed_analysis(self):
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            dedup_path = f.name
+
+        processor, bot = self._make_processor(
+            emails=[EMAIL_FREELANCEHUNT_AI_BOT],
+            analyze_fn=None,
+            dedup_path=dedup_path,
+        )
+        failed_analysis = _make_analysis("mock_fh_001", 0.0, False)
+        failed_analysis.analysis_succeeded = False
+
+        with patch(
+            "gmail_agent.processor.analyze_email",
+            AsyncMock(return_value=failed_analysis),
+        ):
+            stats = await processor.run()
+
+        self.assertEqual(stats.ai_analyzed, 0)
+        self.assertEqual(stats.not_relevant, 0)
+        self.assertEqual(stats.errors, 1)
+        self.assertIn("AI analysis failed", stats.error_details[0])
         bot.send_message.assert_not_called()
 
 

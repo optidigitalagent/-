@@ -68,11 +68,14 @@ class ScanRun:
     finished_at: datetime | None = None
     emails_inspected: int = 0
     candidates_found: int = 0
+    ai_analyzed: int = 0
     relevant: int = 0
+    qualified: int = 0
     duplicates: int = 0
     not_relevant: int = 0
     below_threshold: int = 0
     sent: int = 0
+    sent_from_queue: int = 0
     errors: int = 0
     id: int | None = None
 

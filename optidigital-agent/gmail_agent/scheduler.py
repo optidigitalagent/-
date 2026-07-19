@@ -71,9 +71,17 @@ async def check_gmail_jobs(bot: Any) -> None:
         return
 
     logger.info(
-        "=== GMAIL AUTO SCAN DONE: fetched=%d sent=%d errors=%d ===",
+        "Gmail scan completed trigger=scheduler emails=%d candidates=%d "
+        "ai_analyzed=%d relevant=%d qualified=%d duplicates=%d sent=%d "
+        "sent_from_queue=%d errors=%d",
         stats.emails_fetched,
+        getattr(stats, "candidates_found", 0),
+        getattr(stats, "ai_analyzed", 0),
+        getattr(stats, "relevant", 0),
+        getattr(stats, "qualified", 0),
+        stats.duplicates_skipped,
         stats.sent,
+        getattr(stats, "sent_from_queue", 0),
         stats.errors,
     )
 
@@ -101,14 +109,22 @@ async def check_gmail_jobs(bot: Any) -> None:
             _sys.path.insert(0, sys_path)
         import state as _state
 
-        new_count = stats.emails_fetched - stats.duplicates_skipped
-        analyzed_count = max(0, new_count - stats.not_relevant)
         _state.gmail_scan_history.append(
             {
                 "timestamp": datetime.utcnow(),
+                "finished_at": datetime.utcnow(),
+                "trigger": "scheduler",
+                "emails": stats.emails_fetched,
                 "emails_found": stats.emails_fetched,
-                "relevant": analyzed_count,
+                "candidates": getattr(stats, "candidates_found", 0),
+                "ai_analyzed": getattr(stats, "ai_analyzed", 0),
+                "relevant": getattr(stats, "relevant", 0),
+                "qualified": getattr(stats, "qualified", 0),
+                "duplicates": stats.duplicates_skipped,
+                "not_relevant": getattr(stats, "not_relevant", 0),
+                "below_threshold": getattr(stats, "below_threshold", 0),
                 "sent": stats.sent,
+                "sent_from_queue": getattr(stats, "sent_from_queue", 0),
                 "errors": stats.errors,
             }
         )

@@ -525,3 +525,30 @@ token.json: ✅ знайдено
 - Metadata-only Work.ua production check (50 recent messages) classified 2 as `informational_newsletter`; these are deterministically rejected before AI. No subject, body, or message ID was printed.
 - Restart log scan: zero tracebacks, `invalid_grant`, migration errors, Telegram HTML parse errors, or high-confidence secret patterns. One transient Telegram polling conflict during deployment overlap was followed by a successful connection restoration.
 - The temporary Railway SSH key created while diagnosing CLI SSH was removed from Railway and both local key files were deleted; it cannot be recovered. Production proof ultimately used Railway environment injection plus the public PostgreSQL endpoint held only in process memory.
+
+---
+
+## 2026-07-19 Gmail multi-job telemetry and persistent status
+
+### Read-only audit and implementation ✅
+
+- Confirmed the incorrect manual/scheduler formula derived analyzed jobs from parent email counts (`emails_fetched - duplicates - not_relevant`) even though duplicate counters can represent child stable keys and `sent` can include persistent queue delivery.
+- Confirmed `/status` used only `state.gmail_scan_history`, which is process memory and therefore empty after restart despite durable `gmail_scan_runs` rows.
+- Added authoritative `ProcessorStats.ai_analyzed`, `qualified`, and `sent_from_queue` counters. Successful AI returns are counted in digest, repository single-job, legacy/mock, preview, and backfill paths; deterministic rejects, duplicates, queued payload reloads, and retry delivery are not counted as new AI analyses.
+- Added internal analyzer success metadata so an OpenAI exception remains the same fallback pipeline decision but is recorded as `errors += 1` and not as a successful AI analysis or semantic rejection.
+- Queue telemetry increments `sent_from_queue` only when persistent retry drain produces a successful Telegram send; failed queue delivery remains `sent=0`, `sent_from_queue=0`, and increments errors.
+- Added `ai_analyzed`, `qualified`, and `sent_from_queue` to `ScanRun`, PostgreSQL ORM mapping, in-memory persistence, scan-run writes, history, and status. Existing rows read with zero defaults.
+- Added only additive, data-preserving migrations: `ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS ... INTEGER NOT NULL DEFAULT 0`; no table/data recreation or deletion.
+- `/gmail_scan` now displays separate email, candidate, AI, relevant, qualified, below-threshold, duplicate, fresh-send, queue-send, total-send, and error counters. Queue delivery receives an explicit persistent-queue explanation and all displayed counts are non-negative.
+- Scheduler logs and memory fallback copy authoritative stats directly and no longer derive analyzed counts.
+- `/status` reads the latest PostgreSQL scan run with a five-second timeout, displays `Last completed scan` and all new counters, survives restart, and falls back to memory with an explicit source label only when the DB query fails.
+- `/gmail_history` preserves PostgreSQL history and displays analyzed, relevant, qualified, sent, queue, duplicate, and error counters, including zero defaults for legacy rows.
+
+### Local QA ✅
+
+- `python -m unittest discover -s gmail_agent/tests -v` → 122/122 OK.
+- `python -m compileall -q .` → OK.
+- Imports `gmail_agent.processor`, `gmail_agent.storage`, and `gmail_agent.scheduler` → OK.
+- Local `bot.handlers` import is blocked only because the host Python 3.14 environment lacks the repository-pinned `aiogram`; syntax is covered by compileall and handler behavior by AST-isolated tests. The import remains required in the dependency-complete Railway runtime.
+- `git diff --check` → clean apart from line-ending notices.
+- Existing user-owned debug PNG deletions remain untouched and outside the intended commit scope.

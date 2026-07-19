@@ -28,11 +28,14 @@ logger = logging.getLogger(__name__)
 class ProcessorStats:
     emails_fetched: int = 0
     candidates_found: int = 0
+    ai_analyzed: int = 0
     duplicates_skipped: int = 0
     relevant: int = 0
+    qualified: int = 0
     not_relevant: int = 0
     below_threshold: int = 0
     sent: int = 0
+    sent_from_queue: int = 0
     errors: int = 0
     parser_failures: int = 0
     error_details: list[str] = field(default_factory=list)
@@ -407,9 +410,12 @@ class GmailJobProcessor:
             if cards_sent_this_scan >= self._max_cards_per_scan:
                 break
             try:
+                sent_before = stats.sent
                 attempted = await self._send_stored_job(
                     self._candidate_from_job(job), job, stats
                 )
+                if stats.sent > sent_before:
+                    stats.sent_from_queue += stats.sent - sent_before
                 if attempted:
                     cards_sent_this_scan += 1
             except Exception as exc:
@@ -453,13 +459,21 @@ class GmailJobProcessor:
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
                     )
+                    if analysis.analysis_succeeded:
+                        stats.ai_analyzed += 1
+                    else:
+                        stats.errors += 1
+                        stats.error_details.append(
+                            f"{candidate.stable_key}: AI analysis failed"
+                        )
                     if not analysis.is_relevant:
                         await self._repository.upsert_processed(
                             self._processed_item(
                                 candidate, "not_relevant", analysis.score
                             )
                         )
-                        stats.not_relevant += 1
+                        if analysis.analysis_succeeded:
+                            stats.not_relevant += 1
                         continue
 
                     stats.relevant += 1
@@ -472,6 +486,8 @@ class GmailJobProcessor:
                         stats.below_threshold += 1
                         self._record_below_sample(stats, candidate.title, analysis)
                         continue
+
+                    stats.qualified += 1
 
                     job = await self._repository.save_job(
                         self._stored_job(candidate, analysis)
@@ -528,13 +544,19 @@ class GmailJobProcessor:
             body=email.body,
             client=self._openai_client,
         )
+        if analysis.analysis_succeeded:
+            stats.ai_analyzed += 1
+        else:
+            stats.errors += 1
+            stats.error_details.append(f"{email.id}: AI analysis failed")
 
         if not analysis.is_relevant:
             await self._mark_processed(email.id)
-            stats.not_relevant += 1
-            self._record_rejected_sample(
-                stats, email, analysis.reason or "not_job_alert"
-            )
+            if analysis.analysis_succeeded:
+                stats.not_relevant += 1
+                self._record_rejected_sample(
+                    stats, email, analysis.reason or "not_job_alert"
+                )
             return False
 
         stats.relevant += 1
@@ -543,6 +565,8 @@ class GmailJobProcessor:
             stats.below_threshold += 1
             self._record_below_sample(stats, email.subject, analysis)
             return False
+
+        stats.qualified += 1
 
         # Legacy mode has no durable queued-job store. Leaving the email
         # unmarked makes an above-threshold item retryable on the next scan.
@@ -588,15 +612,21 @@ class GmailJobProcessor:
                 body=email.body,
                 client=self._openai_client,
             )
+            if analysis.analysis_succeeded:
+                stats.ai_analyzed += 1
+            else:
+                stats.errors += 1
+                stats.error_details.append(f"{email.id}: AI analysis failed")
 
             if not analysis.is_relevant:
                 await self._repository.upsert_processed(
                     self._processed_single_item(email, analysis, "not_relevant")
                 )
-                stats.not_relevant += 1
-                self._record_rejected_sample(
-                    stats, email, analysis.reason or "not_job_alert"
-                )
+                if analysis.analysis_succeeded:
+                    stats.not_relevant += 1
+                    self._record_rejected_sample(
+                        stats, email, analysis.reason or "not_job_alert"
+                    )
                 return False
 
             stats.relevant += 1
@@ -607,6 +637,8 @@ class GmailJobProcessor:
                 stats.below_threshold += 1
                 self._record_below_sample(stats, email.subject, analysis)
                 return False
+
+            stats.qualified += 1
 
             job = await self._repository.save_job(
                 self._stored_single_job(email, analysis)
@@ -660,11 +692,14 @@ class GmailJobProcessor:
                     finished_at=datetime.now(timezone.utc),
                     emails_inspected=stats.emails_fetched,
                     candidates_found=stats.candidates_found,
+                    ai_analyzed=stats.ai_analyzed,
                     relevant=stats.relevant,
+                    qualified=stats.qualified,
                     duplicates=stats.duplicates_skipped,
                     not_relevant=stats.not_relevant,
                     below_threshold=stats.below_threshold,
                     sent=stats.sent,
+                    sent_from_queue=stats.sent_from_queue,
                     errors=stats.errors,
                 )
             )
@@ -781,12 +816,21 @@ class GmailJobProcessor:
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
                     )
+                    if analysis.analysis_succeeded:
+                        stats.ai_analyzed += 1
+                    else:
+                        stats.errors += 1
+                        stats.error_details.append(
+                            f"{candidate.stable_key}: AI analysis failed"
+                        )
                     if analysis.is_relevant:
                         stats.relevant += 1
-                    else:
+                    elif analysis.analysis_succeeded:
                         stats.not_relevant += 1
                     if analysis.is_relevant and analysis.score < self._min_score:
                         stats.below_threshold += 1
+                    elif analysis.is_relevant:
+                        stats.qualified += 1
                     items.append(
                         DigestPreviewItem(
                             stable_key=candidate.stable_key,

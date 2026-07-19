@@ -174,6 +174,10 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
             stats = await processor.run(trigger="manual")
 
         self.assertEqual(stats.sent, 2)
+        self.assertEqual(stats.ai_analyzed, 2)
+        self.assertEqual(stats.relevant, 2)
+        self.assertEqual(stats.qualified, 2)
+        self.assertEqual(stats.sent_from_queue, 0)
         self.assertEqual(analyze_candidate.await_count, 2)
         analyze_email.assert_not_awaited()
         self.assertEqual(send_card.await_count, 2)
@@ -233,6 +237,9 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
             second = await processor.run(trigger="manual")
 
         self.assertEqual(first.below_threshold, 1)
+        self.assertEqual(first.ai_analyzed, 1)
+        self.assertEqual(first.relevant, 1)
+        self.assertEqual(first.qualified, 0)
         self.assertEqual(second.sent, 0)
         self.assertEqual(_duplicate_count(second), 1)
         self.assertEqual(analyze_candidate.await_count, 1)
@@ -266,6 +273,8 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
             retried = await processor.run(trigger="manual")
 
         self.assertEqual(retried.sent, 1)
+        self.assertEqual(retried.ai_analyzed, 0)
+        self.assertEqual(retried.sent_from_queue, 1)
         self.assertEqual(send_card.await_count, 2)
         sent_job = await self.repository.get_job(candidate.stable_key)
         self.assertEqual(sent_job.status, "sent")
@@ -349,7 +358,9 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(first.sent, 10)
         self.assertEqual(second.emails_fetched, 0)
+        self.assertEqual(second.ai_analyzed, 0)
         self.assertEqual(second.sent, 2)
+        self.assertEqual(second.sent_from_queue, 2)
         self.assertEqual(first_provider.fetch_count, 1)
         self.assertEqual(second_provider.fetch_count, 1)
         self.assertEqual(first_provider.marked, [email.id])
@@ -409,10 +420,12 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
             second = await restarted_processor.run(trigger="manual")
 
         self.assertEqual(first.not_relevant, 1)
+        self.assertEqual(first.ai_analyzed, 0)
         self.assertEqual(first.sent, 0)
         self.assertEqual(second.not_relevant, 0)
         self.assertEqual(second.sent, 0)
         self.assertEqual(_duplicate_count(second), 1)
+        self.assertEqual(second.ai_analyzed, 0)
         analyze_email.assert_not_awaited()
         analyze_candidate.assert_not_awaited()
         send_card.assert_not_awaited()
@@ -441,9 +454,34 @@ class TestDigestAwareProcessor(unittest.IsolatedAsyncioTestCase):
             stats = await processor.run(trigger="manual")
 
         self.assertEqual(stats.sent, 1)
+        self.assertEqual(stats.ai_analyzed, 1)
+        self.assertEqual(stats.qualified, 1)
+        self.assertEqual(stats.sent_from_queue, 0)
         analyze_email.assert_awaited_once()
         analyze_candidate.assert_not_awaited()
         send_card.assert_awaited_once()
+
+    async def test_failed_retry_queue_delivery_is_not_counted_as_sent_from_queue(self):
+        email = _digest("digest-retry-fails", DIGEST_ONE_JOB_HTML)
+        processor, _ = self._processor([email])
+        analyze_candidate = AsyncMock(side_effect=_candidate_analysis)
+        send_card = AsyncMock(side_effect=[False, False])
+
+        with (
+            patch("gmail_agent.processor.analyze_candidate", analyze_candidate),
+            patch("gmail_agent.processor.send_job_card", send_card),
+        ):
+            first = await processor.run(trigger="manual")
+            retry_processor, _ = self._processor([])
+            retried = await retry_processor.run(trigger="scheduler")
+
+        self.assertEqual(first.ai_analyzed, 1)
+        self.assertEqual(first.sent, 0)
+        self.assertEqual(retried.ai_analyzed, 0)
+        self.assertEqual(retried.sent_from_queue, 0)
+        self.assertEqual(retried.sent, 0)
+        self.assertGreaterEqual(retried.errors, 1)
+        self.assertEqual(send_card.await_count, 2)
 
     async def test_repository_single_jobs_share_the_ten_card_scan_cap(self):
         emails = [_single_job_with_id(index) for index in range(1, 12)]

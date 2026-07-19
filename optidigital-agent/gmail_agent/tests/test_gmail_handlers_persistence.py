@@ -279,6 +279,135 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("історія порожня", output)
         self.assertNotIn("history is empty", output)
 
+    async def test_status_reads_latest_completed_postgres_run_after_restart(self):
+        import state
+
+        run = ScanRun(
+            id=10,
+            trigger="manual",
+            started_at=datetime(2026, 7, 19, 18, 39, tzinfo=timezone.utc),
+            finished_at=datetime(2026, 7, 19, 18, 40, tzinfo=timezone.utc),
+            emails_inspected=8,
+            candidates_found=3,
+            ai_analyzed=1,
+            relevant=1,
+            qualified=1,
+            duplicates=3,
+            sent=1,
+            sent_from_queue=1,
+            errors=0,
+        )
+        repository = MagicMock()
+        repository.list_scan_runs = AsyncMock(return_value=[run])
+        repository_type = MagicMock(return_value=repository)
+        handler = _load_handler(
+            "cmd_status",
+            {
+                "settings": _settings(),
+                "AsyncSessionLocal": MagicMock(),
+            },
+        )
+        message = _message("/status")
+        original_history = state.gmail_scan_history[:]
+        state.gmail_scan_history.clear()
+        try:
+            with patch("gmail_agent.storage.PostgresGmailRepository", repository_type):
+                await handler(message)
+        finally:
+            state.gmail_scan_history[:] = original_history
+
+        repository.list_scan_runs.assert_awaited_once_with(limit=1)
+        output = message.answer.await_args.args[0]
+        for expected in (
+            "Last completed scan",
+            "19.07.2026 18:40:00 UTC",
+            "Trigger: <b>manual</b>",
+            "Emails: <b>8</b>",
+            "Candidates: <b>3</b>",
+            "AI analyzed: <b>1</b>",
+            "Qualified: <b>1</b>",
+            "Duplicates: <b>3</b>",
+            "Sent from queue: <b>1</b>",
+        ):
+            self.assertIn(expected, output)
+        self.assertNotIn("memory fallback", output)
+
+    async def test_status_db_failure_uses_memory_fallback_without_raising(self):
+        import state
+
+        repository = MagicMock()
+        repository.list_scan_runs = AsyncMock(side_effect=RuntimeError("database offline"))
+        repository_type = MagicMock(return_value=repository)
+        handler = _load_handler(
+            "cmd_status",
+            {
+                "settings": _settings(),
+                "AsyncSessionLocal": MagicMock(),
+            },
+        )
+        message = _message("/status")
+        original_history = state.gmail_scan_history[:]
+        state.gmail_scan_history[:] = [{
+            "timestamp": datetime(2026, 7, 19, 17, 0),
+            "trigger": "scheduler",
+            "emails": 4,
+            "candidates": 2,
+            "ai_analyzed": 0,
+            "relevant": 0,
+            "qualified": 0,
+            "duplicates": 2,
+            "sent": 1,
+            "sent_from_queue": 1,
+            "errors": 0,
+        }]
+        try:
+            with patch("gmail_agent.storage.PostgresGmailRepository", repository_type):
+                await handler(message)
+        finally:
+            state.gmail_scan_history[:] = original_history
+
+        output = message.answer.await_args.args[0]
+        self.assertIn("Telemetry source: <b>memory fallback</b>", output)
+        self.assertIn("Trigger: <b>scheduler</b>", output)
+        self.assertIn("Sent from queue: <b>1</b>", output)
+
+    async def test_history_displays_new_telemetry_fields_with_legacy_zero_defaults(self):
+        repository = MagicMock()
+        repository.list_scan_runs = AsyncMock(return_value=[
+            ScanRun(
+                id=11,
+                trigger="manual",
+                started_at=datetime(2026, 7, 19, 18, 40, tzinfo=timezone.utc),
+                ai_analyzed=1,
+                relevant=1,
+                qualified=1,
+                sent=1,
+                sent_from_queue=0,
+            ),
+            ScanRun(
+                id=10,
+                trigger="backfill",
+                started_at=datetime(2026, 7, 19, 17, 40, tzinfo=timezone.utc),
+            ),
+        ])
+        message = _message("/gmail_history")
+        handler = _load_handler(
+            "cmd_gmail_history",
+            {"settings": _settings(), "AsyncSessionLocal": MagicMock()},
+        )
+
+        with patch(
+            "gmail_agent.storage.PostgresGmailRepository",
+            MagicMock(return_value=repository),
+        ):
+            await handler(message)
+
+        output = message.answer.await_args.args[0]
+        self.assertIn("analyzed: 1", output)
+        self.assertIn("qualified: 1", output)
+        self.assertIn("queue: 0", output)
+        self.assertIn("backfill", output)
+
     async def test_reply_loads_persistent_job_after_memory_cache_is_empty(self):
         repository = MagicMock()
         repository.get_job = AsyncMock(return_value=_job())
@@ -333,6 +462,93 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
 
 
 class TestRepositoryWiring(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_summary_separates_fresh_and_persistent_queue_sends(self):
+        import state
+
+        settings = _settings()
+        scenarios = (
+            (
+                SimpleNamespace(
+                    emails_fetched=0,
+                    candidates_found=0,
+                    ai_analyzed=0,
+                    relevant=0,
+                    qualified=0,
+                    duplicates_skipped=0,
+                    not_relevant=0,
+                    below_threshold=0,
+                    sent=1,
+                    sent_from_queue=1,
+                    errors=0,
+                    error_details=[],
+                    rejected_samples=[],
+                    below_score_samples=[],
+                    sent_analyses=[],
+                ),
+                (
+                    "Нових AI-аналізів: <b>0</b>",
+                    "Відправлено нових: <b>0</b>",
+                    "Відправлено з черги: <b>1</b>",
+                    "постійної черги",
+                ),
+            ),
+            (
+                SimpleNamespace(
+                    emails_fetched=1,
+                    candidates_found=1,
+                    ai_analyzed=1,
+                    relevant=1,
+                    qualified=1,
+                    duplicates_skipped=0,
+                    not_relevant=0,
+                    below_threshold=0,
+                    sent=1,
+                    sent_from_queue=0,
+                    errors=0,
+                    error_details=[],
+                    rejected_samples=[],
+                    below_score_samples=[],
+                    sent_analyses=[],
+                ),
+                (
+                    "Нових AI-аналізів: <b>1</b>",
+                    "Пройшли score ≥ 6.0: <b>1</b>",
+                    "Відправлено нових: <b>1</b>",
+                    "Відправлено з черги: <b>0</b>",
+                ),
+            ),
+        )
+        original_history = state.gmail_scan_history[:]
+        try:
+            for stats, expected_fragments in scenarios:
+                with self.subTest(sent_from_queue=stats.sent_from_queue):
+                    processor = MagicMock()
+                    processor.run = AsyncMock(return_value=stats)
+                    message = _message("/gmail_scan")
+                    handler = _load_handler(
+                        "cmd_gmail_scan",
+                        {
+                            "settings": settings,
+                            "AsyncSessionLocal": MagicMock(),
+                        },
+                    )
+                    with (
+                        patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
+                        patch("gmail_agent.processor.GmailJobProcessor", return_value=processor),
+                        patch("gmail_agent.storage.PostgresGmailRepository", return_value=MagicMock()),
+                    ):
+                        await handler(message)
+                    output = "\n".join(
+                        call.args[0] for call in message.answer.await_args_list
+                    )
+                    for fragment in expected_fragments:
+                        self.assertIn(fragment, output)
+                    self.assertNotIn("Пройшли аналіз (job alerts)", output)
+                    if stats.sent_from_queue == 0:
+                        self.assertNotIn("постійної черги", output)
+        finally:
+            state.gmail_scan_history[:] = original_history
+
     async def test_manual_scan_passes_postgres_repository_and_manual_trigger(self):
         stats = SimpleNamespace(
             emails_fetched=0,
@@ -400,6 +616,59 @@ class TestRepositoryWiring(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(processor_type.call_args.kwargs["repository"], repository)
         processor.run.assert_awaited_once_with(trigger="scheduler")
+
+    async def test_scheduler_copies_authoritative_counters_without_derived_formula(self):
+        import state
+        from gmail_agent.scheduler import check_gmail_jobs
+
+        settings = _settings()
+        stats = SimpleNamespace(
+            emails_fetched=8,
+            candidates_found=3,
+            ai_analyzed=0,
+            relevant=0,
+            qualified=0,
+            duplicates_skipped=3,
+            not_relevant=5,
+            below_threshold=0,
+            sent=1,
+            sent_from_queue=1,
+            errors=0,
+            error_details=[],
+        )
+        processor = MagicMock()
+        processor.run = AsyncMock(return_value=stats)
+        original_history = state.gmail_scan_history[:]
+        state.gmail_scan_history.clear()
+        try:
+            with (
+                patch.dict(sys.modules, {"config": SimpleNamespace(settings=settings)}),
+                patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
+                patch("gmail_agent.processor.GmailJobProcessor", return_value=processor),
+                patch("gmail_agent.storage.PostgresGmailRepository", return_value=MagicMock()),
+                self.assertLogs("gmail_agent.scheduler", level="INFO") as captured,
+            ):
+                await check_gmail_jobs(MagicMock())
+
+            memory = state.gmail_scan_history[-1]
+            self.assertEqual(memory["ai_analyzed"], 0)
+            self.assertEqual(memory["sent_from_queue"], 1)
+            self.assertEqual(memory["candidates"], 3)
+            log_output = "\n".join(captured.output)
+            self.assertIn("trigger=scheduler", log_output)
+            self.assertIn("ai_analyzed=0", log_output)
+            self.assertIn("sent_from_queue=1", log_output)
+        finally:
+            state.gmail_scan_history[:] = original_history
+
+    def test_old_derived_analyzed_count_formulas_are_absent(self):
+        handler_source = HANDLERS_PATH.read_text(encoding="utf-8")
+        scheduler_source = (
+            PROJECT_ROOT / "gmail_agent" / "scheduler.py"
+        ).read_text(encoding="utf-8")
+        for source in (handler_source, scheduler_source):
+            self.assertNotIn("new_count = stats.emails_fetched", source)
+            self.assertNotIn("analyzed_count =", source)
 
     async def test_disabled_gmail_has_no_provider_repository_or_scheduler_side_effects(self):
         from gmail_agent.scheduler import check_gmail_jobs, register_gmail_job

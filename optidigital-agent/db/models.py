@@ -81,11 +81,14 @@ class GmailScanRun(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     emails_inspected: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     candidates_found: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    ai_analyzed: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     relevant: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    qualified: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     duplicates: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     not_relevant: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     below_threshold: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     sent: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    sent_from_queue: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     errors: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
@@ -127,6 +130,9 @@ _MIGRATIONS = [
     # create_all does not add columns to an already existing table. This is an
     # additive, data-preserving migration for early gmail_scan_runs deployments.
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS relevant INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS ai_analyzed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS qualified INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS sent_from_queue INTEGER NOT NULL DEFAULT 0",
     # A lease timestamp lets a later worker safely recover a job if a process
     # exits after claiming it but before recording the Telegram send result.
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",

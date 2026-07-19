@@ -113,6 +113,7 @@ class TestAnalyzeEmail(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, JobAnalysis)
         self.assertFalse(result.is_relevant)
         self.assertEqual(result.score, 0.0)
+        self.assertFalse(result.analysis_succeeded)
 
 
 if __name__ == "__main__":

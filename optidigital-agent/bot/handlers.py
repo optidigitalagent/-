@@ -527,6 +527,7 @@ async def _cmd_scan_debug(message: Message) -> None:
 
 @admin_router.message(Command("status"))
 async def cmd_status(message: Message) -> None:
+    import asyncio
     import state
 
     uptime = _fmt_uptime(state.start_time)
@@ -552,32 +553,96 @@ async def cmd_status(message: Message) -> None:
     gmail_enabled = settings.GMAIL_ENABLED
     gmail_mode = "MOCK" if settings.GMAIL_USE_MOCK else "REAL Gmail"
     gmail_next_run = "—"
-    gmail_last_scan = "—"
-    gmail_last_found = "—"
-    gmail_last_sent = "—"
-    gmail_last_errors = "—"
+    gmail_telemetry = None
+    gmail_memory_fallback = False
 
     if state.scheduler is not None and state.scheduler.running:
         gmail_job = state.scheduler.get_job("check_gmail_jobs")
         if gmail_job:
             gmail_next_run = _fmt_dt(gmail_job.next_run_time)
 
-    if state.gmail_scan_history:
-        last = state.gmail_scan_history[-1]
-        gmail_last_scan = _fmt_dt(last.get("timestamp"))
-        gmail_last_found = str(last.get("emails_found", "—"))
-        gmail_last_sent = str(last.get("sent", "—"))
-        gmail_last_errors = str(last.get("errors", "—"))
+    try:
+        from gmail_agent.storage import PostgresGmailRepository
+
+        repository = PostgresGmailRepository(AsyncSessionLocal)
+        history = await asyncio.wait_for(
+            repository.list_scan_runs(limit=1), timeout=5.0
+        )
+        # Scan runs are appended only after processor completion, so an older
+        # row without finished_at is still a completed legacy record.
+        if history:
+            last = history[0]
+            gmail_telemetry = {
+                "timestamp": last.finished_at or last.started_at,
+                "trigger": last.trigger,
+                "emails": last.emails_inspected,
+                "candidates": last.candidates_found,
+                "ai_analyzed": last.ai_analyzed,
+                "relevant": last.relevant,
+                "qualified": last.qualified,
+                "duplicates": last.duplicates,
+                "sent": last.sent,
+                "sent_from_queue": last.sent_from_queue,
+                "errors": last.errors,
+            }
+    except Exception as exc:
+        gmail_memory_fallback = True
+        logger.error(
+            "Failed to read latest completed Gmail scan from PostgreSQL: %s",
+            type(exc).__name__,
+        )
+        if state.gmail_scan_history:
+            last = state.gmail_scan_history[-1]
+            gmail_telemetry = {
+                "timestamp": last.get("finished_at") or last.get("timestamp"),
+                "trigger": last.get("trigger", "—"),
+                "emails": last.get("emails", last.get("emails_found", 0)),
+                "candidates": last.get("candidates", 0),
+                "ai_analyzed": last.get("ai_analyzed", 0),
+                "relevant": last.get("relevant", 0),
+                "qualified": last.get("qualified", 0),
+                "duplicates": last.get("duplicates", 0),
+                "sent": last.get("sent", 0),
+                "sent_from_queue": last.get("sent_from_queue", 0),
+                "errors": last.get("errors", 0),
+            }
+
+    if gmail_telemetry is None:
+        gmail_telemetry = {
+            "timestamp": None,
+            "trigger": "—",
+            "emails": "—",
+            "candidates": "—",
+            "ai_analyzed": "—",
+            "relevant": "—",
+            "qualified": "—",
+            "duplicates": "—",
+            "sent": "—",
+            "sent_from_queue": "—",
+            "errors": "—",
+        }
+
+    telemetry_source = (
+        "\nTelemetry source: <b>memory fallback</b>" if gmail_memory_fallback else ""
+    )
 
     gmail_block = (
         "\n\n📬 <b>Gmail Agent</b>\n"
         f"Enabled: <b>{'✅ так' if gmail_enabled else '❌ ні'}</b>\n"
         f"Mode: <b>{gmail_mode}</b>\n"
         f"Next scan: <b>{gmail_next_run}</b>\n"
-        f"Last scan: <b>{gmail_last_scan}</b>\n"
-        f"Found: <b>{gmail_last_found}</b>\n"
-        f"Sent: <b>{gmail_last_sent}</b>\n"
-        f"Errors: <b>{gmail_last_errors}</b>"
+        f"Last completed scan: <b>{_fmt_dt(gmail_telemetry['timestamp'])}</b>\n"
+        f"Trigger: <b>{escape_html(gmail_telemetry['trigger'])}</b>\n"
+        f"Emails: <b>{gmail_telemetry['emails']}</b>\n"
+        f"Candidates: <b>{gmail_telemetry['candidates']}</b>\n"
+        f"AI analyzed: <b>{gmail_telemetry['ai_analyzed']}</b>\n"
+        f"Relevant: <b>{gmail_telemetry['relevant']}</b>\n"
+        f"Qualified: <b>{gmail_telemetry['qualified']}</b>\n"
+        f"Duplicates: <b>{gmail_telemetry['duplicates']}</b>\n"
+        f"Sent: <b>{gmail_telemetry['sent']}</b>\n"
+        f"Sent from queue: <b>{gmail_telemetry['sent_from_queue']}</b>\n"
+        f"Errors: <b>{gmail_telemetry['errors']}</b>"
+        + telemetry_source
     )
 
     await message.answer(
@@ -1009,21 +1074,41 @@ async def cmd_gmail_scan(message: Message) -> None:
         )
         return
 
-    new_count = stats.emails_fetched - stats.duplicates_skipped
-    analyzed_count = max(0, new_count - stats.not_relevant)
+    emails_fetched = max(0, stats.emails_fetched)
+    candidates_found = max(0, getattr(stats, "candidates_found", 0))
+    ai_analyzed = max(0, getattr(stats, "ai_analyzed", 0))
+    relevant = max(0, getattr(stats, "relevant", 0))
+    qualified = max(0, getattr(stats, "qualified", 0))
+    below_threshold = max(0, stats.below_threshold)
+    not_relevant = max(0, stats.not_relevant)
+    duplicates = max(0, stats.duplicates_skipped)
+    sent = max(0, stats.sent)
+    sent_from_queue = max(0, getattr(stats, "sent_from_queue", 0))
+    fresh_sent = max(0, sent - sent_from_queue)
+    errors = max(0, stats.errors)
 
     summary = (
         f"✅ <b>Gmail scan завершено</b>\n\n"
         f"📊 <b>Gmail Scan Details</b>\n\n"
-        f"📬 Всього листів: <b>{stats.emails_fetched}</b>\n"
-        f"🆕 Нових листів: <b>{new_count}</b>\n"
-        f"♻️ Дублікатів: <b>{stats.duplicates_skipped}</b>\n"
-        f"🚫 Нерелевантних: <b>{stats.not_relevant}</b>\n"
-        f"🎯 Пройшли аналіз (job alerts): <b>{analyzed_count}</b>\n"
-        f"⬇️ Нижче порогу score ({settings.GMAIL_MIN_SCORE}): <b>{stats.below_threshold}</b>\n"
-        f"📨 Відправлено в Telegram: <b>{stats.sent}</b>\n"
-        f"❌ Помилок: <b>{stats.errors}</b>"
+        f"📬 Email-повідомлень перевірено: <b>{emails_fetched}</b>\n"
+        f"🧩 Job candidates знайдено: <b>{candidates_found}</b>\n"
+        f"🧠 Нових AI-аналізів: <b>{ai_analyzed}</b>\n"
+        f"✅ Нових релевантних: <b>{relevant}</b>\n"
+        f"🎯 Пройшли score ≥ {settings.GMAIL_MIN_SCORE}: <b>{qualified}</b>\n"
+        f"⬇️ Нижче порогу: <b>{below_threshold}</b>\n"
+        f"🚫 Нерелевантних: <b>{not_relevant}</b>\n"
+        f"♻️ Дублікатів: <b>{duplicates}</b>\n"
+        f"📤 Відправлено нових: <b>{fresh_sent}</b>\n"
+        f"🔁 Відправлено з черги: <b>{sent_from_queue}</b>\n"
+        f"📨 Всього відправлено: <b>{sent}</b>\n"
+        f"❌ Помилок: <b>{errors}</b>"
     )
+
+    if sent_from_queue > 0:
+        summary += (
+            "\n\nЧастина карток могла бути проаналізована в попередньому запуску "
+            "та надіслана з постійної черги."
+        )
 
     if stats.emails_fetched == 0:
         summary += "\n\n📭 Inbox порожній або немає нових листів."
@@ -1085,10 +1170,20 @@ async def cmd_gmail_scan(message: Message) -> None:
 
         _state.gmail_scan_history.append({
             "timestamp": datetime.utcnow(),
-            "emails_found": stats.emails_fetched,
-            "relevant": analyzed_count,
-            "sent": stats.sent,
-            "errors": stats.errors,
+            "finished_at": datetime.utcnow(),
+            "trigger": "manual",
+            "emails": emails_fetched,
+            "emails_found": emails_fetched,
+            "candidates": candidates_found,
+            "ai_analyzed": ai_analyzed,
+            "relevant": relevant,
+            "qualified": qualified,
+            "duplicates": duplicates,
+            "not_relevant": not_relevant,
+            "below_threshold": below_threshold,
+            "sent": sent,
+            "sent_from_queue": sent_from_queue,
+            "errors": errors,
         })
         if len(_state.gmail_scan_history) > 20:
             _state.gmail_scan_history = _state.gmail_scan_history[-20:]
@@ -1194,11 +1289,14 @@ async def cmd_gmail_digest_backfill(message: Message) -> None:
         "✅ <b>Freelancehunt digest backfill завершено</b>",
         f"Emails: <b>{stats.emails_fetched}</b>",
         f"Candidates: <b>{stats.candidates_found}</b>",
+        f"AI analyzed: <b>{getattr(stats, 'ai_analyzed', 0)}</b>",
         f"Relevant: <b>{stats.relevant}</b>",
+        f"Qualified: <b>{getattr(stats, 'qualified', 0)}</b>",
         f"Duplicates: <b>{stats.duplicates_skipped}</b>",
         f"Not relevant: <b>{stats.not_relevant}</b>",
         f"Below threshold: <b>{stats.below_threshold}</b>",
         f"Sent (cap 10): <b>{stats.sent}</b>",
+        f"Sent from queue: <b>{getattr(stats, 'sent_from_queue', 0)}</b>",
         f"Errors: <b>{stats.errors}</b>",
     ]
     if stats.error_details:
@@ -1234,8 +1332,11 @@ async def cmd_gmail_history(message: Message) -> None:
             f"{i}. <b>{ts}</b> — {escape_html(entry.trigger)}; "
             f"emails: {entry.emails_inspected}, "
             f"candidates: {entry.candidates_found}, "
+            f"analyzed: {entry.ai_analyzed}, "
             f"relevant: {entry.relevant}, "
+            f"qualified: {entry.qualified}, "
             f"sent: {entry.sent}, "
+            f"queue: {entry.sent_from_queue}, "
             f"duplicates: {entry.duplicates}, "
             f"errors: {entry.errors}"
         )

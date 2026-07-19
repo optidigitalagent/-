@@ -77,6 +77,7 @@ class JobAnalysis:
     urgency: str
     why_relevant: str
     red_flags: list[str] = field(default_factory=list)
+    analysis_succeeded: bool = True
 
     @property
     def score_display(self) -> str:
@@ -119,6 +120,7 @@ async def analyze_email(
             raise RuntimeError("OPENAI_API_KEY is not configured")
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
+    analysis_succeeded = True
     try:
         response = await client.chat.completions.create(
             model=model,
@@ -134,6 +136,7 @@ async def analyze_email(
     except Exception:
         logger.exception("analyze_email failed for email_id=%s", email_id)
         data = {}
+        analysis_succeeded = False
 
     return JobAnalysis(
         email_id=email_id,
@@ -147,6 +150,7 @@ async def analyze_email(
         urgency=str(data.get("urgency", "medium")),
         why_relevant=str(data.get("why_relevant", "")),
         red_flags=list(data.get("red_flags", [])),
+        analysis_succeeded=analysis_succeeded,
     )
 
 
