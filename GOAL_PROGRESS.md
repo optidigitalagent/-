@@ -296,3 +296,29 @@ token.json: ✅ знайдено
 - Proof: `python -m py_compile gmail_agent\gmail_provider.py bot\handlers.py` -> OK.
 - Real header-only Gmail proof: Inbox inspected 10; matched sender domain 0; matched subject keyword 0; returned job alerts 0; no OAuth/API error.
 - Production status: code path is verified, but real Freelancehunt → AI → Telegram end-to-end proof is still pending because no real platform alert was present in the inspected Inbox window.
+
+---
+
+## 2026-07-19 Railway production recovery
+
+- Git audit: local `main`, `origin/main`, and GitHub `main` all point to `cf1acbf07869d6625c613943be7d1ac8cc7b7ed6`; divergence is `0/0`.
+- Existing dirty-worktree items were identified and left untouched: deleted debug PNG files and an untracked root `credentials.json`.
+- Railway project/environment/service: `optidigital-agent` / `production` / `optidigital-agent`.
+- Failed deployment: `3fd6aa93-e7fa-497c-8e54-c8cd6c430d2e`, commit `cf1acbf07869d6625c613943be7d1ac8cc7b7ed6`, status `FAILED`.
+- Root cause: Railway stored Root Directory as ` /optidigital-agent` with a leading space. The failed deployment therefore had an empty file manifest, no detected `railway.json`, null build/start commands, and stopped immediately after build scheduling.
+- Railway service-instance audit also found the Config File setting empty. Correct values are Root Directory `/optidigital-agent` and Config File `/optidigital-agent/railway.json`.
+- Local proof before deployment: 45/45 Gmail tests passed; all 37 Python files compiled; key Gmail modules imported successfully.
+- Local entrypoint import is blocked only because the host Python environment has not installed the repository requirements (`aiogram` is the first missing package); this is not a repository regression.
+
+### Production proof after Railway settings correction
+
+- Current deployment `8d53e91e-afeb-4b17-ba60-6d286d79db48` is `SUCCESS` on commit `cf1acbf07869d6625c613943be7d1ac8cc7b7ed6`.
+- Build proof: Railpack installed Playwright Chromium, Chromium Headless Shell, and ffmpeg; the image built and pushed successfully.
+- Startup proof: Python 3.13.14; config, `bot.handlers`, `gmail_agent.gmail_provider`, and `gmail_agent.scheduler` import successfully in the running container.
+- Runtime proof: Playwright 1.49.0 Chromium binary OK; bot started; APScheduler started; `check_gmail_jobs` registered at 60 minutes; Telegram polling connected.
+- A single Telegram polling overlap conflict occurred during deployment handover and recovered 11 seconds later. There is one container start, no container stop, no startup traceback, and no `invalid_grant` in current deployment logs.
+- Production header-only Gmail proof: enabled=true, mock=false, interval=60; Inbox inspected 10; sender-domain matches 0; subject-keyword matches 0; job-alert matches 0; OAuth/API call succeeded.
+- Production Gmail pipeline dry-run with temporary dedup/job-store and a non-sending bot: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0.
+- Local QA: 45/45 Gmail tests passed and compileall passed. Full local dependency install was blocked by host disk exhaustion while pip built pinned lxml for Python 3.14; the Railway Python 3.13 image has all runtime dependencies and imports successfully.
+- Root `.gitignore` now excludes `credentials.json` and `gmail_token*.json`; no credential/token file is staged. Existing tracked cookie JSON files were identified but left untouched.
+- Real platform-alert end-to-end proof remains pending because no matching real platform alert was present in the latest inspected Inbox window.
