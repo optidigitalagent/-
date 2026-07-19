@@ -320,5 +320,14 @@ token.json: ✅ знайдено
 - Production header-only Gmail proof: enabled=true, mock=false, interval=60; Inbox inspected 10; sender-domain matches 0; subject-keyword matches 0; job-alert matches 0; OAuth/API call succeeded.
 - Production Gmail pipeline dry-run with temporary dedup/job-store and a non-sending bot: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0.
 - Local QA: 45/45 Gmail tests passed and compileall passed. Full local dependency install was blocked by host disk exhaustion while pip built pinned lxml for Python 3.14; the Railway Python 3.13 image has all runtime dependencies and imports successfully.
-- Root `.gitignore` now excludes `credentials.json` and `gmail_token*.json`; no credential/token file is staged. Existing tracked cookie JSON files were identified but left untouched.
+- Root `.gitignore` now excludes `credentials.json` and `gmail_token*.json`; no credential/token file is staged. Two pre-existing parser cookie JSON files were removed from the Git index with `git rm --cached` while preserving the local files.
 - Real platform-alert end-to-end proof remains pending because no matching real platform alert was present in the latest inspected Inbox window.
+
+### Final latest-main deployment
+
+- Pushed commit: `703399cb80700be914274cdebf54701e33f25031` (`Protect credentials after Railway recovery`).
+- Railway deployment: `5bd8ee6d-8011-4a0b-ba48-f603f43fb2f7`, status `SUCCESS`, Root Directory `/optidigital-agent`, Config File `/optidigital-agent/railway.json`.
+- Latest deployment startup: one container start, zero stops, zero tracebacks, zero `invalid_grant`, zero Telegram polling conflicts.
+- Production module checks on the latest deployment: Python 3.13.14; config, handlers, Gmail provider, and Gmail scheduler all exit 0.
+- Latest production Gmail checks: OAuth diagnostic status `ok`; enabled=true; mock=false; interval=60; header-only Inbox inspected=10, sender-domain matches=0, subject-keyword matches=0, potential alerts=0.
+- Latest isolated production pipeline scan: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0. Temporary dedup/job-store and a non-sending bot were used, so this verification did not mutate production dedup or send job cards.
