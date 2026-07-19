@@ -435,3 +435,80 @@ token.json: ✅ знайдено
 - Isolated production-env pipeline used the real Gmail provider and OpenAI analyzer with temporary dedup/job-store and a non-sending bot: `fetched=8`, `duplicates=0`, `not_relevant=8`, `below_threshold=0`, `would_send=0`, `errors=0`, `send_attempts=0`.
 - The isolated scan did not clear or mutate production dedup and did not send Telegram cards.
 - Telegram Desktop already showed previous user-issued `/gmail_test`, `/gmail_debug`, and `/gmail_scan` results. No new command was sent through UI automation because user input was detected in that window and representational UI messages require action-time confirmation.
+
+---
+
+## 2026-07-19 Final Telegram job-card root-cause audit
+
+### Accepted evidence-first plan ✅
+
+- Read `GOAL.md`, `GOAL_PROGRESS.md`, and the user-supplied audit brief before taking action.
+- The brief itself supplies the agreed plan: metadata-only Gmail audit, isolated AI audit, root-cause classification, Freelancehunt settings check, then evidence-driven fixes only.
+- Existing user worktree deletions of debug PNG files remain untouched and outside this task's scope.
+- No production dedup, Gmail labels, Telegram cards, prompt, score threshold, or platform settings have been changed at this stage.
+
+---
+
+## 2026-07-19 Freelancehunt digest production pipeline
+
+### Stage 1 — read-only production Gmail audit ✅
+
+- The production OAuth token is valid, has exactly the Gmail readonly scope, and belongs to the expected mailbox. The refresh was performed in memory; no token file, Gmail label, message state, dedup store, or job store was changed.
+- A narrow Gmail search found exactly two target Freelancehunt digest emails. Only `getProfile`, `messages.list`, and `messages.get` with metadata/full read formats were used; no Gmail mutation endpoint was called.
+- Both messages are HTML-only: root MIME `text/html`, one HTML part, no `text/plain`, no attachments.
+- The two samples contain 7/6 anchors and 5/4 unique normalized destinations. After semantic path classification they contain 2/1 direct vacancy links, 1/1 category links, 2/2 unsubscribe links, and 2/2 platform/root links. Tracking query parameters decorate semantic links and must be removed only after path classification.
+- Each vacancy is one nested table: the first row contains the direct vacancy title anchor plus metadata and an optional budget block; the second row contains the description. Three unique vacancy items were confirmed in total (2 + 1); one of the three contains an explicit currency budget.
+- Images, linked pages, and tracking destinations were not fetched. No body, personal data, tracking token, OAuth secret, Gmail message ID, or cookie was printed or saved.
+- Regression fixtures will be fully synthetic (`example.invalid` content plus Freelancehunt-shaped `/ua/job/{slug}/{id}.html` paths) and will preserve only the audited structure.
+- Baseline proof before implementation: `python -m unittest discover -s gmail_agent\\tests -v` → 58/58 OK.
+
+### Agreed implementation plan
+
+1. Add deterministic email-type classification and synthetic digest fixtures/tests.
+2. Preserve MIME structure and safely extract/clean plain text, HTML, and links.
+3. Parse each Freelancehunt vacancy into a separate stable-key candidate (maximum 20 per digest).
+4. Analyze every candidate separately while preserving the existing single-job scoring flow.
+5. Persist child decisions, scan history, and reply-job data in PostgreSQL with injectable local/test fallback.
+6. Add admin-only preview/backfill commands, a ten-card scan cap, retry-safe parent/child handling, and persistent `/gmail_history`.
+7. Run the complete QA gate, deploy only targeted files, wait for Railway SUCCESS, then prove preview/backfill/dedup/restart behavior in production.
+
+### Stages 2–4 — classification, MIME extraction, digest parser ✅
+
+- RED proof before production changes: the focused suite failed with 5 expected errors (`email_classifier` and `digest_parser` missing; `EmailMessage` structured MIME fields missing).
+- Added deterministic `EmailType` classification guarded by approved sender domains. Audited Freelancehunt subject variants are `job_digest`; Work.ua market/article mail remains `informational_newsletter`.
+- `EmailMessage` remains backward-compatible and now carries decoded `text_body`, cleaned `html_body`, and safe HTTP(S) links. Recursive MIME parsing handles HTML-only and nested multipart messages, ignores attachments, removes script/style/hidden/tracking/footer noise, and never executes JavaScript or opens extracted links.
+- Added deterministic `DigestJobCandidate` parsing for the audited nested-table layout. It extracts title, second-row description, optional budget, normalized vacancy URL, received time, and SHA-256 stable key; category/unsubscribe/root/assets are excluded and extraction is capped at 20.
+- Fixtures contain only synthetic content and preserve the audited 7/6-anchor, 2/1-vacancy shapes.
+- GREEN proof: `python -m unittest gmail_agent.tests.test_email_classifier gmail_agent.tests.test_gmail_mime_extraction gmail_agent.tests.test_digest_parser -v` → 12/12 OK.
+
+### Stage 8 foundation — persistent repository and schema ✅
+
+- Added non-destructive SQLAlchemy models for `gmail_processed_items`, `gmail_scan_runs` (including the required `relevant` counter), and `gmail_jobs`. Existing tables and data are untouched; the only explicit migration is additive `ADD COLUMN IF NOT EXISTS`.
+- Added an async repository boundary with PostgreSQL and injectable in-memory implementations for processed decisions, job payload/status, scan history, and an atomic conditional job claim.
+- Terminal job statuses cannot be reset to queued by an upsert. Two concurrent claims over the same queued job yield exactly one winner.
+- Test/local imports no longer initialize production settings or the DB engine; ORM models are loaded only when the PostgreSQL repository is constructed.
+- Restart simulation reopens a second in-memory repository over the same shared state and confirms processed items, job data, and scan history remain available.
+- QA RED→GREEN: the first restart test failed because shared state was unsupported; the bug-fixer added the narrow `state=` seam. `python -m unittest gmail_agent.tests.test_storage -v` → 8/8 OK.
+
+### Stages 5–9 — child processing, backfill, and persistent commands ✅
+
+- `GmailJobProcessor` now classifies before AI. Freelancehunt digest children are parsed and analyzed one-by-one; informational Work.ua mail is deterministically rejected without AI; the legacy single-job flow remains covered.
+- Child stable keys are the authoritative dedup boundary. Decisions `not_relevant`, `below_threshold`, `queued`, `send_failed`, `sending`, `sent`, and `skipped` are stored explicitly. Telegram failure never creates a processed/sent decision and is retried without repeating AI analysis.
+- A scan attempts at most 10 cards. Additional qualifying jobs remain queued for a later scan. Digest parent success is recorded separately only after extraction/child persistence; parser failure leaves the parent retryable.
+- Repository-backed production paths do not create or update local Gmail dedup/job JSON. Single jobs, informational rejects, digest parents, child decisions, reply data, and scan history use PostgreSQL; legacy JSON remains only for repository-less mock/local compatibility.
+- Added side-effect-free `run_digest_preview(days)` and persistent/idempotent `run_digest_backfill(days)`. Preview does not send, mark parents, mutate dedup/repository, or create scan history. Repeated backfill reports child duplicates and sends nothing twice.
+- Added admin-only `/gmail_digest_preview 1..30` and `/gmail_digest_backfill 1..30`; backfill reports the card cap and detailed counters. `GMAIL_DIGEST_ENABLED=false` prevents scheduler rollout and never falls through to whole-digest single-job AI.
+- Manual and scheduler scans pass a PostgreSQL repository and persistent trigger (`manual`/`scheduler`). REAL mode fails closed if PostgreSQL cannot be constructed; repository-less fallback is limited to mock/local mode.
+- `/gmail_history` reads the latest 20 PostgreSQL scan runs and distinguishes an unavailable DB from an empty history. `/reply_job` loads the persistent job by stable key; `/skip_job` updates status to `skipped` instead of deleting the row.
+- Processor RED→GREEN proofs cover separate child AI, cross-digest URL dedup, parser failure, score threshold, retry, queue/cap, preview, repeated backfill, digest-disabled safety, repository single jobs, informational dedup, and no production JSON mutation. Focused processor/backfill regression: 19/19 OK.
+- Persistent handler/HTML regression proof: 23/23 OK. Storage proof remains 8/8 OK.
+
+### Stages 10–11 — final QA and failure-recovery hardening ✅
+
+- Final review findings were converted to RED tests before fixes. The parser now accepts strict Freelancehunt `/ua/job/...`, `/project/...`, and `/ua/project/...` direct-item paths while rejecting category/lookalike paths and stripping tracking query/fragment data.
+- `gmail_jobs.status_updated_at` is added through `ADD COLUMN IF NOT EXISTS`; a 15-minute sending lease makes interrupted Telegram claims recoverable. Retryable jobs are selected FIFO from queued, send-failed, or stale-sending rows.
+- A persistent retry queue is drained without Gmail refetch or repeated AI analysis. The ten-card cap is shared across queued, digest, and single-job sends. Extra relevant jobs remain queued.
+- Recognized digests never fall through to whole-email AI, including repository-less mode. `GMAIL_DIGEST_ENABLED=false` also blocks queued digest children while preserving the legacy single-job queue.
+- Targeted backfill does not drain unrelated global jobs and processes only Freelancehunt digests returned by its requested date-window search.
+- Independent final verifier result: PASS with no remaining findings. It confirmed side-effect-free preview, idempotent backfill, persistent PostgreSQL source of truth, non-destructive migrations, restart/lease behavior, legacy single-job compatibility, and isolation when `GMAIL_ENABLED=false`.
+- Full QA proof: `python -m unittest discover -s gmail_agent\\tests -v` → 111/111 OK; `python -m compileall -q .` → OK; Gmail module import checks → OK; `git diff --check` → clean apart from line-ending notices.

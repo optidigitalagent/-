@@ -24,6 +24,12 @@ async def check_gmail_jobs(bot: Any) -> None:
 
     from .gmail_provider import build_provider
     from .processor import GmailJobProcessor
+    from .storage import PostgresGmailRepository
+
+    def session_factory():
+        from db import AsyncSessionLocal
+
+        return AsyncSessionLocal()
 
     try:
         provider = build_provider(
@@ -31,15 +37,27 @@ async def check_gmail_jobs(bot: Any) -> None:
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
         )
+        try:
+            repository = PostgresGmailRepository(session_factory)
+        except Exception:
+            if not settings.GMAIL_USE_MOCK:
+                raise
+            repository = None
+            logger.exception(
+                "PostgreSQL Gmail repository unavailable; using mock/local fallback"
+            )
 
         processor = GmailJobProcessor(
             provider=provider,
             bot=bot,
             chat_id=settings.TELEGRAM_CHAT_ID,
             min_score=settings.GMAIL_MIN_SCORE,
+            repository=repository,
+            max_cards_per_scan=10,
+            digest_enabled=getattr(settings, "GMAIL_DIGEST_ENABLED", False),
         )
 
-        stats = await processor.run()
+        stats = await processor.run(trigger="scheduler")
 
     except Exception as exc:
         logger.exception("GMAIL AUTO SCAN failed with exception")

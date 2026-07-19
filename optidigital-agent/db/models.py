@@ -52,6 +52,69 @@ class Setting(Base):
     value: Mapped[str] = mapped_column(Text, nullable=True)
 
 
+class GmailProcessedItem(Base):
+    """Persistent deduplication decision for an email or extracted job."""
+
+    __tablename__ = "gmail_processed_items"
+
+    stable_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source_email_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    platform: Mapped[str] = mapped_column(String(100), nullable=False)
+    item_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    decision: Mapped[str] = mapped_column(String(50), nullable=False)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    processed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class GmailScanRun(Base):
+    """One persistent manual, scheduler, or backfill Gmail scan summary."""
+
+    __tablename__ = "gmail_scan_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trigger: Mapped[str] = mapped_column(String(20), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    emails_inspected: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    candidates_found: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    relevant: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    duplicates: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    not_relevant: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    below_threshold: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    sent: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    errors: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+
+class GmailJob(Base):
+    """Persistent payload used by Telegram cards and /reply_job."""
+
+    __tablename__ = "gmail_jobs"
+
+    stable_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    source_email_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    platform: Mapped[str] = mapped_column(String(100), nullable=False)
+    title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    score: Mapped[float] = mapped_column(Float, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    budget: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    urgency: Mapped[str] = mapped_column(String(20), nullable=False)
+    why_relevant: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(50), default="queued", server_default="queued", nullable=False
+    )
+    status_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_name TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_url TEXT",
@@ -61,6 +124,12 @@ _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_phone TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_telegram TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_email TEXT",
+    # create_all does not add columns to an already existing table. This is an
+    # additive, data-preserving migration for early gmail_scan_runs deployments.
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS relevant INTEGER NOT NULL DEFAULT 0",
+    # A lease timestamp lets a later worker safely recover a job if a process
+    # exits after claiming it but before recording the Telegram send result.
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
 ]
 
 

@@ -204,6 +204,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
         processor = MagicMock()
         processor.run = AsyncMock(return_value=stats)
         processor_type = MagicMock(return_value=processor)
+        repository_type = MagicMock(return_value=MagicMock())
         message = MagicMock()
         message.answer = AsyncMock()
 
@@ -220,6 +221,8 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
                 "escape_html": escape_html,
                 "safe_http_url": safe_http_url,
                 "_send_gmail_scan_output": send_output,
+                "AsyncSessionLocal": MagicMock(),
+                "PostgresGmailRepository": repository_type,
             },
         )
 
@@ -230,6 +233,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
             with (
                 patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
                 patch("gmail_agent.processor.GmailJobProcessor", processor_type),
+                patch("gmail_agent.storage.PostgresGmailRepository", repository_type),
             ):
                 await handler(message)
         finally:
@@ -275,6 +279,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
         )
         processor = MagicMock()
         processor.run = AsyncMock(return_value=stats)
+        repository_type = MagicMock(return_value=MagicMock())
         message = MagicMock()
         message.answer = AsyncMock()
         send_output, handler = _load_handler_functions(
@@ -285,6 +290,8 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
                 "datetime": datetime,
                 "escape_html": escape_html,
                 "safe_http_url": safe_http_url,
+                "AsyncSessionLocal": MagicMock(),
+                "PostgresGmailRepository": repository_type,
             },
         )
 
@@ -294,6 +301,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
             with (
                 patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
                 patch("gmail_agent.processor.GmailJobProcessor", return_value=processor),
+                patch("gmail_agent.storage.PostgresGmailRepository", repository_type),
             ):
                 await handler(message)
         finally:
@@ -336,6 +344,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
         )
         processor = MagicMock()
         processor.run = AsyncMock(return_value=stats)
+        repository_type = MagicMock(return_value=MagicMock())
         message = MagicMock()
         message.answer = AsyncMock(side_effect=[None, None, RuntimeError("render send failed")])
         _, handler = _load_handler_functions(
@@ -346,6 +355,8 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
                 "datetime": datetime,
                 "escape_html": escape_html,
                 "safe_http_url": safe_http_url,
+                "AsyncSessionLocal": MagicMock(),
+                "PostgresGmailRepository": repository_type,
             },
         )
 
@@ -356,6 +367,7 @@ class TestGmailScanHtmlRegression(unittest.IsolatedAsyncioTestCase):
             with (
                 patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
                 patch("gmail_agent.processor.GmailJobProcessor", return_value=processor),
+                patch("gmail_agent.storage.PostgresGmailRepository", repository_type),
             ):
                 await handler(message)
 
@@ -527,12 +539,14 @@ class TestSchedulerHtml(unittest.IsolatedAsyncioTestCase):
         )
         processor = MagicMock()
         processor.run = AsyncMock(return_value=stats)
+        repository_type = MagicMock(return_value=MagicMock())
         partial_bot = MagicMock()
         partial_bot.send_message = AsyncMock()
         with (
             patch.dict(sys.modules, {"config": config_module}),
             patch("gmail_agent.gmail_provider.build_provider", return_value=MagicMock()),
             patch("gmail_agent.processor.GmailJobProcessor", return_value=processor),
+            patch("gmail_agent.storage.PostgresGmailRepository", repository_type),
         ):
             await check_gmail_jobs(partial_bot)
         partial_text = partial_bot.send_message.await_args_list[0].kwargs["text"]

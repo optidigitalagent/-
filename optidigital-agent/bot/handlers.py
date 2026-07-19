@@ -290,13 +290,30 @@ async def cmd_reply_job(message: Message) -> None:
     job_id = raw[1].strip()
     job = _gmail_job_store.get(job_id)
     if not job:
+        repository_unavailable = False
         try:
-            from gmail_agent.job_store import get_job
-            job = get_job(job_id)
-            if job:
+            from dataclasses import asdict, is_dataclass
+            from gmail_agent.storage import PostgresGmailRepository
+
+            repository = PostgresGmailRepository(AsyncSessionLocal)
+            stored_job = await repository.get_job(job_id)
+            if stored_job is not None:
+                job = asdict(stored_job) if is_dataclass(stored_job) else dict(stored_job)
+                job.setdefault("email_id", job_id)
                 _gmail_job_store[job_id] = job
         except Exception:
-            logger.exception("Failed to load Gmail job analysis")
+            repository_unavailable = True
+            logger.exception("Failed to load Gmail job from PostgreSQL")
+
+        if not job and repository_unavailable:
+            try:
+                from gmail_agent.job_store import get_job
+
+                job = get_job(job_id)
+                if job:
+                    _gmail_job_store[job_id] = job
+            except Exception:
+                logger.exception("Failed to load legacy Gmail job analysis")
 
     if not job:
         await message.answer(
@@ -342,16 +359,34 @@ async def cmd_skip_job(message: Message) -> None:
         return
 
     job_id = raw[1].strip()
-    removed = job_id in _gmail_job_store
-    if removed:
-        del _gmail_job_store[job_id]
+    skipped = False
+    repository_unavailable = False
     try:
-        from gmail_agent.job_store import delete_job
-        removed = delete_job(job_id) or removed
-    except Exception:
-        logger.exception("Failed to delete persisted Gmail job analysis")
+        from gmail_agent.storage import PostgresGmailRepository
 
-    if removed:
+        repository = PostgresGmailRepository(AsyncSessionLocal)
+        skipped = await repository.update_job_status(job_id, "skipped") is not None
+    except Exception:
+        repository_unavailable = True
+        logger.exception("Failed to update Gmail job status in PostgreSQL")
+
+    # Compatibility lookup only when PostgreSQL cannot be reached. A skip is a
+    # durable status transition, so neither the cache nor legacy JSON is deleted.
+    if repository_unavailable:
+        legacy_job = _gmail_job_store.get(job_id)
+        if legacy_job is None:
+            try:
+                from gmail_agent.job_store import get_job
+
+                legacy_job = get_job(job_id)
+            except Exception:
+                logger.exception("Failed to load legacy Gmail job analysis")
+        if legacy_job is not None:
+            legacy_job["status"] = "skipped"
+            _gmail_job_store[job_id] = legacy_job
+            skipped = True
+
+    if skipped:
         await message.answer(f"✅ Замовлення <code>{escape_html(job_id)}</code> пропущено.")
     else:
         await message.answer(
@@ -937,21 +972,34 @@ async def cmd_gmail_scan(message: Message) -> None:
     try:
         from gmail_agent.gmail_provider import build_provider
         from gmail_agent.processor import GmailJobProcessor
+        from gmail_agent.storage import PostgresGmailRepository
 
         provider = build_provider(
             use_mock=settings.GMAIL_USE_MOCK,
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
         )
+        try:
+            repository = PostgresGmailRepository(AsyncSessionLocal)
+        except Exception:
+            if not settings.GMAIL_USE_MOCK:
+                raise
+            repository = None
+            logger.exception(
+                "PostgreSQL Gmail repository unavailable; using mock/local fallback"
+            )
 
         processor = GmailJobProcessor(
             provider=provider,
             bot=message.bot,
             chat_id=settings.TELEGRAM_CHAT_ID,
             min_score=settings.GMAIL_MIN_SCORE,
+            repository=repository,
+            max_cards_per_scan=10,
+            digest_enabled=getattr(settings, "GMAIL_DIGEST_ENABLED", False),
         )
 
-        stats = await processor.run()
+        stats = await processor.run(trigger="manual")
     except Exception as exc:
         logger.exception("Gmail processor failed")
         await _send_gmail_scan_output(
@@ -1030,6 +1078,8 @@ async def cmd_gmail_scan(message: Message) -> None:
             pass_lines.append("—" * 20)
         await _send_gmail_scan_output(message, "\n".join(pass_lines), "sent-analyses")
 
+    # Retain short-lived telemetry for /status compatibility. /gmail_history
+    # reads its authoritative records from PostgreSQL.
     try:
         import state as _state
 
@@ -1043,31 +1093,151 @@ async def cmd_gmail_scan(message: Message) -> None:
         if len(_state.gmail_scan_history) > 20:
             _state.gmail_scan_history = _state.gmail_scan_history[-20:]
     except Exception:
-        logger.exception("Failed to save manual Gmail scan history")
+        logger.exception("Failed to save Gmail scan status telemetry")
+
 
 
 # ─── /gmail_history ───────────────────────────────────────────────────────────
 
+def _gmail_digest_days(message: Message) -> int | None:
+    parts = (message.text or "").strip().split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        return None
+    days = int(parts[1])
+    return days if 1 <= days <= 30 else None
+
+
+def _gmail_digest_processor(message: Message):
+    from gmail_agent.gmail_provider import build_provider
+    from gmail_agent.processor import GmailJobProcessor
+    from gmail_agent.storage import PostgresGmailRepository
+
+    provider = build_provider(
+        use_mock=settings.GMAIL_USE_MOCK,
+        credentials_file=settings.GMAIL_CREDENTIALS_FILE,
+        token_file=settings.GMAIL_TOKEN_FILE,
+    )
+    repository = PostgresGmailRepository(AsyncSessionLocal)
+    return GmailJobProcessor(
+        provider=provider,
+        bot=message.bot,
+        chat_id=settings.TELEGRAM_CHAT_ID,
+        min_score=settings.GMAIL_MIN_SCORE,
+        repository=repository,
+        max_cards_per_scan=10,
+        digest_enabled=True,
+    )
+
+
+@admin_router.message(Command("gmail_digest_preview"))
+async def cmd_gmail_digest_preview(message: Message) -> None:
+    days = _gmail_digest_days(message)
+    if days is None:
+        await message.answer(
+            "❌ Використання: <code>/gmail_digest_preview &lt;days&gt;</code>; "
+            "days має бути від <b>1</b> до <b>30</b>."
+        )
+        return
+    if not settings.GMAIL_ENABLED:
+        await message.answer("⚠️ Gmail агент вимкнено (<code>GMAIL_ENABLED=false</code>).")
+        return
+
+    try:
+        processor = _gmail_digest_processor(message)
+        preview = await processor.run_digest_preview(days)
+    except Exception:
+        logger.exception("Gmail digest preview failed")
+        await message.answer(
+            "❌ Digest preview unavailable: не вдалося підключитися до Gmail/PostgreSQL."
+        )
+        return
+
+    lines = [
+        "🔎 <b>Freelancehunt digest preview</b>",
+        f"Days: <b>{days}</b>",
+        f"Candidates: <b>{preview.stats.candidates_found}</b>",
+        f"Errors: <b>{preview.stats.errors}</b>",
+    ]
+    for index, item in enumerate(preview.items, 1):
+        lines.append(
+            f"\n{index}. <b>{escape_html(item.title)}</b>\n"
+            f"Score: <b>{float(item.score):.1f}/10</b>\n"
+            f"Reason: {escape_html(item.reason)}"
+        )
+    await message.answer("\n".join(lines))
+
+
+@admin_router.message(Command("gmail_digest_backfill"))
+async def cmd_gmail_digest_backfill(message: Message) -> None:
+    days = _gmail_digest_days(message)
+    if days is None:
+        await message.answer(
+            "❌ Використання: <code>/gmail_digest_backfill &lt;days&gt;</code>; "
+            "days має бути від <b>1</b> до <b>30</b>."
+        )
+        return
+    if not settings.GMAIL_ENABLED:
+        await message.answer("⚠️ Gmail агент вимкнено (<code>GMAIL_ENABLED=false</code>).")
+        return
+
+    try:
+        processor = _gmail_digest_processor(message)
+        stats = await processor.run_digest_backfill(days)
+    except Exception:
+        logger.exception("Gmail digest backfill failed")
+        await message.answer(
+            "❌ Digest backfill unavailable: не вдалося підключитися до Gmail/PostgreSQL."
+        )
+        return
+
+    lines = [
+        "✅ <b>Freelancehunt digest backfill завершено</b>",
+        f"Emails: <b>{stats.emails_fetched}</b>",
+        f"Candidates: <b>{stats.candidates_found}</b>",
+        f"Relevant: <b>{stats.relevant}</b>",
+        f"Duplicates: <b>{stats.duplicates_skipped}</b>",
+        f"Not relevant: <b>{stats.not_relevant}</b>",
+        f"Below threshold: <b>{stats.below_threshold}</b>",
+        f"Sent (cap 10): <b>{stats.sent}</b>",
+        f"Errors: <b>{stats.errors}</b>",
+    ]
+    if stats.error_details:
+        lines.append("<code>" + escape_html("\n".join(stats.error_details[:3])) + "</code>")
+    await message.answer("\n".join(lines))
+
+
 @admin_router.message(Command("gmail_history"))
 async def cmd_gmail_history(message: Message) -> None:
-    import state as _state
+    try:
+        from gmail_agent.storage import PostgresGmailRepository
 
-    history = _state.gmail_scan_history
+        repository = PostgresGmailRepository(AsyncSessionLocal)
+        history = await repository.list_scan_runs(limit=20)
+    except Exception:
+        logger.exception("Failed to read Gmail scan history from PostgreSQL")
+        await message.answer(
+            "📋 <b>Gmail Scan History</b>\n\n"
+            "⚠️ Історія тимчасово недоступна (database unavailable)."
+        )
+        return
+
     if not history:
         await message.answer(
-            "📋 <b>Gmail Scan History</b>\n\nІсторія порожня. Запусти /gmail_scan спочатку."
+            "📋 <b>Gmail Scan History</b>\n\nЗаписів у базі даних ще немає."
         )
         return
 
     lines = [f"📋 <b>Gmail Scan History</b> (останні {len(history)})\n"]
-    for i, entry in enumerate(reversed(history[-20:]), 1):
-        ts = entry["timestamp"].strftime("%d.%m %H:%M")
+    for i, entry in enumerate(history, 1):
+        ts = entry.started_at.strftime("%d.%m %H:%M")
         lines.append(
-            f"{i}. <b>{ts}</b> — "
-            f"листів: {entry['emails_found']}, "
-            f"job alerts: {entry['relevant']}, "
-            f"відправлено: {entry['sent']}, "
-            f"помилок: {entry['errors']}"
+            f"{i}. <b>{ts}</b> — {escape_html(entry.trigger)}; "
+            f"emails: {entry.emails_inspected}, "
+            f"candidates: {entry.candidates_found}, "
+            f"relevant: {entry.relevant}, "
+            f"sent: {entry.sent}, "
+            f"duplicates: {entry.duplicates}, "
+            f"errors: {entry.errors}"
         )
     await message.answer("\n".join(lines))
 

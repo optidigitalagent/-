@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
 
+    from gmail_agent.digest_parser import DigestJobCandidate
+
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
@@ -146,6 +148,45 @@ async def analyze_email(
         why_relevant=str(data.get("why_relevant", "")),
         red_flags=list(data.get("red_flags", [])),
     )
+
+
+async def analyze_candidate(
+    candidate: "DigestJobCandidate",
+    client: "Any | None" = None,
+    model: str = "gpt-4o-mini",
+) -> JobAnalysis:
+    """Analyze one parsed digest candidate through the existing scoring flow.
+
+    Only normalized plain-text candidate fields are passed onward; digest HTML
+    and unrelated sibling vacancies never enter the model prompt.
+    """
+
+    body_lines = [f"Description: {candidate.description}"]
+    if candidate.budget:
+        body_lines.append(f"Budget: {candidate.budget}")
+    if candidate.category:
+        body_lines.append(f"Category: {candidate.category}")
+    if candidate.url:
+        body_lines.append(f"URL: {candidate.url}")
+
+    analysis = await analyze_email(
+        email_id=candidate.stable_key,
+        subject=candidate.title,
+        sender=candidate.platform,
+        body="\n".join(body_lines),
+        client=client,
+        model=model,
+    )
+
+    # The parser's platform and direct URL are deterministic and must not be
+    # replaced by a model-generated digest-level or tracking URL.
+    analysis.platform = candidate.platform
+    analysis.url = candidate.url
+    if not analysis.title:
+        analysis.title = candidate.title
+    if not analysis.budget and candidate.budget:
+        analysis.budget = candidate.budget
+    return analysis
 
 
 def _detect_platform(sender: str) -> str:
