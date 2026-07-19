@@ -3,6 +3,8 @@
 import logging
 from typing import Any
 
+from bot.html_utils import escape_html, safe_http_url
+
 from .email_analyzer import JobAnalysis
 
 logger = logging.getLogger(__name__)
@@ -25,33 +27,36 @@ def _score_emoji(score: float) -> str:
 def format_job_card(analysis: JobAnalysis) -> str:
     se = _score_emoji(analysis.score)
     ue = _urgency_emoji(analysis.urgency)
+    safe_url = safe_http_url(analysis.url)
 
     lines = [
         f"{se} <b>New Job Match</b> {ue}",
         "",
-        f"<b>Платформа:</b> {analysis.platform}",
-        f"<b>Назва:</b> {analysis.title}",
-        f"<b>Score:</b> {analysis.score_display}",
-        f"<b>Бюджет:</b> {analysis.budget}",
+        f"<b>Платформа:</b> {escape_html(analysis.platform)}",
+        f"<b>Назва:</b> {escape_html(analysis.title)}",
+        f"<b>Score:</b> {escape_html(analysis.score_display)}",
+        f"<b>Бюджет:</b> {escape_html(analysis.budget)}",
     ]
 
     if analysis.reason:
-        lines += ["", f"<b>Оцінка:</b> {analysis.reason}"]
+        lines += ["", f"<b>Оцінка:</b> {escape_html(analysis.reason)}"]
 
     if analysis.why_relevant:
-        lines += [f"<b>Чому підходить:</b> {analysis.why_relevant}"]
+        lines += [f"<b>Чому підходить:</b> {escape_html(analysis.why_relevant)}"]
 
     if analysis.red_flags:
-        flags = ", ".join(analysis.red_flags)
+        flags = ", ".join(escape_html(flag) for flag in analysis.red_flags)
         lines += [f"<b>Ризики:</b> {flags}"]
 
-    if analysis.url:
-        lines += ["", f'🔗 <a href="{analysis.url}">Відкрити замовлення</a>']
+    if safe_url:
+        lines += ["", f'🔗 <a href="{escape_html(safe_url)}">Відкрити замовлення</a>']
+    else:
+        lines += ["", "🔗 Посилання відсутнє"]
 
     lines += [
         "",
-        f"<code>/reply_job {analysis.email_id}</code>   "
-        f"<code>/skip_job {analysis.email_id}</code>",
+        f"<code>/reply_job {escape_html(analysis.email_id)}</code>   "
+        f"<code>/skip_job {escape_html(analysis.email_id)}</code>",
     ]
 
     return "\n".join(lines)
@@ -62,8 +67,8 @@ async def send_job_card(
     chat_id: int,
     analysis: JobAnalysis,
 ) -> bool:
-    text = format_job_card(analysis)
     try:
+        text = format_job_card(analysis)
         await bot.send_message(
             chat_id=chat_id,
             text=text,

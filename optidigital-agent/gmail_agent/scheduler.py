@@ -4,6 +4,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from bot.html_utils import escape_html
+
 logger = logging.getLogger(__name__)
 
 
@@ -44,7 +46,7 @@ async def check_gmail_jobs(bot: Any) -> None:
         try:
             await bot.send_message(
                 chat_id=settings.admin_chat_id,
-                text=f"ERROR <b>Gmail Auto Scan failed</b>\n\n<code>{exc}</code>",
+                text=f"ERROR <b>Gmail Auto Scan failed</b>\n\n<code>{escape_html(exc)}</code>",
             )
         except Exception:
             logger.exception("Failed to send Gmail error alert to Telegram")
@@ -59,7 +61,7 @@ async def check_gmail_jobs(bot: Any) -> None:
 
     if stats.errors > 0:
         try:
-            details = "\n".join(stats.error_details[:3])
+            details = escape_html("\n".join(stats.error_details[:3]))
             details_block = f"\n\n<code>{details}</code>" if details else ""
             await bot.send_message(
                 chat_id=settings.admin_chat_id,

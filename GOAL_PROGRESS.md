@@ -331,3 +331,50 @@ token.json: ✅ знайдено
 - Production module checks on the latest deployment: Python 3.13.14; config, handlers, Gmail provider, and Gmail scheduler all exit 0.
 - Latest production Gmail checks: OAuth diagnostic status `ok`; enabled=true; mock=false; interval=60; header-only Inbox inspected=10, sender-domain matches=0, subject-keyword matches=0, potential alerts=0.
 - Latest isolated production pipeline scan: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0. Temporary dedup/job-store and a non-sending bot were used, so this verification did not mutate production dedup or send job cards.
+
+---
+
+## 2026-07-19 Telegram HTML rendering hardening
+
+### Context and read-only audit ✅
+
+- Goal-driver plan accepted from the user-provided instruction file; no source code was changed before completing the audit.
+- Baseline: commit `052dd3c99f68a133904baaed6634a396d5e9784e`; existing Gmail suite passes 45/45.
+- Confirmed root cause: `bot/main.py` enables global Telegram HTML parse mode, while `/gmail_scan` inserts the raw Gmail sender into `<code>`. `Freelancehunt <noreply@freelancehunt.com>` is therefore parsed as an unsupported Telegram HTML tag.
+- Unsafe Gmail-related dynamic HTML paths found in `/gmail_scan`, `/gmail_test`, `/reply_job`, `/skip_job`, the Gmail job card, Gmail scheduler error alerts, and exception-derived `/status` output.
+- `/gmail_debug` already escapes displayed header values and preserves the required header-only/no-AI/no-dedup/no-card privacy contract; `/gmail_history` contains only locally-created timestamps and numeric counters.
+- Existing user worktree deletions of debug PNG files were identified and left untouched.
+
+### Agreed implementation plan
+
+1. Add a failing regression test that reproduces the raw sender parse bug without calling Telegram.
+2. Add a small shared `bot/html_utils.py` boundary for value escaping and validated HTTP(S) URLs.
+3. Escape all external Gmail/platform/AI/user/exception values in the audited Gmail Telegram outputs while preserving static `<b>`, `<code>`, and `<a>` markup.
+4. Isolate post-processing diagnostic send failures from the already-completed Gmail processor result without changing scan statistics, dedup, filtering, scoring, or scheduling.
+5. Run the full suite, compile/import checks, secret/diff audit, deploy latest `main`, and verify production.
+
+### Red regression proof ✅
+
+- Added an isolated regression test that loads the real `cmd_gmail_scan` function via AST and uses mocks only; no Telegram, Gmail, OpenAI, OAuth, or credential access occurs.
+- Pre-fix command: `python -m unittest gmail_agent.tests.test_telegram_html.TestGmailScanHtmlRegression.test_rejected_sender_with_angle_brackets_is_escaped -v`.
+- Expected failure reproduced: the captured diagnostic output contains raw `<noreply@freelancehunt.com>` and does not contain `&lt;noreply@freelancehunt.com&gt;`.
+
+### Safe HTML implementation and targeted QA ✅
+
+- Added `bot/html_utils.py` with `escape_html()` (`None` safe; `html.escape(..., quote=True)`) and `safe_http_url()` (only well-formed HTTP(S) URLs with a hostname).
+- Escaped audited dynamic fields in `/gmail_scan`, `/gmail_test`, `/reply_job`, `/skip_job`, Gmail job cards, scheduler error alerts, and exception-derived `/status` output.
+- Removed the full Gmail message ID from `/gmail_test` output; Gmail/OAuth diagnostics and connection logic were not changed.
+- Invalid job-card URLs no longer create `<a href>` and show `Посилання відсутнє`; valid URL attributes are escaped after validation.
+- `/gmail_scan` now treats processor execution separately from diagnostic rendering/sending. A rejected/below-score/passed block send failure is logged and cannot change the already-computed stats, rerun email processing, or present the scan as a processor failure.
+- Gmail filtering, AI prompt/model/scoring, dedup, `mark_processed`, scheduler interval, OAuth, parser code, and database schema were not changed.
+- Added 12 focused regression tests in `gmail_agent/tests/test_telegram_html.py`; targeted suite passes 12/12.
+
+### Full local QA and final-verifier review ✅
+
+- Independent final-verifier review found and fixed malformed URL edge cases: nonnumeric/out-of-range/multiple ports and invalid host labels are now rejected before an `<a href>` is created.
+- Job-card QA now verifies every dynamic field, allowed tag/attribute set, balanced nesting, valid HTTPS links, and invalid-URL fallback. All 13 mandatory HTML/privacy/regression cases have explicit proof.
+- `python -m unittest discover -s gmail_agent\tests -v` → 57/57 OK (45 existing + 12 HTML regressions).
+- `python -m compileall .` and `python -m compileall bot gmail_agent` → OK.
+- Local imports: `gmail_agent.telegram_notifier` and `gmail_agent.scheduler` → OK. `bot.handlers` remains blocked only because the host Python 3.14 environment does not have the repository's pinned `aiogram` dependency installed; the same import must be repeated in the dependency-complete Railway Python 3.13 runtime.
+- `git diff --check` is clean. Credential/token files remain ignored, and the pre-existing debug PNG deletions remain outside the intended commit scope.
+- The root-level `test_parsers.py` is a live external parser smoke script (it executes network/browser parsing at import), not an isolated unit suite; it was not run because parser behavior is explicitly out of scope and unchanged.

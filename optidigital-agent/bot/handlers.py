@@ -12,6 +12,7 @@ from db import AsyncSessionLocal
 from db.crud import get_setting, save_response, set_setting, update_order_status
 from db.models import Order, Response
 
+from .html_utils import escape_html, safe_http_url
 from .keyboards import (
     OrderCb,
     ResponseCb,
@@ -299,12 +300,12 @@ async def cmd_reply_job(message: Message) -> None:
 
     if not job:
         await message.answer(
-            f"❌ Замовлення <code>{job_id}</code> не знайдено.\n"
+            f"❌ Замовлення <code>{escape_html(job_id)}</code> не знайдено.\n"
             "Можливо, воно вже застаріло або бот перезапускався."
         )
         return
 
-    await message.answer(f"⏳ Генерую відгук для <b>{job.get('title', job_id)}</b>…")
+    await message.answer(f"⏳ Генерую відгук для <b>{escape_html(job.get('title', job_id))}</b>…")
 
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -323,10 +324,12 @@ async def cmd_reply_job(message: Message) -> None:
         return
 
     url = job.get("url", "")
-    link = f'\n\n🔗 <a href="{url}">Відкрити замовлення</a>' if url else ""
+    safe_url = safe_http_url(url)
+    link = f'\n\n🔗 <a href="{escape_html(safe_url)}">Відкрити замовлення</a>' if safe_url else ""
     await message.answer(
-        f"📝 <b>Відгук для {job.get('platform', '')} — {job.get('title', job_id)}:</b>\n\n"
-        f"{text}"
+        f"📝 <b>Відгук для {escape_html(job.get('platform', ''))} — "
+        f"{escape_html(job.get('title', job_id))}:</b>\n\n"
+        f"{escape_html(text)}"
         f"{link}"
     )
 
@@ -349,9 +352,12 @@ async def cmd_skip_job(message: Message) -> None:
         logger.exception("Failed to delete persisted Gmail job analysis")
 
     if removed:
-        await message.answer(f"✅ Замовлення <code>{job_id}</code> пропущено.")
+        await message.answer(f"✅ Замовлення <code>{escape_html(job_id)}</code> пропущено.")
     else:
-        await message.answer(f"⚠️ Замовлення <code>{job_id}</code> не знайдено (вже пропущено або не існує).")
+        await message.answer(
+            f"⚠️ Замовлення <code>{escape_html(job_id)}</code> не знайдено "
+            "(вже пропущено або не існує)."
+        )
 
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
@@ -503,7 +509,7 @@ async def cmd_status(message: Message) -> None:
         return "—" if val is None else str(val)
 
     error_line = (
-        f"\n⚠️ Остання помилка: <b>{state.last_auto_error}</b>"
+        f"\n⚠️ Остання помилка: <b>{escape_html(state.last_auto_error)}</b>"
         if state.last_auto_error else ""
     )
 
@@ -777,11 +783,11 @@ async def cmd_gmail_test(message: Message) -> None:
     lines.append("\n<b>File fallback:</b>")
     lines.append(
         f"credentials file: {'✅ знайдено' if creds_exists else '❌ відсутній'} "
-        f"(<code>{creds_file}</code>)"
+        f"(<code>{escape_html(creds_file)}</code>)"
     )
     lines.append(
         f"token file: {'✅ знайдено' if token_exists else '❌ відсутній'} "
-        f"(<code>{token_file}</code>)"
+        f"(<code>{escape_html(token_file)}</code>)"
     )
 
     if not settings.GMAIL_ENABLED:
@@ -846,10 +852,9 @@ async def cmd_gmail_test(message: Message) -> None:
             att_str = "yes" if em["attachments"] else "no"
             card = (
                 f"📧 <b>Email #{i}</b>\n\n"
-                f"From: <code>{em['from']}</code>\n"
-                f"Subject: {em['subject']}\n"
-                f"Date: {em['date']}\n"
-                f"ID: <code>{em['msg_id']}</code>\n"
+                f"From: <code>{escape_html(em['from'])}</code>\n"
+                f"Subject: {escape_html(em['subject'])}\n"
+                f"Date: {escape_html(em['date'])}\n"
                 f"Size: {em['size_kb']} KB\n"
                 f"Links: {em['links']}\n"
                 f"Attachments: {att_str}"
@@ -863,11 +868,21 @@ async def cmd_gmail_test(message: Message) -> None:
             "error": "❌ Помилка підключення",
         }
         label = status_labels.get(diag["status"], "❌ Помилка")
-        await message.answer(f"{label}:\n\n{diag['message']}")
+        await message.answer(f"{label}:\n\n{escape_html(diag['message'])}")
 
 
 
 # ─── /gmail_scan ──────────────────────────────────────────────────────────────
+
+async def _send_gmail_scan_output(message: Message, text: str, block: str) -> bool:
+    """Send one diagnostic block without changing an already-computed scan result."""
+    try:
+        await message.answer(text)
+        return True
+    except Exception:
+        logger.exception("Failed to send Gmail scan %s output", block)
+        return False
+
 
 @admin_router.message(Command("gmail_scan"))
 async def cmd_gmail_scan(message: Message) -> None:
@@ -899,76 +914,87 @@ async def cmd_gmail_scan(message: Message) -> None:
         )
 
         stats = await processor.run()
+    except Exception as exc:
+        logger.exception("Gmail processor failed")
+        await _send_gmail_scan_output(
+            message,
+            f"❌ Помилка gmail scan:\n<code>{escape_html(exc)}</code>",
+            "processor-error",
+        )
+        return
 
-        new_count = stats.emails_fetched - stats.duplicates_skipped
-        analyzed_count = max(0, new_count - stats.not_relevant)
+    new_count = stats.emails_fetched - stats.duplicates_skipped
+    analyzed_count = max(0, new_count - stats.not_relevant)
 
-        summary = (
-            f"✅ <b>Gmail scan завершено</b>\n\n"
-            f"📊 <b>Gmail Scan Details</b>\n\n"
-            f"📬 Всього листів: <b>{stats.emails_fetched}</b>\n"
-            f"🆕 Нових листів: <b>{new_count}</b>\n"
-            f"♻️ Дублікатів: <b>{stats.duplicates_skipped}</b>\n"
-            f"🚫 Нерелевантних: <b>{stats.not_relevant}</b>\n"
-            f"🎯 Пройшли аналіз (job alerts): <b>{analyzed_count}</b>\n"
-            f"⬇️ Нижче порогу score ({settings.GMAIL_MIN_SCORE}): <b>{stats.below_threshold}</b>\n"
-            f"📨 Відправлено в Telegram: <b>{stats.sent}</b>\n"
-            f"❌ Помилок: <b>{stats.errors}</b>"
+    summary = (
+        f"✅ <b>Gmail scan завершено</b>\n\n"
+        f"📊 <b>Gmail Scan Details</b>\n\n"
+        f"📬 Всього листів: <b>{stats.emails_fetched}</b>\n"
+        f"🆕 Нових листів: <b>{new_count}</b>\n"
+        f"♻️ Дублікатів: <b>{stats.duplicates_skipped}</b>\n"
+        f"🚫 Нерелевантних: <b>{stats.not_relevant}</b>\n"
+        f"🎯 Пройшли аналіз (job alerts): <b>{analyzed_count}</b>\n"
+        f"⬇️ Нижче порогу score ({settings.GMAIL_MIN_SCORE}): <b>{stats.below_threshold}</b>\n"
+        f"📨 Відправлено в Telegram: <b>{stats.sent}</b>\n"
+        f"❌ Помилок: <b>{stats.errors}</b>"
+    )
+
+    if stats.emails_fetched == 0:
+        summary += "\n\n📭 Inbox порожній або немає нових листів."
+    elif stats.sent == 0 and stats.emails_fetched > 0:
+        summary += "\n\n💡 Листи знайдено, але жоден не пройшов фільтр."
+
+    if stats.error_details:
+        summary += (
+            "\n\n<b>Error details:</b>\n<code>"
+            + escape_html("\n".join(stats.error_details[:3]))
+            + "</code>"
         )
 
-        if stats.emails_fetched == 0:
-            summary += "\n\n📭 Inbox порожній або немає нових листів."
-        elif stats.sent == 0 and stats.emails_fetched > 0:
-            summary += "\n\n💡 Листи знайдено, але жоден не пройшов фільтр."
+    await _send_gmail_scan_output(message, summary, "summary")
 
-        if stats.error_details:
-            summary += "\n\n<b>Error details:</b>\n<code>" + "\n".join(stats.error_details[:3]) + "</code>"
+    if stats.rejected_samples:
+        rej_lines = [f"❌ <b>Відхилені (нерелевантні) — перші {len(stats.rejected_samples)}:</b>"]
+        for sample in stats.rejected_samples:
+            rej_lines.append(
+                f"\n❌ <b>Ignored</b>\n"
+                f"From: <code>{escape_html(sample.get('from'))}</code>\n"
+                f"Subject: {escape_html(sample.get('subject'))}\n"
+                f"Reason: {escape_html(sample.get('reason'))}"
+            )
+            rej_lines.append("—" * 20)
+        await _send_gmail_scan_output(message, "\n".join(rej_lines), "rejected-samples")
 
-        await message.answer(summary)
+    if stats.below_score_samples:
+        low_lines = [f"⚠️ <b>Нижче порогу score — перші {len(stats.below_score_samples)}:</b>"]
+        for sample in stats.below_score_samples:
+            low_lines.append(
+                f"\n⚠️ <b>Below Score Threshold</b>\n"
+                f"Subject: {escape_html(sample.get('subject'))}\n"
+                f"Score: {sample['score']:.1f}\n"
+                f"Reason: {escape_html(sample.get('reason'))}"
+            )
+            low_lines.append("—" * 20)
+        await _send_gmail_scan_output(message, "\n".join(low_lines), "below-score-samples")
 
-        # Stage 3: Show first 5 rejected (not_relevant) emails
-        if stats.rejected_samples:
-            rej_lines = [f"❌ <b>Відхилені (нерелевантні) — перші {len(stats.rejected_samples)}:</b>"]
-            for r in stats.rejected_samples:
-                rej_lines.append(
-                    f"\n❌ <b>Ignored</b>\n"
-                    f"From: <code>{r['from']}</code>\n"
-                    f"Subject: {r['subject']}\n"
-                    f"Reason: {r['reason']}"
-                )
-                rej_lines.append("—" * 20)
-            await message.answer("\n".join(rej_lines))
+    if stats.sent_analyses:
+        pass_lines = [f"✅ <b>Відправлено в Telegram — {len(stats.sent_analyses)}:</b>"]
+        for analysis in stats.sent_analyses[:5]:
+            display_url = safe_http_url(analysis.url) or "—"
+            pass_lines.append(
+                f"\n✅ <b>Passed</b>\n"
+                f"Subject: {escape_html(analysis.title)}\n"
+                f"Score: {escape_html(analysis.score_display)}\n"
+                f"Budget: {escape_html(analysis.budget or '—')}\n"
+                f"URL: {escape_html(display_url)}\n"
+                f"Reason: {escape_html(analysis.reason)}"
+            )
+            pass_lines.append("—" * 20)
+        await _send_gmail_scan_output(message, "\n".join(pass_lines), "sent-analyses")
 
-        # Stage 4: Show first 5 below-score emails
-        if stats.below_score_samples:
-            low_lines = [f"⚠️ <b>Нижче порогу score — перші {len(stats.below_score_samples)}:</b>"]
-            for s in stats.below_score_samples:
-                low_lines.append(
-                    f"\n⚠️ <b>Below Score Threshold</b>\n"
-                    f"Subject: {s['subject']}\n"
-                    f"Score: {s['score']:.1f}\n"
-                    f"Reason: {s['reason']}"
-                )
-                low_lines.append("—" * 20)
-            await message.answer("\n".join(low_lines))
-
-        # Stage 5: Show passed jobs
-        if stats.sent_analyses:
-            pass_lines = [f"✅ <b>Відправлено в Telegram — {len(stats.sent_analyses)}:</b>"]
-            for a in stats.sent_analyses[:5]:
-                pass_lines.append(
-                    f"\n✅ <b>Passed</b>\n"
-                    f"Subject: {a.title}\n"
-                    f"Score: {a.score_display}\n"
-                    f"Budget: {a.budget or '—'}\n"
-                    f"URL: {a.url or '—'}\n"
-                    f"Reason: {a.reason}"
-                )
-                pass_lines.append("—" * 20)
-            await message.answer("\n".join(pass_lines))
-
-        # Stage 6: Save to scan history
+    try:
         import state as _state
+
         _state.gmail_scan_history.append({
             "timestamp": datetime.utcnow(),
             "emails_found": stats.emails_fetched,
@@ -978,10 +1004,8 @@ async def cmd_gmail_scan(message: Message) -> None:
         })
         if len(_state.gmail_scan_history) > 20:
             _state.gmail_scan_history = _state.gmail_scan_history[-20:]
-
-    except Exception as exc:
-        logger.exception("gmail_scan failed")
-        await message.answer(f"❌ Помилка gmail scan:\n<code>{exc}</code>")
+    except Exception:
+        logger.exception("Failed to save manual Gmail scan history")
 
 
 # ─── /gmail_history ───────────────────────────────────────────────────────────
@@ -1014,7 +1038,7 @@ async def cmd_gmail_history(message: Message) -> None:
 
 def _format_gmail_debug_results(results: list) -> list[str]:
     """Format header-only diagnostics; result objects cannot contain email bodies or IDs."""
-    from html import escape
+    from bot.html_utils import escape_html
 
     inspected = len(results)
     sender_matches = sum(item.sender_matched for item in results)
@@ -1029,11 +1053,11 @@ def _format_gmail_debug_results(results: list) -> list[str]:
     ]
 
     for index, item in enumerate(results, 1):
-        display_name = escape((item.sender_display_name or "—")[:80], quote=False)
-        sender_email = escape((item.sender_email or "—")[:120], quote=False)
-        subject = escape((item.subject or "—").replace("\n", " ")[:200], quote=False)
-        date = escape((item.date or "—")[:80], quote=False)
-        platform = escape(item.platform or "Unknown", quote=False)
+        display_name = escape_html((item.sender_display_name or "—")[:80])
+        sender_email = escape_html((item.sender_email or "—")[:120])
+        subject = escape_html((item.subject or "—").replace("\n", " ")[:200])
+        date = escape_html((item.date or "—")[:80])
+        platform = escape_html(item.platform or "Unknown")
         messages.append(
             f"📧 <b>Email #{index}</b>\n"
             f"Sender name: {display_name}\n"
