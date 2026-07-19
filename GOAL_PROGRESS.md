@@ -393,3 +393,35 @@ token.json: ✅ знайдено
 - Production `/gmail_scan` equivalent used the real provider with temporary dedup/job-store and a bot that cannot send: fetched=8, duplicates=0, not_relevant=8, below_threshold=0, sent=0, errors=0, send_attempts=0. Production dedup was not cleared or mutated.
 - Real Telegram server parse proof: a clearly-labelled synthetic Gmail HTML verification block containing `Freelancehunt <noreply@freelancehunt.com>`, subject markup, ampersands, and comparison operators was escaped with the shared helper and sent through the production Bot API. Result: HTTP 200, `ok=true`, message ID returned, no parse-entity error.
 - A new real platform alert remains pending: the inspected Inbox window contained no sender/subject match, so no legitimate job card or `/reply_job` draft was generated during this verification.
+
+---
+
+## 2026-07-19 Production Gmail account identity verification
+
+### Read-only account and token proof ✅
+
+- The premise that production still used the previous Gmail account was rechecked before changing any secret.
+- Railway production env proof via Gmail `users().getProfile(userId="me")`: connected account `tijgadymg@gmail.com`, messages total 613, threads total 584, OAuth refresh/status OK.
+- Local `gmail_token_fh.json` proof: despite its legacy filename, the token belongs to `tijgadymg@gmail.com`, contains a refresh token, and refreshes successfully.
+- Because both local and production identities already match the required account, no new OAuth flow was started and `GMAIL_TOKEN_JSON` was not replaced.
+- No OAuth token, refresh token, client secret, credentials JSON, message ID, or email body was printed.
+
+### Metadata-only mailbox proof ✅
+
+- Gmail searches used `format="metadata"` with only `From`, `Subject`, `Date`, and labels; message bodies were not read and labels were not changed.
+- `from:(freelancehunt.com)`: 28 total, 28 Inbox, 0 Archive, 0 Spam.
+- `from:(freelancehunt.com) newer_than:90d`: 24 total, 24 Inbox, 0 Archive, 0 Spam.
+- `freelancehunt newer_than:90d`: 27 total, 26 Inbox, 1 Archive/All Mail, 0 Spam.
+- Other sender counts: Work.ua 52 Inbox; Robota.ua 3 Inbox; Upwork 0.
+- The newest 50 Inbox messages contain 4 Freelancehunt messages at positions 16, 38, 46, and 48. This explains why a 10-message `/gmail_debug` window can report zero even though matching alerts exist.
+
+### Safe `/gmail_account` implementation and QA ✅
+
+- Added admin-only `/gmail_account`; the existing `admin_router` chat filter restricts it to `settings.admin_chat_id`.
+- Added `RealGmailProvider.get_account_profile()`, which calls only Gmail profile and Inbox label metadata endpoints.
+- The command shows only connected Gmail account, Inbox messages count, and OAuth status; errors expose only the exception type.
+- Unit proof verifies that the profile and Inbox label endpoints are called and Gmail message list/get endpoints are not called.
+- Production-env proof through the new code path: connected account `tijgadymg@gmail.com`, Inbox messages count 611, OAuth status OK.
+- QA proof: `python -m unittest discover -s gmail_agent\\tests -v` -> 58/58 OK.
+- Compile proof: `python -m py_compile gmail_agent\\gmail_provider.py bot\\handlers.py` -> OK.
+- `git diff --check` -> clean apart from existing line-ending notices; credential/token files remain ignored.

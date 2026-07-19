@@ -597,6 +597,44 @@ async def cmd_testua(message: Message) -> None:
         await message.answer(f"❌ Помилка FreelanceUA parser:\n<code>{exc}</code>")
 
 
+# ─── /gmail_account ───────────────────────────────────────────────────────────
+
+@admin_router.message(Command("gmail_account"))
+async def cmd_gmail_account(message: Message) -> None:
+    """Show only safe Gmail OAuth identity details to the admin chat."""
+    import asyncio
+
+    if settings.GMAIL_USE_MOCK:
+        await message.answer(
+            "Connected Gmail account: <code>mock</code>\n"
+            "Inbox messages count: <b>0</b>\n"
+            "OAuth status: <b>MOCK</b>"
+        )
+        return
+
+    try:
+        from gmail_agent.gmail_provider import RealGmailProvider
+
+        provider = RealGmailProvider(
+            credentials_file=settings.GMAIL_CREDENTIALS_FILE,
+            token_file=settings.GMAIL_TOKEN_FILE,
+        )
+        profile = await asyncio.wait_for(provider.get_account_profile(), timeout=30.0)
+        await message.answer(
+            f"Connected Gmail account: <code>{escape_html(profile['email_address'])}</code>\n"
+            f"Inbox messages count: <b>{int(profile['inbox_messages_count'])}</b>\n"
+            f"OAuth status: <b>{escape_html(profile['oauth_status'])}</b>"
+        )
+    except Exception as exc:
+        error_type = escape_html(type(exc).__name__)
+        logger.warning("gmail_account failed (%s)", type(exc).__name__)
+        await message.answer(
+            "Connected Gmail account: <code>unavailable</code>\n"
+            "Inbox messages count: <b>unavailable</b>\n"
+            f"OAuth status: <b>ERROR ({error_type})</b>"
+        )
+
+
 # ─── /gmail_test ──────────────────────────────────────────────────────────────
 
 def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:

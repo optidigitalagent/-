@@ -340,6 +340,24 @@ class RealGmailProvider(GmailProvider):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._fetch_recent_diagnostics, max_results)
 
+    def _fetch_account_profile(self) -> dict[str, Any]:
+        """Return account identity and counts without reading any messages."""
+        svc = self.service
+        profile = svc.users().getProfile(userId="me").execute()
+        inbox = svc.users().labels().get(userId="me", id="INBOX").execute()
+        return {
+            "email_address": profile.get("emailAddress", "unknown"),
+            "messages_total": profile.get("messagesTotal", 0),
+            "threads_total": profile.get("threadsTotal", 0),
+            "inbox_messages_count": inbox.get("messagesTotal", 0),
+            "oauth_status": "OK",
+        }
+
+    async def get_account_profile(self) -> dict[str, Any]:
+        """Safely identify the OAuth account without exposing token material."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._fetch_account_profile)
+
     async def get_new_emails(self) -> list[EmailMessage]:
         def _sync_fetch() -> list[EmailMessage]:
             svc = self.service
