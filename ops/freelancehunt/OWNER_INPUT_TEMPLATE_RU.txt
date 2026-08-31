@@ -1,0 +1,45 @@
+ДАННЫЕ ДЛЯ ОСНОВНОГО ВЗРОСЛОГО ПРОФИЛЯ FREELANCEHUNT
+
+Заполняется локально перед запуском Codex.
+Не отправляйте сюда пароль, SMS-коды, паспорт, банковские данные,
+резервные коды, cookies или документы.
+
+ОБЯЗАТЕЛЬНО ЗАПОЛНИТЬ:
+
+FULL_LEGAL_NAME=
+PUBLIC_DISPLAY_NAME=
+ADULT_PHONE=
+PROFILE_PHOTO_PATH=
+
+УЖЕ УТВЕРЖДЕНО:
+
+COUNTRY=Ukraine
+CITY=Kyiv
+OWNER_IS_ADULT=YES
+OWNER_PUBLIC_ROLE=Засновниця Antonov Digital
+OWNER_OPERATIONAL_ROLE=клієнтська комунікація, організація роботи, договори та оплата
+ACCOUNT_MAILBOX_ALIAS=PLATFORM_OWNER_MAILBOX_ADDRESS
+PROFILE_LANGUAGE=uk
+AVAILABILITY=fully_available
+PRICING_MODEL=project_or_milestone
+HOURLY_RATE=do_not_invent
+COFOUNDER_PARTNER=Артем Антонов
+COFOUNDER_PARTNER_ROLE=менеджмент, маркетинг, залучення клієнтів та окремі задачі розробки
+PRIMARY_DEVELOPER=Вадим
+PRIMARY_DEVELOPER_ROLE=основна технічна реалізація
+LANGUAGES=Ukrainian,Russian,English,Polish_written_AI_assisted
+LOGO_AVAILABLE=NO
+REAL_OWNER_PHOTO_AVAILABLE=YES
+PORTFOLIO_PUBLICATION_PERMISSION=ALL_FACTUAL_CASES_AND_ASSETS
+
+ПЕРЕД ЗАПУСКОМ:
+
+ACTIVE_ADULT_FREELANCEHUNT_ACCOUNT_REGISTERED=NO
+ADULT_OWNER_LOGGED_IN_IN_CODEX_BROWSER=NO
+TWO_FACTOR_ENABLED=NO
+PHONE_VERIFIED=NO
+IDENTITY_VERIFIED=NO
+
+Codex должен преобразовать эти данные в локальный файл:
+.codex/private/freelancehunt_owner.local.yaml
+и не коммитить заполненный файл в GitHub.
