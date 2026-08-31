@@ -11,7 +11,7 @@
 ## 2026-08-31 — Service discovery
 
 - Do not set an initial priority among AI agents, automation, Telegram bots, CRM, websites, MVPs, AI content and other executable services.
-- Test demand using real platform data.
+- Test demand using real market data from channels the team is legally and operationally allowed to use.
 
 ## 2026-08-31 — Pricing
 
@@ -30,17 +30,27 @@
 
 ## 2026-08-31 — Email roles
 
-- One selected mailbox is assigned to the primary Freelancehunt account and platform alerts.
+- One selected mailbox was intended for platform alerts.
 - A second selected mailbox is assigned to direct sales and processing.
 - Exact mailbox addresses are not committed while the repository is public.
 - The previously used `newartem855` mailbox is excluded from this project’s email flow.
+- No mailbox integration may collect Freelancehunt alerts from the under-18 account while it is blocked.
 
 ## 2026-08-31 — Freelancehunt accounts
 
-- Use one legitimate freelancer account in an approved legal format.
 - Reject duplicate, fake and decoy accounts.
 - Reject deliberately weak staged bids.
-- Internally compare proposal variants and send only the best legitimate version.
+- Internally compare proposal variants and send only the best legitimate version through an approved channel.
+
+## 2026-08-31 — Freelancehunt support outcome
+
+- The 15-year-old founder registered an account using truthful personal data and immediately contacted support before operational use.
+- Support stated that the account cannot be used for any purpose before age 18, including passive project alerts and market analysis.
+- Support instructed the founder to deactivate the account through security settings and contact support after turning 18 to restore access.
+- Account status is `BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`.
+- Do not verify, complete, connect, monitor or otherwise use this account.
+- The adult-cofounder/team route was not explicitly approved in the response and requires a separate written confirmation before launch.
+- Until an approved Freelancehunt route exists, revenue acquisition continues through direct sales and other eligible channels.
 
 ## 2026-08-31 — Canonical repository
 
