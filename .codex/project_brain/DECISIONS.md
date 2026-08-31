@@ -62,9 +62,20 @@
 - Support stated that the minor founder may be identified in client correspondence as a partner because the legal account owner is a legally capable adult.
 - Route status is `APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`.
 - The adult cofounder must own and control the account, pass verification, submit bids, conduct correspondence, contract and receive payment.
-- The minor founder must not access or operate the adult account or impersonate its owner.
+- The minor founder must not access or operate the account or impersonate its owner.
 - Client-facing descriptions of the team, roles and delivery responsibility must remain truthful.
 - This approval does not override platform restrictions on automatic bidding, mass messaging or credential sharing.
+
+## 2026-08-31 — Codex browser profile setup
+
+- Use Codex with an interactive Playwright or Chrome DevTools browser to inspect and complete the adult-owned Freelancehunt profile.
+- This is a one-time profile setup workflow, not an automated bidding or messaging system.
+- The adult owner personally handles login, CAPTCHA, OTP, 2FA, identity verification, document upload, payment configuration and contractual acceptance.
+- Codex may autonomously inspect, write, save and verify ordinary reversible profile fields using the repository source of truth.
+- Legal identity fields come only from `.codex/private/freelancehunt_owner.local.yaml` and must never be inferred or committed.
+- Public brand copy comes from `ops/freelancehunt/profile_source.yaml`.
+- Portfolio items are published only when factual evidence and required assets exist.
+- The repository skill is `.agents/skills/freelancehunt-profile-operator/SKILL.md`.
 
 ## 2026-08-31 — Canonical repository
 
