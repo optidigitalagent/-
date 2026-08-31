@@ -22,6 +22,7 @@ session*.json
 PRIVATE_CONFIG.md
 *.private.md
 .codex/private/
+ops/freelancehunt/OWNER_INPUT.txt
 
 # Python
 __pycache__/
