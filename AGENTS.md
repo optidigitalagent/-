@@ -12,6 +12,13 @@ Before any work, read in this order:
 6. `.codex/project_brain/NEXT_ACTION.md`
 7. Existing `GOAL.md`, root `GOAL_PROGRESS.md` and `docs/LEGACY_AGENT_ARCHITECTURE.md` when work touches the legacy agent.
 
+For adult-owned Freelancehunt profile setup, also use:
+
+- `.agents/skills/freelancehunt-profile-operator/SKILL.md`
+- `docs/FREELANCEHUNT_BROWSER_PROFILE_AUTOMATION.md`
+- `ops/freelancehunt/profile_source.yaml`
+- `.codex/private/freelancehunt_owner.local.yaml`
+
 ## Primary objective
 
 Maximize legitimate net funded revenue for Antonov Digital through:
@@ -46,6 +53,10 @@ The current baseline is a job-notification and proposal-draft system, not yet a 
 5. Validate changes with targeted tests or document checks.
 6. Update `DECISIONS.md`, `GOAL_PROGRESS.md` and `NEXT_ACTION.md` when state changes.
 7. Report: decision, files changed, validation, risks, commercial impact and next action.
+
+## Browser profile-operation boundary
+
+Codex may use an interactive Playwright or Chrome DevTools browser to inspect, fill, save and verify ordinary reversible fields on the adult-owned Freelancehunt profile. It must use approved source files and pause for account mismatch, login, CAPTCHA, OTP, 2FA, identity verification, document upload, paid-plan/payment actions and contractual commitments. It must not operate the minor-owned account, submit bids or send client messages during profile setup.
 
 ## Discovery policy
 
