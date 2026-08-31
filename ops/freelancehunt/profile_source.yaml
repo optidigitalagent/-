@@ -1,0 +1,207 @@
+version: 1
+status: draft_for_live_field_mapping
+
+account_model:
+  owner: "Genuine adult cofounder"
+  owner_public_role_uk: "Співзасновник і основний розробник Antonov Digital"
+  partner_public_role_uk: "Артем Антонов — співзасновник і партнер: менеджмент, маркетинг, залучення клієнтів та окремі задачі розробки"
+  account_operator: "Adult owner only"
+  team_size: 2
+  brand: "Antonov Digital"
+
+positioning:
+  umbrella_uk: "Antonov Digital — AI, автоматизація, вебсистеми та цифровий продакшн"
+  headline_primary_uk: "Співзасновник Antonov Digital | AI-автоматизації, сайти, Telegram-боти та CRM"
+  headline_short_uk: "AI-автоматизації, сайти, Telegram-боти та CRM"
+  headline_en: "Antonov Digital Co-founder | AI Automation, Web Systems, Bots & CRM"
+
+about:
+  uk: |-
+    Я — співзасновник і основний розробник Antonov Digital. Працюю разом із партнером Артемом Антоновим: він відповідає за менеджмент, маркетинг, залучення клієнтів і також бере участь в окремих задачах розробки.
+
+    Ми створюємо практичні цифрові рішення під бізнес-задачі: AI-агентів, автоматизації, Telegram-ботів, CRM та внутрішні інструменти, сайти й MVP, системи збору та обробки даних, AI-контент і аудіообробку.
+
+    Беремо задачу від аналізу до запуску: уточнюємо потрібний результат, пропонуємо реалістичний план, розробляємо, тестуємо, інтегруємо та допомагаємо з розгортанням. Можемо почати з невеликого етапу або MVP, щоб швидко перевірити підхід і не роздувати бюджет.
+
+    У нашому досвіді — сайти й системи заявок для стоматологій та локального бізнесу, Telegram-боти для заявок і контенту, AI-агент пошуку та порівняння постачальників, Gmail/Telegram агент для аналізу проєктів, автоматизації, SEO/GEO та пайплайн очищення аудіокниг.
+
+    Працюємо українською, англійською та російською. У повідомленні достатньо вказати, що має бути на виході, бажані строки та що вже підготовлено — запропонуємо конкретний план реалізації.
+  en: |-
+    I am a co-founder and the primary developer at Antonov Digital. I work together with my partner Artem Antonov, who handles management, marketing, client acquisition, and selected development tasks.
+
+    We build practical digital solutions around real business needs: AI agents, workflow automation, Telegram bots, CRM and internal tools, websites and MVPs, data collection and processing systems, AI content, and audio-processing pipelines.
+
+    We can take a task from analysis to launch: clarify the expected result, propose a realistic plan, build, test, integrate, and help deploy it. For uncertain scopes, we can begin with a small milestone or MVP to validate the approach without inflating the budget.
+
+    Our work includes websites and lead systems for dental and local businesses, Telegram bots for leads and content, an AI supplier-search and comparison agent, a Gmail/Telegram project-analysis agent, automation, SEO/GEO work, and an audiobook-cleaning pipeline.
+
+    We communicate in Ukrainian, English, and Russian. Send the expected deliverable, preferred timeline, and what is already available, and we will propose a concrete implementation plan.
+
+service_lanes:
+  - id: ai_agents
+    label_uk: "AI-агенти та AI-інтеграції"
+    examples:
+      - "дослідницькі та операційні агенти"
+      - "OpenAI API інтеграції"
+      - "аналіз і маршрутизація запитів"
+  - id: automation
+    label_uk: "Автоматизація бізнес-процесів"
+    examples:
+      - "email та Telegram workflows"
+      - "моніторинг, звіти й нагадування"
+      - "Google Sheets та API інтеграції"
+  - id: telegram_bots
+    label_uk: "Telegram-боти"
+    examples:
+      - "боти заявок"
+      - "CMS-боти"
+      - "моніторинг і сповіщення"
+  - id: crm_internal_tools
+    label_uk: "CRM та внутрішні системи"
+    examples:
+      - "форми та pipelines"
+      - "кабінети й dashboards"
+      - "PostgreSQL-backed workflows"
+  - id: websites
+    label_uk: "Сайти та веброзробка"
+    examples:
+      - "лендинги"
+      - "бізнес-сайти"
+      - "сайти із заявками та інтеграціями"
+  - id: mvp_web_apps
+    label_uk: "MVP та вебзастосунки"
+    examples:
+      - "frontend/backend"
+      - "REST API"
+      - "деплой та інтеграції"
+  - id: ai_content
+    label_uk: "AI-контент"
+    examples:
+      - "зображення"
+      - "відео"
+      - "контентні workflows"
+  - id: audio
+    label_uk: "Аудіообробка та ASR"
+    examples:
+      - "очищення записів"
+      - "транскрибація"
+      - "QA pipelines"
+  - id: seo_geo
+    label_uk: "SEO, GEO та локальний пошук"
+    examples:
+      - "технічна оптимізація"
+      - "Google Business Profile"
+      - "локальний контент"
+  - id: data_monitoring
+    label_uk: "Парсинг, дані та моніторинг"
+    examples:
+      - "збір даних"
+      - "порівняння пропозицій"
+      - "алерти та звіти"
+
+proven_technologies:
+  - Python
+  - JavaScript
+  - TypeScript
+  - HTML
+  - CSS
+  - REST API
+  - PostgreSQL
+  - Telegram Bot API
+  - OpenAI API
+  - Gmail API
+  - Google Sheets
+  - Railway
+  - GitHub
+  - Cloudflare
+  - Cloudinary
+  - SEO
+  - ASR
+  - workflow automation
+
+languages:
+  - language: "Українська"
+    level: "Робоча"
+  - language: "English"
+    level: "Робоча комунікація та дзвінки"
+  - language: "Русский"
+    level: "Робоча"
+
+availability:
+  timezone: "Europe/Kyiv"
+  response_window: "08:00–21:00"
+  public_status_preference: "Вільний для роботи"
+  calls: "Available in Ukrainian, English, and Russian"
+  video_walkthroughs: true
+
+pricing:
+  fixed_minimum: null
+  strategy: "Choose a realistic project or milestone price from scope; small projects are allowed for cash, reputation, or strategic value when scope is controlled."
+  public_rate: "Do not invent. Use a value from the adult owner's private file or a neutral negotiable option if the live field permits it."
+
+specialization_strategy:
+  rule: "Use the broadest truthful coverage allowed by the current plan; do not buy Plus during this task."
+  primary_candidates:
+    - "AI та машинне навчання"
+    - "Веб-програмування"
+    - "Розробка ботів"
+    - "Створення сайту під ключ"
+  additional_candidates:
+    - "Python"
+    - "JavaScript та TypeScript"
+    - "Парсинг даних"
+    - "Бази даних та SQL"
+    - "Автоматизація управління підприємством"
+    - "Консультування з AI"
+    - "Обробка даних"
+    - "Пошук та збір інформації"
+    - "Управління клієнтами та CRM"
+    - "Налаштування ПЗ та серверів"
+    - "HTML та CSS верстка"
+    - "Інтернет-магазини та електронна комерція"
+    - "Супровід сайтів"
+    - "AI у дизайні"
+    - "AI створення відео"
+    - "AI синтез голосу"
+    - "AI обробка текстів"
+    - "Обробка відео"
+    - "Обробка аудіо"
+    - "Обробка фото"
+    - "Пошукове просування SEO"
+    - "SEO-аудит сайтів"
+    - "Продажі та генерація лідів"
+    - "Маркетингові дослідження"
+    - "Управління проєктами"
+  live_mapping_rule: "Use the exact labels available in the live UI. If a candidate does not exist, choose the closest truthful category and record the mapping."
+
+portfolio_publish_order:
+  - "Bella Dent — website, lead automation, Telegram, PostgreSQL, Cloudinary"
+  - "Dental Supplier AI Agent — AI agent, Telegram, supplier search, reporting"
+  - "Gmail Job Agent — Gmail, AI qualification, Telegram, Railway, PostgreSQL"
+  - "Status Dent / Amidental — websites, forms, SEO/local search"
+  - "Audiobook Cleaner — ASR, cleanup, QA pipeline"
+  - "Art Studio 184 — website and operational automations"
+  - "Mentium — education AI product and MVP discovery"
+
+portfolio_gate:
+  publish_only_when:
+    - "Antonov Digital's exact role is documented"
+    - "case description is factual"
+    - "required screenshots or media exist"
+    - "live link or sanitized demo works when one is claimed"
+    - "no unsupported outcome metric is used"
+  otherwise: "Defer the item and list the missing assets in the local profile setup report."
+
+claims_policy:
+  forbidden:
+    - "four-person team"
+    - "unsupported years of experience"
+    - "invented revenue or conversion growth"
+    - "invented client reviews"
+    - "invented certifications"
+    - "claim that Artem owns or operates the adult account"
+  required:
+    - "adult owner is the real profile owner and operator"
+    - "Antonov Digital is a two-founder team"
+    - "Artem may be disclosed as a partner"
+    - "project roles are described truthfully"
