@@ -1,5 +1,47 @@
-﻿*.png
+# Existing repository artifacts
+*.png
 cookies_*.json
 debug_*.png
 credentials.json
 gmail_token*.json
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+token*.json
+cookies*.json
+session*.json
+
+# Private project state that must not be committed while repository is public
+PRIVATE_CONFIG.md
+*.private.md
+.codex/private/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+.npm/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Runtime data
+logs/
+*.log
+storage/
+artifacts/private/
