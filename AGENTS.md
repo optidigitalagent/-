@@ -10,7 +10,7 @@ Before any work, read in this order:
 4. `.codex/project_brain/DECISIONS.md`
 5. `.codex/project_brain/GOAL_PROGRESS.md`
 6. `.codex/project_brain/NEXT_ACTION.md`
-7. Existing `GOAL.md` and root `GOAL_PROGRESS.md` when work touches the legacy agent.
+7. Existing `GOAL.md`, root `GOAL_PROGRESS.md` and `docs/LEGACY_AGENT_ARCHITECTURE.md` when work touches the legacy agent.
 
 ## Primary objective
 
