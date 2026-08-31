@@ -29,6 +29,9 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - [x] Adult-owner route recorded as `APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
 - [x] Email architecture clarified: one adult-owned operational Freelancehunt mailbox plus one adult-managed read-only alert mirror
 - [x] Clarified that the mirror mailbox is not a second platform account and only receives forwarded copies from the adult-owned account
+- [x] Repository-local Codex skill added for one-time adult-owned Freelancehunt profile setup
+- [x] Truthful public profile source and private adult-owner template added
+- [x] Browser automation runbook added with Playwright, authentication and verification boundaries
 
 ## Remaining in Stage 0
 
@@ -39,8 +42,11 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - [ ] Enable two-factor authentication and recovery on both mailboxes
 - [ ] Register or configure one truthful Freelancehunt account on the adult-owned operational mailbox
 - [ ] Confirm that the alert-mirror mailbox has no active Freelancehunt account attached
+- [ ] Create `.codex/private/freelancehunt_owner.local.yaml` locally from the example and fill truthful adult-owner data
+- [ ] Enable `$playwright-interactive` or a Playwright/Chrome DevTools MCP browser in Codex
+- [ ] Run `$freelancehunt-profile-operator` against the authenticated adult-owned account
+- [ ] Preserve the local profile setup report and final screenshots
 - [ ] Configure a narrow forwarding rule from the adult-owned operational mailbox to the alert mirror
-- [ ] Prepare and publish a truthful Antonov Digital profile through the adult owner
 - [ ] Decide the separate direct-sales mailbox role; do not repurpose the alert mirror for outbound sales by default
 - [ ] Review and approve Draft PR #1; do not merge yet
 - [ ] Rename repository to `antonov-digital-freelance-revenue-engine`
@@ -57,4 +63,4 @@ Stage 1 begins when:
 2. the minor founder's Freelancehunt account is deactivated;
 3. the adult-owned operational account and mailbox are confirmed;
 4. the alert mirror is separated from any active platform identity and forwarding is ready; and
-5. truthful profile and portfolio construction can begin under the approved operating model.
+5. the adult-owned profile is ready for truthful Codex-assisted construction or has been completed and verified.
