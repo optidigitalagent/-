@@ -30,27 +30,36 @@
 
 ## 2026-08-31 — Email roles
 
-- One selected mailbox was intended for platform alerts.
-- A second selected mailbox is assigned to direct sales and processing.
+- The mailbox tied to the minor founder’s blocked Freelancehunt account is archival/recovery only and must remain disconnected.
+- A genuine adult cofounder’s separately controlled mailbox will be used for the approved Freelancehunt account.
+- A separate mailbox is assigned to direct sales and processing.
 - Exact mailbox addresses are not committed while the repository is public.
 - The previously used `newartem855` mailbox is excluded from this project’s email flow.
-- No mailbox integration may collect Freelancehunt alerts from the under-18 account while it is blocked.
 
-## 2026-08-31 — Freelancehunt accounts
+## 2026-08-31 — Freelancehunt account integrity
 
 - Reject duplicate, fake and decoy accounts.
 - Reject deliberately weak staged bids.
 - Internally compare proposal variants and send only the best legitimate version through an approved channel.
+- Do not share the adult owner’s login with the minor founder.
 
-## 2026-08-31 — Freelancehunt support outcome
+## 2026-08-31 — Freelancehunt support outcome: minor account
 
 - The 15-year-old founder registered an account using truthful personal data and immediately contacted support before operational use.
 - Support stated that the account cannot be used for any purpose before age 18, including passive project alerts and market analysis.
 - Support instructed the founder to deactivate the account through security settings and contact support after turning 18 to restore access.
 - Account status is `BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`.
 - Do not verify, complete, connect, monitor or otherwise use this account.
-- The adult-cofounder/team route was not explicitly approved in the response and requires a separate written confirmation before launch.
-- Until an approved Freelancehunt route exists, revenue acquisition continues through direct sales and other eligible channels.
+
+## 2026-08-31 — Freelancehunt support outcome: adult-cofounder route
+
+- Support confirmed that a genuine adult cofounder may independently register and operate their own account.
+- Support stated that the minor founder may be identified in client correspondence as a partner because the legal account owner is a legally capable adult.
+- Route status is `APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`.
+- The adult cofounder must own and control the account, pass verification, submit bids, conduct correspondence, contract and receive payment.
+- The minor founder must not access or operate the adult account or impersonate its owner.
+- Client-facing descriptions of the team, roles and delivery responsibility must remain truthful.
+- This approval does not override platform restrictions on automatic bidding, mass messaging or credential sharing.
 
 ## 2026-08-31 — Canonical repository
 
