@@ -6,9 +6,11 @@ Platform access is a revenue asset. Do not risk it for short-term activity.
 
 Before implementing any platform action, verify the current official rules and record the source and access date.
 
-## Freelancehunt — confirmed launch constraint
+## Freelancehunt — confirmed launch constraints
 
-Official service rules and a direct platform-support response were checked on 2026-08-31.
+Official service rules and direct platform-support responses were checked on 2026-08-31.
+
+### Minor founder account
 
 Freelancehunt support confirmed the following for the founder who is currently 15:
 
@@ -32,22 +34,29 @@ Do not perform any of the following through that account:
 - automated or manual platform activity
 - paid-plan purchase
 
-## Adult-founder/team route
+### Adult-cofounder route
 
-The support response did not explicitly approve operation through an adult cofounder or FOP on behalf of Antonov Digital.
+Freelancehunt support confirmed that a genuine adult cofounder may independently register and operate their own account. Support also stated that it sees no problem with identifying the minor founder in client correspondence as a partner because the legal account owner is an adult with legal capacity.
 
-Until the platform gives a specific written answer:
+Approved route state:
 
-- do not treat an adult account as a workaround for the minor founder
-- do not share, borrow or transfer account access
-- do not let the minor founder impersonate the adult account owner
-- do not submit work or messages under a false identity
+`APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
 
-A real adult cofounder may only operate their own truthful account as its genuine owner, controller, contracting party and payment recipient, subject to current platform rules. Any team branding or participation by a minor must be disclosed and explicitly confirmed by the platform before launch.
+Mandatory operating boundaries:
+
+- The account is registered in the adult cofounder’s truthful identity.
+- The adult cofounder owns and controls the login and credentials.
+- The adult cofounder independently passes verification.
+- The adult cofounder submits bids and conducts platform correspondence.
+- The adult cofounder is the contracting party and payment recipient.
+- The minor founder does not log in, control the account, submit bids or impersonate the adult owner.
+- The minor founder may be truthfully identified in client correspondence as an Antonov Digital partner.
+- The team must be transparent with each client about roles, responsibility and who will perform the work.
+- The support answer does not authorize account sharing, automatic bidding, mass messaging or any other prohibited automation.
 
 ## General account integrity rules
 
-- Use no more than one legitimate freelancer account per user.
+- Use no more than one legitimate freelancer account per real user.
 - Do not transfer account credentials or create fake, duplicate, rented, purchased or decoy accounts.
 - Do not submit intentionally poor bids to manipulate a client’s perception.
 - Do not use mass private-message tools or automatic project bidding.
@@ -58,7 +67,7 @@ A real adult cofounder may only operate their own truthful account as its genuin
 
 ## One-account launch strategy
 
-When a legally eligible and platform-approved owner exists, use one broad and truthful Antonov Digital profile.
+Use one broad and truthful Antonov Digital profile operated by the approved adult owner.
 
 Internally classify every opportunity into a service lane and select only the relevant:
 
@@ -72,15 +81,17 @@ This creates a specialized response without multiple identities.
 
 ## Two-founder rule
 
-A second real founder may only use a separate account as their own genuine identity and within current platform rules. No founder account may be used as a staged weak competitor, false testimonial source or coordinated perception-manipulation tool.
+The adult cofounder’s account is not a shared team login. It remains the adult owner’s genuine account and responsibility.
 
-For the Antonov Digital launch, concentrate rating and trust in one approved primary account once the legal/platform path is confirmed.
+No founder account may be used as a staged weak competitor, false testimonial source or coordinated perception-manipulation tool.
+
+For the Antonov Digital launch, concentrate rating and trust in the approved adult-owned primary account.
 
 ## Automation boundary
 
-Permitted by default only for an eligible and approved account/channel:
+Permitted by default for internal processing around the approved account/channel:
 
-- reading permitted email alerts
+- reading permitted email alerts from the adult-owned mailbox
 - normalizing opportunity data
 - internal qualification
 - drafting proposals
@@ -108,3 +119,4 @@ Never claim:
 - false age, identity or location
 - tools or technologies the team cannot use
 - client permission that was not granted
+- that the minor founder owns or controls the adult cofounder’s account
