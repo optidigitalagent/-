@@ -1,74 +1,76 @@
 # Platform Support Log
 
-## 2026-08-31 — Freelancehunt under-18 account and adult-cofounder route
+## 2026-08-31 — Freelancehunt under-18 account and adult-owner route
 
 ### Initial question
 
-The founder disclosed that he is 15 and asked whether the truthful account could remain active only for project viewing, email alerts and market analysis. The same message asked whether Antonov Digital could operate through a genuine adult cofounder or FOP while openly disclosing the minor founder's role.
+Artem disclosed that he is 15 and asked whether the truthful account could remain active only for project viewing, email alerts and market analysis. The same message asked whether Antonov Digital could operate through a genuine adult owner while openly disclosing Artem's role.
 
 ### Initial support answer
 
-Freelancehunt support stated that platform activity is permitted only for adult users and that the minor founder's account cannot currently be used for any purpose.
+Freelancehunt support stated that platform activity is permitted only for adult users and that Artem's account cannot currently be used for any purpose.
 
-Support instructed the founder to deactivate the account through security settings for the next three years. After reaching age 18, the founder should contact `support@freelancehunt.com` so support can restore access.
+Support instructed Artem to deactivate the account for the next three years. After reaching age 18, he should contact `support@freelancehunt.com` so support can restore access.
 
 ### Follow-up question
 
-The founder clarified a separate operating model:
+Artem clarified a separate operating model:
 
-- the adult cofounder registers and operates their own account using truthful personal data
-- the adult cofounder independently controls the login, verification, bids, correspondence, contracts and payments
-- the minor founder has no access to the adult owner's account and does not act in the adult owner's name
-- the minor founder may be disclosed to clients as a partner in Antonov Digital
+- the adult person registers and operates their own account using truthful personal data
+- the adult person independently controls the login, verification, bids, correspondence, contracts and payments
+- Artem has no access to the adult owner's account and does not act in the adult owner's name
+- Artem may be disclosed to clients as a partner in Antonov Digital
 
 ### Follow-up support answer
 
-Freelancehunt support confirmed that the adult cofounder may independently register and operate their own account.
+Freelancehunt support confirmed that the adult person may independently register and operate their own account.
 
-Support also stated that it sees no problem with identifying the minor founder in client correspondence as a partner, because the legal account owner is a legally capable adult.
+Support also stated that it sees no problem with identifying Artem in client correspondence as a partner because the legal account owner is a legally capable adult.
 
 ### Approved operating path
 
-Adult-cofounder route status:
+Route status:
 
 `APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
 
 The approval is bounded by the operating model described to support:
 
-- the account belongs to the genuine adult cofounder
-- the adult cofounder controls the account and credentials
-- the adult cofounder passes verification
-- the adult cofounder submits bids and conducts platform correspondence
-- the adult cofounder is the contracting party and payment recipient
-- the minor founder does not log in, operate the account or impersonate the adult owner
-- the minor founder may be truthfully disclosed in correspondence as an Antonov Digital partner
-- roles, responsibility and who will perform work must be described truthfully to each client
+- the account belongs to the genuine adult owner
+- the adult owner controls the account and credentials
+- the adult owner passes verification
+- the adult owner submits bids and conducts platform correspondence
+- the adult owner is the contracting party and payment recipient
+- Artem does not log in, operate the account or impersonate the adult owner
+- Artem may be truthfully disclosed as an Antonov Digital co-founder/partner
+- roles, responsibility and who will perform work are described truthfully to each client
 - platform automation restrictions still apply; this approval does not authorize automatic bidding, mass messaging or credential sharing
 
 ### Minor founder account decision
 
-- Account status: `BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
-- No profile work, verification, alerts, browsing, bidding, messaging, paid plan or automation
-- No alert ingestion may depend on the minor-owned Freelancehunt account
-- No replacement account for the minor founder
-- Deactivate the account and preserve evidence of deactivation
-- After age 18, contact support to restore it
+Support-required state:
 
-### Operational mailbox clarification
+`BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
 
-The project distinguishes the blocked Freelancehunt account from the Gmail mailbox previously used during registration.
+User-confirmed current state:
 
-The blocked minor-owned Freelancehunt account must be deactivated and cannot generate alerts. After deactivation, the Gmail mailbox itself may be retained as an adult-managed read-only mirror that receives forwarded copies of notifications from the legitimate adult-owned Freelancehunt account.
+`DEACTIVATED_UNTIL_18`
 
-This does not create a second platform identity:
+Operational consequence:
 
-- only the adult-owned operational mailbox is tied to the active Freelancehunt account
-- the mirror mailbox has no active Freelancehunt account
-- the mirror performs no platform actions
-- the agent may only read and process forwarded copies
-- the adult account owner performs bids, messages, contracts and payment actions
+- no profile work, verification, alerts, browsing, bidding, messaging, paid plan or automation
+- no Gmail/OAuth ingestion may depend on that platform account
+- no replacement account for Artem
+- after age 18, contact support to restore it
 
-This mailbox-routing design is an internal operational decision. It does not expand the permissions stated by Freelancehunt support.
+### Current mailbox decision
+
+The sole active adult-owned Freelancehunt account will use one adult-owned operational Gmail mailbox for registration, security notices, project notifications and client-thread notifications.
+
+The same mailbox may later be connected through minimum-permission Gmail OAuth for permitted notification ingestion by the internal revenue agent.
+
+No notification mirror or forwarding mailbox is used in the current architecture.
+
+This mailbox design is an internal operational decision and does not expand the permissions stated by Freelancehunt support. The adult owner still performs every action inside Freelancehunt.
 
 ### Evidence
 
