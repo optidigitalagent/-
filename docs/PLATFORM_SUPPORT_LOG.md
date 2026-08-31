@@ -1,29 +1,58 @@
 # Platform Support Log
 
-## 2026-08-31 — Freelancehunt under-18 account
+## 2026-08-31 — Freelancehunt under-18 account and adult-cofounder route
 
-### Question sent
+### Initial question
 
-The founder disclosed that he is 15 and asked whether the truthful account could remain active only for project viewing, email alerts and market analysis. The same message also asked whether Antonov Digital could operate through a genuine adult cofounder or FOP while openly disclosing the minor founder’s role.
+The founder disclosed that he is 15 and asked whether the truthful account could remain active only for project viewing, email alerts and market analysis. The same message asked whether Antonov Digital could operate through a genuine adult cofounder or FOP while openly disclosing the minor founder’s role.
 
-### Support answer
+### Initial support answer
 
-Freelancehunt support stated that platform activity is permitted only for adult users and that the account cannot currently be used for any purpose.
+Freelancehunt support stated that platform activity is permitted only for adult users and that the minor founder’s account cannot currently be used for any purpose.
 
 Support instructed the founder to deactivate the account through security settings for the next three years. After reaching age 18, the founder should contact `support@freelancehunt.com` so support can restore access.
 
-### What was not answered explicitly
+### Follow-up question
 
-The reply did not directly confirm or reject the proposed adult-cofounder/team format.
+The founder clarified a separate operating model:
 
-### Operational decision
+- the adult cofounder registers and operates their own account using truthful personal data
+- the adult cofounder independently controls the login, verification, bids, correspondence, contracts and payments
+- the minor founder has no access to the adult owner’s account and does not act in the adult owner’s name
+- the minor founder may be disclosed to clients as a partner in Antonov Digital
+
+### Follow-up support answer
+
+Freelancehunt support confirmed that the adult cofounder may independently register and operate their own account.
+
+Support also stated that it sees no problem with identifying the minor founder in client correspondence as a partner, because the legal account owner is a legally capable adult.
+
+### Approved operating path
+
+Adult-cofounder route status:
+
+`APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
+
+The approval is bounded by the operating model described to support:
+
+- the account belongs to the genuine adult cofounder
+- the adult cofounder controls the account and credentials
+- the adult cofounder passes verification
+- the adult cofounder submits bids and conducts platform correspondence
+- the adult cofounder is the contracting party and payment recipient
+- the minor founder does not log in, operate the account or impersonate the adult owner
+- the minor founder may be truthfully disclosed in correspondence as an Antonov Digital partner
+- roles, responsibility and who will perform work must be described truthfully to each client
+- platform automation restrictions still apply; this approval does not authorize automatic bidding, mass messaging or credential sharing
+
+### Minor founder account decision
 
 - Account status: `BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
-- No profile work, verification, alerts, bidding, messaging, paid plan or automation
+- No profile work, verification, alerts, browsing, bidding, messaging, paid plan or automation
 - No Gmail/OAuth/Telegram/CRM connection to the blocked account
 - No replacement account for the minor founder
-- Adult-cofounder/team route remains `PENDING_EXPLICIT_PLATFORM_APPROVAL`
-- Direct sales and other eligible acquisition channels continue
+- Deactivate the account and preserve evidence of deactivation
+- After age 18, contact support to restore it
 
 ### Evidence
 
