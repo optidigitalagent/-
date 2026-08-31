@@ -2,114 +2,134 @@
 
 ## Purpose
 
-Use Codex with an interactive browser to inspect and complete the one legitimate adult-owned Freelancehunt profile for Antonov Digital without using a Freelancehunt write API.
+Use Codex in the ChatGPT desktop app to inspect and complete the one legitimate adult-owned Freelancehunt profile for Antonov Digital without using a Freelancehunt write API.
 
 This is a one-time profile-setup workflow. It is not a bidding bot, message bot, verification bypass, or shared-account workflow.
 
 ## Operating model
 
 ```text
-Adult owner authenticates the legitimate account
+Adult owner registers and authenticates the legitimate account
         ↓
-Codex inspects the live profile UI through Playwright
+Codex reads repository instructions and local owner input
         ↓
-Codex fills reversible profile fields from project sources
+Codex inspects the live profile in the built-in browser
         ↓
-Adult owner handles CAPTCHA, OTP, identity verification and documents
+Codex fills and verifies ordinary reversible profile fields
         ↓
-Codex verifies the public profile and writes a local report
+Adult owner handles CAPTCHA, OTP, identity, documents and payments
+        ↓
+Codex checks the public profile and writes a local report
 ```
 
-The adult cofounder remains the real account owner, login controller, verification subject, platform communicator, contracting party, and payment recipient. Artem may be truthfully disclosed as an Antonov Digital partner but does not impersonate the adult owner.
+The adult founder remains the real account owner, login controller, verification subject, platform communicator, contracting party, and payment recipient. Artem may be truthfully disclosed as co-founder/partner. Vadim may be disclosed as the developer responsible for the main technical implementation. Neither role changes who owns or operates the account.
 
 ## Recommended surface
 
-Use the Codex desktop app opened at the repository root. The IDE extension or CLI can also be used when the same project and MCP configuration are available.
+Use Codex in the ChatGPT desktop app with the repository folder open. The desktop app is preferred because it works with local project files, automatically discovers `AGENTS.md` and repository skills from the opened folder, and can use the built-in browser/computer-use capability.
 
-The interactive browser requirement is satisfied by either:
+Fallback browser methods:
 
-- the built-in/installed `$playwright-interactive` skill; or
-- a configured Playwright or Chrome DevTools MCP server.
+- `$playwright-interactive`
+- configured Playwright MCP
+- configured Chrome DevTools MCP
 
-## One-time local setup
-
-### 1. Open the repository
-
-Open the repository root that contains `AGENTS.md` and use branch:
+The no-terminal instructions are in:
 
 ```text
-setup/project-brain-v1
+docs/START_PROFILE_SETUP_NO_TERMINAL.md
 ```
 
-Do not run this task against `main` until the project brain is approved and merged.
+## Local source files
 
-### 2. Prepare the adult-owner local file
-
-Copy:
+Public business source:
 
 ```text
-ops/freelancehunt/freelancehunt_owner.local.example.yaml
+ops/freelancehunt/profile_source.yaml
 ```
 
-to:
+Simple local owner input:
+
+```text
+ops/freelancehunt/OWNER_INPUT.txt
+```
+
+Private structured owner file:
 
 ```text
 .codex/private/freelancehunt_owner.local.yaml
 ```
 
-Fill only truthful adult-owner information. The target path is ignored by Git and must never be committed.
+Both local owner files are ignored by Git. They must never contain passwords, OTPs, recovery codes, cookies, passport files or banking data.
 
-### 3. Prepare approved local assets
+## Required owner input
 
-Place any real profile photo and portfolio media under:
+Only four local values remain mandatory before full autonomous profile completion:
 
 ```text
-artifacts/private/freelancehunt-profile/input/
+FULL_LEGAL_NAME=
+PUBLIC_DISPLAY_NAME=
+ADULT_PHONE=
+PROFILE_PHOTO_PATH=
 ```
 
-The adult owner must approve the real profile photo. Do not generate or alter a face to represent the account owner.
+All other business decisions are already stored in `profile_source.yaml`:
 
-### 4. Enable the browser tool
+- adult owner: founder and operational/account responsibility
+- Artem: co-founder/partner; management, marketing, acquisition, communication and selected development
+- Vadim: main technical implementation
+- Ukrainian primary profile language
+- Ukrainian, Russian and English communication; Polish written with AI assistance only
+- fully available
+- project/milestone pricing
+- broad truthful service coverage
+- all factual portfolio cases allowed when evidence and assets are ready
+- no logo required for launch
 
-In Codex, verify that `$playwright-interactive` is available through `/skills`, or verify a Playwright/Chrome DevTools MCP server through `/mcp`.
+## Authentication boundary
 
-If the skill was added while Codex was already open, restart Codex so it detects the repository skill.
+The adult owner personally enters:
 
-### 5. Adult owner signs in
+- email/login
+- password
+- CAPTCHA
+- phone code
+- OTP/2FA
+- recovery confirmation
 
-Open Freelancehunt in the interactive browser. The adult owner personally enters credentials and completes CAPTCHA, OTP, 2FA, recovery prompts, or other authentication.
+The adult owner also personally handles:
 
-Do not paste passwords, cookies, recovery codes, or identity documents into a prompt or repository file.
+- phone verification
+- passport/identity verification
+- document upload
+- financial/payment configuration
+- legal or contractual acceptance
+
+Codex does not ask for, read, store, print, export or commit those secrets or documents.
 
 ## Execution prompt
 
-Use:
+Use the complete prompt in:
 
 ```text
-$freelancehunt-profile-operator
-
-Complete the one legitimate adult-owned Antonov Digital Freelancehunt profile in the currently authenticated browser session.
-
-Use `ops/freelancehunt/profile_source.yaml` for all public business copy and `.codex/private/freelancehunt_owner.local.yaml` for adult identity-bound fields. Inspect the current live UI before writing. Autonomously choose and save the strongest truthful wording that fits each field. Do not ask for approval on ordinary reversible profile edits.
-
-Stop only for account mismatch, missing legal owner data, login/CAPTCHA/OTP/2FA, identity verification or document upload, payment/paid plan, a contractual action, or contradictory source facts.
-
-Do not submit bids, message clients, buy Plus, change payment details, or operate the minor-owned account. Save screenshots and a complete local report under `artifacts/private/freelancehunt-profile/`.
+ops/freelancehunt/CODEX_PROFILE_PROMPT_RU.txt
 ```
 
-## Expected behavior
+The prompt instructs Codex to:
 
-Codex should:
+1. verify the adult-owned account identity
+2. inspect all live fields and limits before editing
+3. create the private local YAML when only `OWNER_INPUT.txt` exists
+4. fill and save each reversible section autonomously
+5. use Ukrainian as the main profile language
+6. present the approved team roles truthfully
+7. select broad but truthful specializations
+8. use project/milestone pricing without inventing an hourly rate
+9. publish only evidence-backed portfolio cases
+10. verify the public profile at desktop and mobile widths
+11. produce a full local report and before/after screenshots
 
-1. Confirm that the visible account belongs to the adult owner.
-2. Inspect all editable sections and current limits.
-3. Map live field names to project source values.
-4. Fill and save one reversible section at a time.
-5. Reopen each section to verify persistence.
-6. Complete specializations and skills using exact current platform labels.
-7. Publish only portfolio items whose evidence and assets are ready.
-8. Verify the public profile in a fresh tab and at mobile width.
-9. Produce:
+## Expected local output
 
 ```text
 artifacts/private/freelancehunt-profile/field-map.md
@@ -119,32 +139,19 @@ artifacts/private/freelancehunt-profile/before/
 artifacts/private/freelancehunt-profile/after/
 ```
 
-## Manual checkpoints that remain with the adult owner
-
-Codex must pause for:
-
-- account login
-- CAPTCHA
-- phone OTP
-- two-factor authentication
-- identity/passport verification
-- identity-document upload
-- financial/payment configuration
-- acceptance of legal or contractual terms that were not already approved
-
-These checkpoints do not prevent Codex from autonomously completing the rest of the profile.
-
 ## Prohibited actions
 
-- Using the deactivated minor-owned account
-- Sharing or storing the adult owner's password
-- Exporting browser cookies or session state into the repository
-- Creating a duplicate freelancer account
-- Buying Plus without a separate commercial decision
-- Automated bidding or platform messages
-- Inventing projects, metrics, experience, education, certifications, or testimonials
-- Publishing a portfolio item without evidence and approved assets
+- using the deactivated minor-owned account
+- sharing or storing the adult owner's password
+- exporting cookies or session state into the repository
+- creating a duplicate freelancer account
+- buying Plus without a separate commercial decision
+- submitting bids or platform messages
+- changing payment details
+- identity verification by AI
+- inventing projects, metrics, experience, education, certifications, language fluency or testimonials
+- publishing portfolio items without evidence and approved assets
 
 ## Completion definition
 
-The run is successful when the adult-owned public profile is coherent, truthful, complete across all safely editable sections, and every deferred item is listed with an exact missing-input reason in the local report.
+The run is successful when the adult-owned public profile is coherent, truthful, complete across all safely editable sections, and every deferred identity, verification, photo or portfolio step is listed with an exact missing-input reason in the local report.
