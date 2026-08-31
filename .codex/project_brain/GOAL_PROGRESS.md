@@ -15,7 +15,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - [x] Service-neutral discovery policy defined
 - [x] No-minimum-price policy defined
 - [x] Supported languages and availability defined
-- [x] Two-mailbox role model selected
+- [x] Operational two-mailbox role model defined: adult-owned platform mailbox plus direct-sales mailbox
 - [x] Duplicate/fake Freelancehunt account strategy rejected
 - [x] Existing repository selected as canonical base
 - [x] Branch `setup/project-brain-v1` created
@@ -25,28 +25,32 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - [x] Freelancehunt support consulted about the under-18 account
 - [x] Support outcome recorded: no platform use before age 18; account must be deactivated
 - [x] Under-18 account excluded from all profile, alert and automation work
+- [x] Follow-up sent about a genuine adult-cofounder account and disclosed partner role
+- [x] Support approved independent operation by the adult cofounder and disclosure of the minor founder as a partner in client correspondence
+- [x] Adult-owner route recorded as `APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
 
 ## Remaining in Stage 0
 
 - [ ] Deactivate the under-18 Freelancehunt account through security settings
 - [ ] Preserve a screenshot or note confirming deactivation
-- [ ] Ask support one narrow follow-up about a genuine adult cofounder/team account; do not use that route without an explicit answer
+- [ ] Confirm the adult cofounder’s full legal name, account email and ownership of that mailbox
+- [ ] Enable two-factor authentication and recovery on the adult-owned platform mailbox
+- [ ] Register or configure one truthful Freelancehunt account owned and controlled only by the adult cofounder
+- [ ] Prepare and publish a truthful Antonov Digital profile through the adult owner
 - [ ] Review and approve Draft PR #1; do not merge yet
 - [ ] Rename repository to `antonov-digital-freelance-revenue-engine`
 - [ ] Change repository visibility to private
 - [ ] Confirm Railway/GitHub deployment linkage after rename
 - [ ] Create or finish the ChatGPT Project and chat structure
-- [ ] Enable security/recovery for both mailboxes
-- [ ] Connect the direct-sales mailbox through Gmail OAuth or an approved forwarding flow
-- [ ] Keep the blocked Freelancehunt account disconnected from Gmail, Telegram, CRM and the agent
-- [ ] Prepare truthful profile and portfolio assets offline, without publishing them to the blocked account
-- [ ] Select and validate at least one immediately usable revenue channel outside the blocked Freelancehunt account
+- [ ] Enable security/recovery on the direct-sales mailbox
+- [ ] Connect the adult-owned platform mailbox and direct-sales mailbox through separate Gmail OAuth authorizations when implementation begins
+- [ ] Keep the blocked minor-account mailbox disconnected from Gmail, Telegram, CRM and the agent
 
 ## Stage 1 entry criteria
 
-Stage 1 begins when the repository brain is approved, the direct-sales email channel is operational, and at least one lawful acquisition path is recorded.
+Stage 1 begins when:
 
-Freelancehunt publication is a separate gated milestone. It may begin only after either:
-
-1. the founder reaches age 18 and support restores the account; or
-2. Freelancehunt explicitly approves a genuine adult-founder/team format in writing.
+1. the repository brain is approved;
+2. the minor founder’s account is deactivated;
+3. the adult-owned Freelancehunt account identity and mailbox are confirmed; and
+4. truthful profile and portfolio construction can begin under the approved operating model.
