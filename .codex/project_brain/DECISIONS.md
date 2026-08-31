@@ -28,20 +28,25 @@
 - Ukrainian, Russian and English are supported.
 - English calls and short video walkthroughs are allowed.
 
-## 2026-08-31 — Email roles
+## 2026-08-31 — Email and alert roles
 
-- The mailbox tied to the minor founder’s blocked Freelancehunt account is archival/recovery only and must remain disconnected.
-- A genuine adult cofounder’s separately controlled mailbox will be used for the approved Freelancehunt account.
-- A separate mailbox is assigned to direct sales and processing.
+- Use one adult-owned operational mailbox for the sole active Freelancehunt account.
+- Use a second adult-managed mailbox only as a read-only mirror for forwarded Freelancehunt notification emails and agent ingestion.
+- The notification mirror is not a second Freelancehunt account and performs no platform actions.
+- The minor founder's previously registered Freelancehunt account tied to the mirror mailbox must be deactivated and must not generate alerts.
+- After deactivation, the Gmail mailbox itself may receive forwarded copies from the adult-owned account because the mailbox and the blocked platform account are separate objects.
+- The adult owner controls the active platform mailbox, verification, bids, correspondence, contracts and payments.
 - Exact mailbox addresses are not committed while the repository is public.
-- The previously used `newartem855` mailbox is excluded from this project’s email flow.
+- The direct-sales mailbox role remains unassigned by this correction and must be decided separately.
+- The previously used `newartem855` mailbox is excluded from this project's email flow.
 
 ## 2026-08-31 — Freelancehunt account integrity
 
 - Reject duplicate, fake and decoy accounts.
 - Reject deliberately weak staged bids.
 - Internally compare proposal variants and send only the best legitimate version through an approved channel.
-- Do not share the adult owner’s login with the minor founder.
+- Do not share the adult owner's login with the minor founder.
+- Do not treat an alert-forwarding mailbox as a second freelancer identity.
 
 ## 2026-08-31 — Freelancehunt support outcome: minor account
 
