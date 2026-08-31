@@ -30,9 +30,11 @@ Do not perform any of the following through that account:
 - portfolio publication
 - project browsing or alert collection
 - bids or messages
-- Gmail/OAuth/forwarding integration
+- Gmail/OAuth/forwarding integration that depends on that account
 - automated or manual platform activity
 - paid-plan purchase
+
+The restriction applies to the minor-owned Freelancehunt account, not to the Gmail address as an independent mailbox. After the platform account is deactivated, that Gmail mailbox may be used as an adult-managed passive destination for forwarded copies from the legitimate adult-owned account, provided it is not tied to another active Freelancehunt freelancer account.
 
 ### Adult-cofounder route
 
@@ -44,7 +46,7 @@ Approved route state:
 
 Mandatory operating boundaries:
 
-- The account is registered in the adult cofounder’s truthful identity.
+- The account is registered in the adult cofounder's truthful identity.
 - The adult cofounder owns and controls the login and credentials.
 - The adult cofounder independently passes verification.
 - The adult cofounder submits bids and conducts platform correspondence.
@@ -58,7 +60,7 @@ Mandatory operating boundaries:
 
 - Use no more than one legitimate freelancer account per real user.
 - Do not transfer account credentials or create fake, duplicate, rented, purchased or decoy accounts.
-- Do not submit intentionally poor bids to manipulate a client’s perception.
+- Do not submit intentionally poor bids to manipulate a client's perception.
 - Do not use mass private-message tools or automatic project bidding.
 - Keep profile information accurate.
 - Keep prohibited contact information out of bids and public profile fields.
@@ -81,17 +83,31 @@ This creates a specialized response without multiple identities.
 
 ## Two-founder rule
 
-The adult cofounder’s account is not a shared team login. It remains the adult owner’s genuine account and responsibility.
+The adult cofounder's account is not a shared team login. It remains the adult owner's genuine account and responsibility.
 
 No founder account may be used as a staged weak competitor, false testimonial source or coordinated perception-manipulation tool.
 
 For the Antonov Digital launch, concentrate rating and trust in the approved adult-owned primary account.
 
+## Notification-mirror boundary
+
+A separate adult-managed Gmail mailbox may receive forwarded copies of notification emails from the adult-owned operational mailbox for internal agent processing.
+
+The mirror mailbox:
+
+- is not a second Freelancehunt account
+- does not log in to Freelancehunt
+- does not submit bids or send platform messages
+- does not change profile data
+- is used for read-only ingestion, deduplication, scoring, drafting and notifications
+
+Forwarding a permitted email copy does not authorize any otherwise prohibited platform action.
+
 ## Automation boundary
 
 Permitted by default for internal processing around the approved account/channel:
 
-- reading permitted email alerts from the adult-owned mailbox
+- reading permitted email alerts from the adult-owned mailbox or its read-only mirror
 - normalizing opportunity data
 - internal qualification
 - drafting proposals
@@ -107,7 +123,7 @@ Requires current platform permission or a permitted official interface:
 - extracting non-public data
 - any action that can be interpreted as spam or platform manipulation
 
-The under-18 account is excluded from all automation, including passive alert ingestion.
+The under-18 Freelancehunt account is excluded from all automation. The separate Gmail mailbox may only ingest forwarded notifications produced by the approved adult-owned account after the minor-owned account is deactivated.
 
 ## Truthfulness
 
@@ -119,4 +135,5 @@ Never claim:
 - false age, identity or location
 - tools or technologies the team cannot use
 - client permission that was not granted
-- that the minor founder owns or controls the adult cofounder’s account
+- that the minor founder owns or controls the adult cofounder's account
+- that the alert mirror is a separate freelancer identity
