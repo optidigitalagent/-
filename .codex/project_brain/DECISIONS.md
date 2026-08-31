@@ -55,3 +55,10 @@
 - The current repository is public.
 - Do not commit literal mailbox addresses, secrets, client-private data or recovery information until visibility is private.
 - Public-safe aliases and environment-variable names are used in documentation.
+
+## 2026-08-31 — Stage 0 Draft PR
+
+- Draft PR #1 was opened from `setup/project-brain-v1` into `main`.
+- The change is documentation and project-governance only.
+- Existing production code and Railway deployment were not changed.
+- The previous Gmail/Telegram agent instructions were preserved in `docs/LEGACY_AGENT_ARCHITECTURE.md`.

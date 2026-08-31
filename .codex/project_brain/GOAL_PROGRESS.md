@@ -20,11 +20,13 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - [x] Duplicate/fake Freelancehunt account strategy rejected
 - [x] Existing repository selected as canonical base
 - [x] Branch `setup/project-brain-v1` created
-- [x] Initial project-brain structure prepared
+- [x] Project-brain scaffold committed without production code changes
+- [x] Legacy Gmail/Telegram agent architecture preserved
+- [x] Draft PR #1 opened against `main`
 
 ## Remaining in Stage 0
 
-- [ ] Open and review the draft pull request
+- [ ] Review and approve Draft PR #1; do not merge yet
 - [ ] Rename repository to `antonov-digital-freelance-revenue-engine`
 - [ ] Change repository visibility to private
 - [ ] Confirm Railway/GitHub deployment linkage after rename
