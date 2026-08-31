@@ -2,101 +2,88 @@
 
 ## Security decision
 
-The repository is currently public. Literal mailbox addresses, passwords, OAuth tokens and recovery data are therefore not committed. Exact addresses are held in the private ChatGPT project context and later runtime secret configuration.
+The repository is currently public. Literal mailbox addresses, passwords, OAuth tokens and recovery data are therefore not committed. Exact addresses remain in private project context and later runtime secret configuration.
 
-## Critical distinction: Freelancehunt account vs Gmail mailbox
+## Current decision: one operational Freelancehunt mailbox
 
-The blocked object is the Freelancehunt account registered in the minor founder's identity. That account cannot be used for browsing, alerts, profile work, bids, messages or automation and must be deactivated.
+Use one adult-owned mailbox for all current Freelancehunt functions:
 
-The Gmail address itself is a separate mailbox. After the minor-owned Freelancehunt account is deactivated, that mailbox may be used as an adult-managed read-only notification mirror that receives forwarded copies from the legitimate adult-owned Freelancehunt mailbox.
+- registration of the sole active adult-owned account
+- account and security notices
+- new-project notifications
+- client-thread notifications
+- operational correspondence controlled by the adult owner
+- permitted Gmail ingestion by the internal revenue agent
 
-The mirror mailbox must not remain attached to, reactivate or operate a second Freelancehunt freelancer account.
+There is no alert-mirror mailbox in the current architecture.
 
 ## Mailbox A — adult-owned operational Freelancehunt mailbox
 
-- Purpose: the sole active Freelancehunt account, account registration, platform notices, project alerts, client-thread notifications and operational correspondence
+- Purpose: the sole active Freelancehunt account and its notification stream
 - Ownership: personally owned and controlled by the genuine adult account owner
-- Account state: `ACTIVE_ADULT_OWNER`
+- Account state before registration: `ADULT_ACCOUNT_NOT_REGISTERED`
+- Account state after truthful registration: `ACTIVE_ADULT_OWNER`
 - Platform actions: performed only by the adult account owner
-- Internal source tag: `platform_owner`
+- Internal source tag: `freelancehunt_platform`
 - Runtime variable: `PLATFORM_OWNER_MAILBOX_ADDRESS`
+- Agent access: minimum Gmail permissions needed to read permitted platform notifications; sending email does not authorize any on-platform action
 - OAuth authorization: completed by the adult mailbox owner when implementation begins
 - Exact address: selected and stored outside this public repository
 
-The adult cofounder controls this mailbox, its recovery methods and the Freelancehunt account tied to it. The adult owner remains the verification subject, bidder, platform communicator, contracting party and payment recipient.
+The adult owner remains the verification subject, account controller, bidder, platform communicator, contracting party and payment recipient.
 
-## Mailbox B — notification mirror and agent-ingestion mailbox
+## Excluded mailboxes
 
-- Purpose: receive forwarded copies of permitted notification emails from Mailbox A
-- Ownership/management: controlled by an adult
-- Freelancehunt account: none active
-- Account state: `READ_ONLY_ALERT_MIRROR`
-- Outbound platform communication: prohibited
-- Bids, profile changes and platform login: prohibited
-- Agent access: read-only ingestion when implementation begins
-- Internal source tag: `platform_alert_mirror`
-- Runtime variable: `ALERT_MIRROR_MAILBOX_ADDRESS`
-- Exact address: selected and stored outside this public repository
-
-Mailbox B exists only to make alerts available to the internal agent without turning it into a second platform identity.
+- The mailbox formerly tied to the minor founder's deactivated Freelancehunt account is excluded from the current operational flow.
+- The previously used `newartem855` mailbox is excluded from this project.
+- No forwarding mirror is configured at this stage.
 
 ## Approved mail flow
 
 ```text
 Freelancehunt adult-owned account
         ↓
-Mailbox A — adult operational mailbox
-        ↓ Gmail forwarding/filter
-Mailbox B — read-only alert mirror
-        ↓ read-only ingestion
+adult-owned operational Gmail mailbox
+        ↓ minimum-permission Gmail ingestion
 Revenue agent / Telegram / CRM
 ```
 
-The revenue agent may analyze the forwarded notification, classify the opportunity and draft a proposal. The adult owner remains responsible for every on-platform action.
+The revenue agent may analyze notification emails, normalize opportunities, detect duplicates, score relevance and draft proposals. The adult owner remains responsible for every action inside Freelancehunt.
 
 ## Direct-sales channel
 
-The direct-sales mailbox role is not assigned by this correction. It may later use a separate mailbox or an explicitly approved existing mailbox. Do not silently repurpose the alert mirror for outbound sales.
-
-## Excluded mailbox
-
-The previously used `newartem855` mailbox is excluded from this project's email flow.
+A separate direct-sales mailbox is not assigned by this decision. It can be added later if direct outreach requires separation from platform operations. Do not silently use an excluded mailbox or create another Freelancehunt identity.
 
 ## Stage 0 connection strategy
 
-1. Deactivate the minor-owned Freelancehunt account.
-2. Confirm that Mailbox B is no longer tied to any active Freelancehunt account.
-3. Register or configure the sole active Freelancehunt account on Mailbox A using the adult owner's truthful identity.
-4. Enable two-factor authentication and recovery on both mailboxes.
-5. Configure Gmail forwarding or a narrow filter from Mailbox A to Mailbox B for relevant Freelancehunt notifications.
-6. Do not store passwords in ChatGPT, GitHub or source code.
-7. When implementation begins, connect Mailbox B to the agent with the minimum read-only Gmail scope needed.
-8. Keep Mailbox A under the adult owner's direct control; do not share its login.
-9. Tag mirrored mail `source/freelancehunt` and deduplicate by original message/thread identifiers.
+1. Keep the minor-owned Freelancehunt account deactivated.
+2. Confirm the adult owner's control, recovery methods and two-factor protection for the selected operational mailbox.
+3. Register the sole active Freelancehunt account using the adult owner's truthful identity.
+4. Do not store passwords in ChatGPT, GitHub, prompts or source code.
+5. When implementation begins, connect the operational mailbox through Gmail OAuth with the minimum scope required for permitted notification ingestion.
+6. Tag ingested mail `source/freelancehunt`.
+7. Deduplicate by original Gmail message/thread identifiers and parsed platform opportunity identifiers.
 
 ## Runtime data model
 
 Every ingested message must record:
 
 - source mailbox ID
-- original mailbox ID
 - source/platform
 - original message/thread ID
-- forwarding/mirror message ID
 - lead ID
 - direction
 - received/sent time
-- client identity
+- client identity when present
 - opportunity ID
 - state
 - next action
 
 ## Controls
 
-- One active Freelancehunt freelancer account, owned and controlled by the adult cofounder.
-- One read-only notification mirror, not a second platform account.
+- One active Freelancehunt freelancer account, owned and controlled by the adult founder.
+- No second platform account, alert mirror or forwarding chain in the current architecture.
 - The minor founder may be disclosed as a partner but does not use the adult owner's platform login.
-- No ingestion from the deactivated minor-owned Freelancehunt account.
-- No bids, platform messages or profile changes from the mirror mailbox or agent.
-- No duplicate alerts or replies when the same message exists in both mailboxes.
+- Gmail ingestion does not grant permission to submit bids, send platform messages or change the profile.
+- No duplicate alerts or replies.
 - OAuth tokens live only in Railway secrets or another approved encrypted store.
