@@ -4,7 +4,7 @@
 
 Platform access is a revenue asset. Do not risk it for short-term activity.
 
-Before implementing any platform action, verify the current official rules and record the source and access date.
+Before implementing any platform action, verify current official rules and record the source and access date.
 
 ## Freelancehunt — confirmed launch constraints
 
@@ -12,33 +12,28 @@ Official service rules and direct platform-support responses were checked on 202
 
 ### Minor founder account
 
-Freelancehunt support confirmed the following for the founder who is currently 15:
+Freelancehunt support confirmed that the account registered in the 15-year-old founder's identity cannot be used for any purpose before age 18, including passive browsing, project alerts and market analysis.
 
-- The registered account cannot be used for any platform purpose before age 18.
-- The restriction includes passive browsing, project alerts and market analysis through the account.
-- The account must be deactivated through security settings.
-- After the founder reaches age 18, support can be contacted to restore access.
+The user later confirmed that this account is deactivated and not used.
 
-Current account state:
+Current state:
 
-`BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
+`DEACTIVATED_UNTIL_18`
 
-Do not perform any of the following through that account:
+Do not reactivate or use it for:
 
 - profile completion
 - phone or identity verification
 - portfolio publication
 - project browsing or alert collection
 - bids or messages
-- Gmail/OAuth/forwarding integration that depends on that account
+- Gmail/OAuth integration that depends on that account
 - automated or manual platform activity
 - paid-plan purchase
 
-The restriction applies to the minor-owned Freelancehunt account, not to the Gmail address as an independent mailbox. After the platform account is deactivated, that Gmail mailbox may be used as an adult-managed passive destination for forwarded copies from the legitimate adult-owned account, provided it is not tied to another active Freelancehunt freelancer account.
+### Adult-owner route
 
-### Adult-cofounder route
-
-Freelancehunt support confirmed that a genuine adult cofounder may independently register and operate their own account. Support also stated that it sees no problem with identifying the minor founder in client correspondence as a partner because the legal account owner is an adult with legal capacity.
+Freelancehunt support confirmed that a genuine adult person may independently register and operate their own account. Support also stated that it sees no problem with identifying Artem in client correspondence as a partner because the legal account owner is an adult with legal capacity.
 
 Approved route state:
 
@@ -46,19 +41,20 @@ Approved route state:
 
 Mandatory operating boundaries:
 
-- The account is registered in the adult cofounder's truthful identity.
-- The adult cofounder owns and controls the login and credentials.
-- The adult cofounder independently passes verification.
-- The adult cofounder submits bids and conducts platform correspondence.
-- The adult cofounder is the contracting party and payment recipient.
-- The minor founder does not log in, control the account, submit bids or impersonate the adult owner.
-- The minor founder may be truthfully identified in client correspondence as an Antonov Digital partner.
-- The team must be transparent with each client about roles, responsibility and who will perform the work.
-- The support answer does not authorize account sharing, automatic bidding, mass messaging or any other prohibited automation.
+- The account is registered in the adult founder's truthful identity.
+- The adult founder owns and controls the login, mailbox and credentials.
+- The adult founder independently passes verification.
+- The adult founder submits bids and conducts platform correspondence.
+- The adult founder is the contracting party and payment recipient.
+- Artem does not log in, control the account, submit bids or impersonate the adult owner.
+- Artem may be truthfully identified as co-founder and partner of Antonov Digital.
+- Vadim may be truthfully identified as the developer responsible for the main technical implementation.
+- The team remains transparent about roles, responsibility and who will perform the work.
+- The support answer does not authorize account sharing, automatic bidding, mass messaging or other prohibited automation.
 
 ## General account integrity rules
 
-- Use no more than one legitimate freelancer account per real user.
+- Use one legitimate adult-owned freelancer account for the launch.
 - Do not transfer account credentials or create fake, duplicate, rented, purchased or decoy accounts.
 - Do not submit intentionally poor bids to manipulate a client's perception.
 - Do not use mass private-message tools or automatic project bidding.
@@ -67,9 +63,11 @@ Mandatory operating boundaries:
 - Keep the bid price consistent with the price field.
 - Do not offer full work for free or only for a review.
 
-## One-account launch strategy
+## One-account and one-mailbox launch strategy
 
-Use one broad and truthful Antonov Digital profile operated by the approved adult owner.
+Use one broad and truthful Antonov Digital profile operated by the approved adult owner and one adult-owned operational Gmail mailbox for the account and its notification stream.
+
+There is no alert mirror or forwarding mailbox in the current architecture.
 
 Internally classify every opportunity into a service lane and select only the relevant:
 
@@ -81,59 +79,55 @@ Internally classify every opportunity into a service lane and select only the re
 
 This creates a specialized response without multiple identities.
 
-## Two-founder rule
+## Team-role rule
 
-The adult cofounder's account is not a shared team login. It remains the adult owner's genuine account and responsibility.
+The adult founder's account is not a shared team login. It remains the adult owner's genuine account and responsibility.
 
-No founder account may be used as a staged weak competitor, false testimonial source or coordinated perception-manipulation tool.
+Approved public roles:
 
-For the Antonov Digital launch, concentrate rating and trust in the approved adult-owned primary account.
+- adult owner: founder, profile/account responsibility, client and operational responsibility, agreements, contracts and payments
+- Artem Antonov: co-founder and partner; management, marketing, acquisition, communication and selected development
+- Vadim: developer; main technical implementation
 
-## Notification-mirror boundary
+Do not describe the adult owner as the primary developer.
 
-A separate adult-managed Gmail mailbox may receive forwarded copies of notification emails from the adult-owned operational mailbox for internal agent processing.
+No person or account may be used as a staged weak competitor, false testimonial source or coordinated perception-manipulation tool.
 
-The mirror mailbox:
+## Gmail-ingestion boundary
 
-- is not a second Freelancehunt account
-- does not log in to Freelancehunt
-- does not submit bids or send platform messages
-- does not change profile data
-- is used for read-only ingestion, deduplication, scoring, drafting and notifications
+The adult-owned operational mailbox may be connected through Gmail OAuth with the minimum permission required to read permitted Freelancehunt notification emails.
 
-Forwarding a permitted email copy does not authorize any otherwise prohibited platform action.
+Email ingestion may support:
 
-## Automation boundary
-
-Permitted by default for internal processing around the approved account/channel:
-
-- reading permitted email alerts from the adult-owned mailbox or its read-only mirror
-- normalizing opportunity data
-- internal qualification
-- drafting proposals
-- internal scoring and comparison
+- normalization
+- deduplication
+- qualification
+- internal scoring
+- proposal drafting
 - Telegram/CRM notifications
 - analytics
 
-Requires current platform permission or a permitted official interface:
+Gmail access does not authorize:
 
 - submitting bids
 - sending platform messages
-- changing profile/account data automatically
-- extracting non-public data
+- changing profile/account data
+- extracting non-public platform data
+- accepting contracts
+- payment actions
+- identity verification
 - any action that can be interpreted as spam or platform manipulation
-
-The under-18 Freelancehunt account is excluded from all automation. The separate Gmail mailbox may only ingest forwarded notifications produced by the approved adult-owned account after the minor-owned account is deactivated.
 
 ## Truthfulness
 
 Never claim:
 
-- nonexistent employees
+- nonexistent employees, founders or contractors
 - nonexistent projects
 - unverified revenue or conversion results
 - false age, identity or location
 - tools or technologies the team cannot use
 - client permission that was not granted
-- that the minor founder owns or controls the adult cofounder's account
-- that the alert mirror is a separate freelancer identity
+- that Artem owns or controls the adult founder's account
+- that the adult owner is the primary developer
+- unsupported Polish oral fluency
