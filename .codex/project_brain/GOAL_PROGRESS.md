@@ -8,9 +8,13 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 **Stage 1 — Freelancehunt launch preparation**
 
-Profile publication readiness reported by Codex: **75%**.
+Profile publication readiness: **80%**.
 
-Local preparation status: `LIVE_SETUP_READY`.
+Local preparation status:
+
+- `OFFLINE_PREP_COMPLETE`
+- `LIVE_SETUP_READY`
+- `OWNER_SOURCE_READY`
 
 ## Completed
 
@@ -45,19 +49,22 @@ Local preparation status: `LIVE_SETUP_READY`.
 - [x] Publication copy checked for contact details and invented results
 - [x] Codex re-opened the prepared workspace and confirmed all required live-setup files exist
 - [x] `LIVE_SETUP_READY` confirmed
+- [x] Genuine adult owner source corrected across 10 local files
+- [x] Owner-name placeholders removed from all prepared language versions
+- [x] Contradictions identifying Artem as account owner removed
+- [x] `OWNER_SOURCE_READY` confirmed
 
-## Confirmed remaining gaps
+## Remaining in the profile launch
 
-- [ ] Replace `[ІМ’Я ВЛАСНИЦІ]` in all four language versions with the genuine adult owner’s public name
-- [ ] Remove the local contradiction where `OWNER_INPUT.txt` still identifies Artem as owner
-- [ ] Open and authenticate the genuine adult owner’s correct Freelancehunt account in the browser connected to Codex
+- [ ] Genuine adult owner opens and authenticates their correct Freelancehunt account in the browser connected to Codex
 - [ ] Confirm visible name and current photo belong to the genuine adult owner
 - [ ] Run `RESUME_LIVE_SETUP_PROMPT.md` in that authenticated browser session
 - [ ] Apply and verify the prepared descriptions, specializations, skills, availability and project-pricing presentation
-- [ ] Publish the core profile even if some portfolio media is not ready; defer only the affected portfolio cards
+- [ ] Publish the core profile even if some portfolio media is not ready; defer only affected portfolio cards
 - [ ] Publish portfolio cases only when each card’s required link, status, permission and image evidence is ready
 - [ ] Complete final public-profile QA and preserve screenshots/report
 - [ ] Enable all relevant Freelancehunt project, message, contract and account email notifications
+- [ ] Adult owner personally completes phone/identity verification, OTP/2FA, documents and legal/payment confirmations when required
 
 ## Remaining in Stage 1 automation
 
