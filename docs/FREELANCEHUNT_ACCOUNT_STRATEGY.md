@@ -2,7 +2,7 @@
 
 ## Confirmed operating model
 
-Freelancehunt support provided two decisions on 2026-08-31.
+Freelancehunt support provided final written clarification on 2026-09-01.
 
 ### Minor founder account
 
@@ -18,32 +18,46 @@ Do not reactivate, complete, verify, browse, receive alerts, message, bid or con
 
 ### Adult-owner account
 
-Support confirmed that a genuine adult person may independently register and operate their own account. Support also stated that it sees no problem with identifying Artem in client correspondence as a partner because the legal account owner is an adult with legal capacity.
+Final approved status:
 
-Status:
-
-`APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
+`APPROVED_ADULT_PHYSICAL_PERSON_PROFILE_WITH_DISCLOSED_ANTONOV_DIGITAL_TEAM`
 
 Mandatory structure:
 
-- The adult founder registers using their own truthful identity and personally controlled mailbox.
-- The adult founder is the sole controller of the account login.
-- The adult founder passes verification.
-- The adult founder submits bids and conducts platform correspondence.
-- The adult founder contracts with clients and receives platform payments.
+- The adult owner registers and verifies with their own truthful identity, phone, mailbox and documents.
+- The profile remains visibly the account of one specific physical person, not a corporate or shared team account.
+- The adult owner is the sole controller of the account login.
+- The adult owner submits bids, sends platform messages, approves conditions, performs Workspace actions, enters agreements and receives payment.
 - Artem does not log in, operate the account or write while impersonating the adult owner.
+- Antonov Digital may be named in the profile description as the team with which the adult owner works.
 - Artem may be truthfully introduced as co-founder and partner of Antonov Digital.
 - Vadim may be truthfully introduced as the developer responsible for the main technical implementation.
-- The team describes roles, responsibility and delivery participation truthfully to each client.
+- The client is informed during project discussion when team members will participate in delivery.
+- The team may prepare technical solutions, materials, proposal drafts and communication drafts for the owner.
 - Platform rules on automation remain unchanged; the approval does not permit automatic bidding, mass messaging or credential sharing.
+
+## Required ownership disclosure
+
+Use a clear disclosure near the beginning or end of the profile description:
+
+> Профіль належить [ім’я власниці]. Працюю разом із командою Antonov Digital. До виконання проєктів можуть залучатися зазначені в профілі спеціалісти команди. Усі домовленості, угоди та фінансові операції на Freelancehunt здійснюються особисто власницею профілю.
+
+Adapt the grammar to the real owner, but preserve the meaning.
 
 ## Current public role model
 
-- Adult account owner: founder of Antonov Digital; client/operational responsibility, agreements, contracts and payments.
-- Artem Antonov: co-founder/partner; management, marketing, client acquisition, communication and selected development.
+- Adult account owner: physical-person profile owner; client and operational responsibility; all platform messages, agreements, contracts and payments.
+- Artem Antonov: co-founder/partner; management, marketing, client acquisition, communication preparation and selected development.
 - Vadim: developer; main technical implementation.
 
-Do not describe the adult owner as the primary developer.
+Do not describe the adult owner as the primary developer unless that is factually true.
+
+## Avatar strategy
+
+- Default: real current photo of the adult owner.
+- Do not use Artem's photo on the adult owner's profile.
+- A neutral Antonov Digital logo is not recommended for a verified profile.
+- A stylized image may be used only when permitted by the selected verification method and when it still depicts the adult owner.
 
 ## One-account and one-mailbox strategy
 
@@ -57,32 +71,18 @@ Use one active adult-owned Freelancehunt account and one adult-owned operational
 
 There is no notification mirror or forwarding mailbox in the current architecture.
 
-The agent may read permitted notification emails, score opportunities and draft proposals. The adult owner performs every action inside Freelancehunt.
-
-## Profile ownership and brand presentation
-
-The account is the adult founder's real freelancer account, not a corporate shared login.
-
-Antonov Digital may be presented as the delivery brand only in a way that remains truthful about:
-
-- the adult account owner's identity
-- the two-founder structure
-- Artem's partner role
-- Vadim's developer role
-- who communicates on-platform
-- who is contractually responsible
-- who will perform each part of the work
-
-Do not force team wording into fields intended only for an individual's legal identity.
+The agent may read permitted notification emails, score opportunities and prepare proposal/message drafts. The adult owner performs every action inside Freelancehunt.
 
 ## Rejected approach
 
-Do not create:
+Do not create or use:
 
 - duplicate freelancer accounts
+- a minor-owned account verified with an adult's documents
+- an adult-owned profile showing Artem's identity or photo
+- transferred or shared account credentials
 - fake or low-quality decoy accounts
 - coordinated weak proposals
-- a forwarding mailbox as a second platform identity
 
 Concentrate rating, reviews and portfolio trust in the one approved adult-owned account.
 
