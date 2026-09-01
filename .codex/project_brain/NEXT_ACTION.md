@@ -2,60 +2,75 @@
 
 ## Immediate objective
 
-Launch the sole adult-owned Freelancehunt physical-person profile, present Antonov Digital transparently as the delivery team, and prove that new opportunity emails can be turned into immediate Telegram-ready proposal drafts.
+Publish the already prepared Freelancehunt profile materials through the genuine adult owner’s authenticated account, then move directly to notification and proposal automation.
 
-## Exact sequence
+`OFFLINE_PREP` is complete. Do not regenerate the profile strategy, language versions, specializations, skills or portfolio cards from scratch.
 
-1. Keep the minor-owned Freelancehunt account deactivated and unused.
-2. The genuine adult owner registers or opens the sole active account on the selected operational Gmail mailbox using their truthful identity, phone, age data and current photo.
-3. The adult owner personally completes login, CAPTCHA, OTP/2FA, phone/identity verification, document upload and legal/payment confirmations.
-4. Confirm that the visible profile name and avatar belong to the adult owner. Do not use Artem's name or photo as the adult owner's identity.
-5. Add a clear ownership/team disclosure based on the wording approved by support:
-   - profile belongs to the named adult owner;
-   - the owner works with Antonov Digital;
-   - listed team specialists may participate in delivery;
-   - all Freelancehunt agreements, account actions and financial operations are performed personally by the owner.
-6. Complete the profile from `ops/freelancehunt/profile_source.yaml`:
-   - Ukrainian primary copy;
-   - Antonov Digital positioning in the description, not as a fake corporate identity;
-   - Artem as co-founder/partner;
-   - Vadim as developer when relevant;
-   - broad truthful categories and skills;
-   - full availability;
-   - project/milestone pricing or negotiable pricing;
-   - strongest evidence-backed cases.
-7. Use Codex browser automation only when it works reliably. Do not let local-file or browser-tool friction block launch; ordinary profile fields may be completed manually from the prepared source copy.
-8. The team may prepare technical solutions, materials, proposal drafts and reply drafts, but the adult owner personally submits bids, sends platform messages, approves conditions, performs Workspace actions, enters agreements and handles payments.
-9. Enable all relevant Freelancehunt project, message, contract and account email notifications on the operational mailbox.
-10. Confirm that at least one fresh notification reaches the operational Gmail account and belongs to the adult-owned account identity.
-11. Configure the existing Railway/Telegram monitor to detect permitted Freelancehunt mail near real time, normalize the full available task data and send a complete opportunity card.
-12. Generate the strongest tailored truthful proposal and a single next action for the adult owner.
-13. Run a controlled end-to-end test: Freelancehunt email → Gmail detection → Telegram opportunity card → proposal draft → adult-owner submission.
-14. Track profile, category, proposal and response data under `docs/STAGE_1_FREELANCEHUNT_LAUNCH.md`.
-15. Review Draft PR #1; do not merge or deploy production changes until the Stage 0 brain is approved.
-16. Rename the canonical repository to `antonov-digital-freelance-revenue-engine`, change it to private and then confirm Railway linkage.
+## Single next action
+
+The genuine adult owner opens their correct Freelancehunt account in the browser that Codex can control and sends this exact message in the existing Codex chat:
+
+```text
+аккаунт владелицы открыт
+```
+
+## Codex continuation sequence
+
+After that message, Codex must:
+
+1. Confirm that the current browser session is authenticated.
+2. Confirm that the visible account belongs to the genuine adult owner and is not Artem’s deactivated account.
+3. Open and execute `artifacts/private/freelancehunt-profile/RESUME_LIVE_SETUP_PROMPT.md`.
+4. Use the already prepared files instead of rebuilding them:
+   - `PROFILE_PATCH_PLAN.md`
+   - final `about-uk.md`, `about-en.md`, `about-ru.md`, `about-pl.md`
+   - `SPECIALIZATIONS.md`
+   - `SKILLS.md`
+   - nine files under `portfolio/`
+   - `NOTIFICATION_SETTINGS.md`
+   - `OWNER_ACTIONS.md`
+5. Fill and save ordinary reversible fields one section at a time.
+6. Reopen each saved section and verify persistence.
+7. Apply the real adult owner’s current photo only when the owner has supplied and approved it.
+8. Stop for owner action only at login, CAPTCHA, OTP/2FA, phone verification, identity/document verification, payments, legal acceptance or another irreversible step.
+9. Complete public-profile QA and update `PROFILE_SETUP_REPORT.md` with the final public URL, published sections, deferred portfolio assets and remaining owner actions.
+10. Enable the relevant email notifications after the profile is ready.
+
+## Adult-owner responsibilities
+
+The adult owner personally performs:
+
+- login and authentication;
+- phone and identity verification;
+- bids and platform messages;
+- approval of project conditions;
+- Workspace, contract, payment and withdrawal actions.
+
+The prepared AI workflow handles profile copy, categorization, skills, portfolio copy, proposal drafts, reply drafts and internal analysis.
+
+## After live profile publication
+
+Immediately proceed to:
+
+1. confirm a fresh Freelancehunt notification reaches the operational Gmail mailbox;
+2. connect permitted Gmail ingestion with minimum required access;
+3. configure the Railway/Telegram monitor;
+4. generate a complete opportunity card and tailored proposal draft;
+5. run the controlled end-to-end test:
+
+```text
+Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
+```
 
 ## Constraints
 
-- Do not use false age, identity, clients, testimonials, project outcomes, years of experience or fabricated metrics.
-- Do not verify an Artem-controlled profile with the adult owner's documents.
-- Do not create a second freelancer account, decoy profile or staged weak bid.
-- The profile remains the account of one specific adult physical person, not a shared or corporate account.
-- The adult owner controls the login, verification, bids, platform messages, Workspace actions, contracts and payments.
-- Artem may be disclosed truthfully as an Antonov Digital co-founder/partner but does not operate or impersonate the owner.
-- Vadim may be disclosed truthfully as a developer when he participates in delivery.
-- A neutral Antonov Digital logo is not recommended as the verified avatar; use the real adult owner's current photo by default.
-- Tailor every proposal aggressively to the client's requested result, but prove suitability through real capability, plan, speed, demos and evidence—not invented history.
-- Automatic bidding and platform messaging remain prohibited unless Freelancehunt explicitly provides a permitted interface.
-- ChatGPT can search the connected Gmail mailbox on demand; proactive notification requires the Railway/Telegram automation.
+- Do not use or reactivate Artem’s deactivated account.
+- Do not transfer, disguise or falsify account ownership or identity.
+- Do not regenerate completed offline materials unless a live field limit requires adaptation.
+- Do not invent clients, testimonials, results, experience years or metrics.
+- Do not submit bids, send platform messages, buy Plus, accept contracts or make financial changes automatically.
+- Do not let a missing optional local file block non-identity profile fields.
 
 ## Stop condition
 
-Stage 1 launch preparation is complete when:
-
-1. the adult-owned physical-person profile is active, accurately identified and strong;
-2. Antonov Digital and team roles are disclosed transparently;
-3. relevant notifications reach the operational Gmail mailbox;
-4. the Telegram monitor detects and reports a test opportunity;
-5. a tailored proposal draft is produced without invented claims; and
-6. the adult owner can perform the final platform action with minimal editing.
+The live profile step is complete when all safely editable prepared fields are published and verified, the adult owner’s remaining actions are explicit, and the operational notification settings are enabled.
