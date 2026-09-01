@@ -2,98 +2,110 @@
 
 ## Immediate objective
 
-Complete adult-owner verification for the already published Freelancehunt profile, then immediately activate and test the Gmail → Telegram → proposal-draft revenue flow.
+Close the ineligible minor-owned Freelancehunt channel without losing the commercial work already prepared, then activate a lawful revenue path immediately.
 
-Profile setup status:
+## Final platform ruling
 
-- core profile published and QA passed
-- four language versions saved
-- main and additional specializations saved
-- twenty skills saved
-- relevant notifications configured
-- portfolio deferred without blocking launch
-- publication readiness: 96%
+Freelancehunt support confirmed:
 
-Do not regenerate or rewrite the profile unless a real live defect is found.
+- successful identity verification does not override the 18+ rule
+- Artem, born `2011-01-28`, cannot bid, contract, perform projects or receive payment through Freelancehunt before age 18
+- the earliest eligible date is `2029-01-28`
+- no additional sanctions will be applied because no bid, agreement or payment followed verification
+- the profile must be deactivated until age 18
+
+The minor-owned account is not a revenue channel and must not feed Gmail, Telegram or CRM automation.
 
 ## Single next action
 
-The genuine adult account owner personally opens the Freelancehunt verification page and completes one available verification method.
+Deactivate the verified minor-owned Freelancehunt profile now through the platform's security/account settings.
 
-Recommended order:
+Before deactivation:
 
-1. Use `Дія.Підпис` when available and convenient.
-2. Otherwise use BankID or the available document-based method.
-3. Pay only the fee displayed by Freelancehunt in the live verification interface.
+1. Preserve a screenshot of the public profile and the support ruling without exposing identity documents, phone numbers, payment details or recovery information.
+2. Preserve the already prepared local assets:
+   - four language profile descriptions
+   - specialization list
+   - twenty skills
+   - notification plan
+   - nine portfolio cards
+   - proposal and reply-drafting logic
+3. Do not submit bids, send messages, enter Workspace, accept agreements, perform project work or receive payment.
 
-The adult owner personally performs every identity-bound step:
-
-- authentication
-- QR scan or application confirmation
-- CAPTCHA
-- OTP/2FA
-- document transfer/upload
-- live check
-- payment
-- legal confirmation
-
-Do not send passwords, OTP codes, identity documents, banking details or recovery codes to ChatGPT, Codex or repository files.
-
-## Verification acceptance check
-
-After the verification flow finishes:
-
-1. Open the public profile:
-   `https://freelancehunt.com/freelancer/tijgadumg.html`
-2. Confirm the profile shows the verified status/badge.
-3. Confirm the adult owner’s current name and photo remain visible.
-4. Preserve a screenshot or written result in the local profile report.
-5. Report one of:
-   - `VERIFICATION_COMPLETED`
-   - `VERIFICATION_PENDING_REVIEW`
-   - `VERIFICATION_FAILED` plus the exact platform message
-
-## Immediately after verification
-
-Proceed without returning to profile-copy work:
-
-1. Trigger or wait for one fresh Freelancehunt project notification on the operational Gmail mailbox.
-2. Inspect its exact sender, subject, message structure, links and identifiers.
-3. Confirm the existing Gmail connection can read the new adult-account notification.
-4. Configure or update the Railway/Telegram monitor for near-real-time ingestion.
-5. Normalize the opportunity into a Telegram card containing:
-   - title
-   - source link
-   - full available description
-   - language
-   - budget and deadline
-   - service lane
-   - fit and delivery risk
-   - proposed project/milestone price
-   - realistic delivery time
-   - best matching evidence
-   - one tailored proposal
-   - one owner action
-6. Run the controlled end-to-end test:
+After deactivation, record:
 
 ```text
-Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
+MINOR_ACCOUNT_DEACTIVATED_UNTIL_2029-01-28
 ```
 
-## Portfolio policy
+and preserve the confirmation screenshot or platform message.
 
-Do not delay verification or notification automation for portfolio media.
+## Work that must not be repeated
 
-Publish a deferred portfolio card later only when its current link/status, publication permission, evidence and images are ready.
+Do not regenerate or discard the completed commercial assets. They remain reusable for:
 
-## Constraints
+- a separately created genuine adult-owned Freelancehunt profile
+- direct email sales
+- another age-eligible platform
+- Antonov Digital's website and sales materials
 
-- Codex or ChatGPT must not complete identity verification, upload documents, enter OTP codes or make verification payment.
-- Do not submit bids or send platform messages automatically.
-- Do not buy Plus as part of this step.
-- Do not alter identity, date of birth, phone, photo, payment or legal fields automatically.
-- Do not return to `OWNER_SOURCE`, `OFFLINE_PREP` or profile regeneration.
+The commercial assets are approximately 96% prepared; only the current account is unusable.
+
+## Next lawful route after deactivation
+
+### Preferred Freelancehunt route
+
+Use the support-approved structure:
+
+- a genuine adult physical person creates their own separate Freelancehunt account
+- the adult owner uses their own real identity, photo, phone, mailbox and verification
+- Antonov Digital is disclosed as the delivery team
+- Artem is disclosed as co-founder/partner
+- Vadim is disclosed as developer when relevant
+- the adult owner personally performs bids, platform messages, Workspace, agreements, payments and withdrawals
+- the AI system prepares opportunity analysis, proposal drafts, reply drafts and Telegram cards
+
+Do not transfer or repurpose the minor-owned account.
+
+### Parallel revenue route
+
+Direct sales may proceed immediately using the same prepared profile, cases and proposal logic without waiting for Freelancehunt:
+
+```text
+lead/source
+→ approved mailbox
+→ AI qualification
+→ personalized proposal
+→ reply/follow-up
+→ funded project
+```
+
+## Automation boundary
+
+Allowed after a lawful channel exists:
+
+- email ingestion
+- opportunity normalization
+- fit and risk scoring
+- portfolio selection
+- project/milestone price suggestion
+- proposal and reply drafting
+- Telegram/CRM notification
+- metrics and reminders
+
+Not allowed:
+
+- using the minor-owned account
+- automatic bids or platform messages
+- account transfer
+- identity or verification bypass
+- contract or payment actions by AI
 
 ## Stop condition
 
-This action is complete when the platform returns a verified status or a precise pending/failure result that can be acted on. The next system action is Gmail/Telegram revenue-flow activation.
+This action is complete when:
+
+1. the minor-owned profile is deactivated;
+2. confirmation is preserved;
+3. its notifications are excluded from automation; and
+4. the next lawful acquisition channel is selected for activation without regenerating completed commercial assets.
