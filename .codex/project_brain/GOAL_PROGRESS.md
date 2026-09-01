@@ -11,22 +11,43 @@ Create a repeatable system that produces funded Antonov Digital client work with
 Readiness is tracked separately:
 
 - **Reusable commercial-asset readiness: 96%**
-- **New adult-owned profile publication readiness: early live setup**
+- **New adult-owned profile publication readiness: blocked at live identity gate**
 - **Minor-owned Freelancehunt channel readiness: 0% operational**
 
 ## New lawful account
 
-- [x] New adult-owned profile created
+- [x] New target profile created
 - [x] Public profile URL recorded: `https://freelancehunt.com/freelancer/AntonovDigital.html`
-- [x] New adult-owned Gmail mailbox connected to ChatGPT
+- [x] New operational Gmail mailbox connected to ChatGPT
 - [x] Gmail connector access verified
 - [ ] Fresh Freelancehunt email received on the new mailbox
-- [ ] Live adult-owner identity fields inspected and confirmed
+- [ ] Authenticated session confirmed inside the target account
+- [ ] Visible first and last name corrected to the genuine adult owner
+- [ ] Real adult-owner photo, phone and adult date of birth confirmed
 - [ ] Prepared Antonov Digital profile assets transferred
 - [ ] Public profile QA passed
 - [ ] Codex returned `READY_FOR_DIIA_SIGNATURE`
 - [ ] Adult owner completed verification
 - [ ] Verified badge/status confirmed
+
+## Current live blocker — 2026-09-01
+
+Codex opened the target public URL and observed:
+
+- visible title: `Фрилансер Artem Antonov ≡ AntonovDigital`
+- adult-owner identity condition: failed
+- authentication in the target account: not confirmed
+- browser changes performed: none
+- old minor profile used: no
+
+Current status:
+
+- `NEW_ACCOUNT_IDENTITY_MISMATCH`
+- `TARGET_ACCOUNT_AUTHENTICATION_UNCONFIRMED`
+- `NO_LIVE_PROFILE_CHANGES`
+- `ADULT_OWNER_MANUAL_INPUT_REQUIRED`
+
+The missing local file `docs/ADULT_FREELANCEHUNT_RELAUNCH_2026-09-01.md` is not an identity substitute and must not cause profile strategy regeneration. The live adult-owned account is the source of truth for identity.
 
 ## Reusable work that is already complete
 
@@ -47,8 +68,9 @@ Readiness is tracked separately:
 
 ## New account transfer work
 
-- [ ] Confirm authenticated browser is on `AntonovDigital.html`
-- [ ] Confirm real adult-owner name, photo, phone and adult date of birth
+- [ ] Adult owner personally authenticates in `AntonovDigital.html`
+- [ ] Adult owner manually corrects real first and last name
+- [ ] Confirm real adult-owner photo, phone and adult date of birth
 - [ ] Publish four language versions
 - [ ] Save main and additional specializations
 - [ ] Save twenty skills
