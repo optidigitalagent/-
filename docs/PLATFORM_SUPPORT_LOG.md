@@ -72,6 +72,28 @@ No notification mirror or forwarding mailbox is used in the current architecture
 
 This mailbox design is an internal operational decision and does not expand the permissions stated by Freelancehunt support. The adult owner still performs every action inside Freelancehunt.
 
+## 2026-09-01 — Final clarification on brand, team, communication and profile photo
+
+Freelancehunt support confirmed the following operating details:
+
+- The format is permitted only when the account genuinely belongs to the adult owner, who uses their own registration and verification data, manages the profile, approves project terms, enters agreements and receives payment.
+- `Antonov Digital` may be named in the profile description as the team with which the adult owner works.
+- The profile must clearly remain an account of one specific physical person, not a corporate or shared team account.
+- The team composition and roles should be disclosed openly, including Artem Antonov as co-founder/partner and Vadim as developer.
+- When the team will participate in a specific project, the client should be told during discussion of the cooperation terms.
+- Access to the account and every action made in the profile's name remain with the adult owner.
+- The team may prepare technical solutions, materials and communication drafts, but bids, approval of terms, Workspace actions, financial operations and messages sent in the profile's name must be performed by the adult owner.
+- A neutral Antonov Digital logo is not recommended as the avatar of a verified profile.
+- The preferred avatar is a real current photo of the adult owner or, only when accepted by the selected verification method, a stylized image that still depicts that owner.
+
+Support supplied an acceptable disclosure pattern:
+
+> Профіль належить [ім’я власниці]. Працюю разом із командою Antonov Digital. До виконання проєктів можуть залучатися зазначені в профілі спеціалісти команди. Усі домовленості, угоди та фінансові операції на Freelancehunt здійснюються особисто власницею профілю.
+
+### Final route state
+
+`APPROVED_ADULT_PHYSICAL_PERSON_PROFILE_WITH_DISCLOSED_ANTONOV_DIGITAL_TEAM`
+
 ### Evidence
 
 Primary evidence is the support-chat transcript and screenshots retained outside the public repository. No personal mailbox addresses, account identifiers or private screenshots are committed here.
