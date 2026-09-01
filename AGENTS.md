@@ -10,14 +10,15 @@ Before any work, read in this order:
 4. `.codex/project_brain/DECISIONS.md`
 5. `.codex/project_brain/GOAL_PROGRESS.md`
 6. `.codex/project_brain/NEXT_ACTION.md`
-7. Existing `GOAL.md`, root `GOAL_PROGRESS.md` and `docs/LEGACY_AGENT_ARCHITECTURE.md` when work touches the legacy agent.
+7. `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`
+8. Existing `GOAL.md`, root `GOAL_PROGRESS.md` and `docs/LEGACY_AGENT_ARCHITECTURE.md` when work touches the legacy agent.
 
 For adult-owned Freelancehunt profile setup, also use:
 
 - `.agents/skills/freelancehunt-profile-operator/SKILL.md`
 - `docs/FREELANCEHUNT_BROWSER_PROFILE_AUTOMATION.md`
 - `ops/freelancehunt/profile_source.yaml`
-- `.codex/private/freelancehunt_owner.local.yaml`
+- `.codex/private/freelancehunt_owner.local.yaml` when present
 
 ## Primary objective
 
@@ -52,11 +53,32 @@ The current baseline is a job-notification and proposal-draft system, not yet a 
 4. Preserve existing working behavior outside scope.
 5. Validate changes with targeted tests or document checks.
 6. Update `DECISIONS.md`, `GOAL_PROGRESS.md` and `NEXT_ACTION.md` when state changes.
-7. Report: decision, files changed, validation, risks, commercial impact and next action.
+7. Report using the full structure in `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`.
+
+## Reporting requirement
+
+A short status such as `READY`, a changed-file count, or a blocker code is never sufficient by itself.
+
+Every response must state:
+
+- exact objective
+- actual outcome
+- actions performed
+- evidence
+- source-of-truth comparison
+- exact files or browser fields changed
+- unchanged/prohibited actions
+- blockers and continued work
+- readiness impact
+- exactly one next action
+
+Before returning any `*_READY` status, re-read the changed files, search for stale placeholders and contradictory values, and verify that the selected adult account owner is the genuine adult owner—not Artem, a temporary nickname, or a value chosen merely to satisfy a check.
 
 ## Browser profile-operation boundary
 
 Codex may use an interactive Playwright or Chrome DevTools browser to inspect, fill, save and verify ordinary reversible fields on the adult-owned Freelancehunt profile. It must use approved source files and pause for account mismatch, login, CAPTCHA, OTP, 2FA, identity verification, document upload, paid-plan/payment actions and contractual commitments. It must not operate the minor-owned account, submit bids or send client messages during profile setup.
+
+A browser/account blocker applies only to live browser changes. Continue all safe offline preparation, validation and reporting that remains possible.
 
 ## Discovery policy
 
