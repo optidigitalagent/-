@@ -2,7 +2,7 @@
 
 ## Immediate objective
 
-Transfer the already prepared Antonov Digital profile assets to the new genuine adult-owned Freelancehunt account, stop at the exact `Дія.Підпис` readiness gate, and then activate Gmail → Telegram proposal automation.
+Authenticate the new target Freelancehunt account under its genuine adult owner, correct only the live identity-bound fields, and then transfer the already prepared Antonov Digital commercial profile without repeating research.
 
 ## New active route
 
@@ -10,58 +10,78 @@ Public profile:
 
 `https://freelancehunt.com/freelancer/AntonovDigital.html`
 
-The new adult-owned operational Gmail mailbox is connected to ChatGPT and accessible through the Gmail connector. No fresh Freelancehunt email has been observed on it yet.
+The new operational Gmail mailbox is connected to ChatGPT and accessible through the Gmail connector. No fresh Freelancehunt email has been observed on it yet.
 
 The old minor-owned account is not a revenue channel and must remain deactivated and excluded from ingestion.
 
-## Work that must not be repeated
+## Current blocker
 
-Do not regenerate:
+Codex observed the target public title:
 
-- four language descriptions and slogans
-- main and additional specializations
-- twenty skills
-- availability and project/milestone pricing presentation
-- Antonov Digital team disclosure
-- notification plan
-- nine portfolio cards
-- proposal/reply logic
-- opportunity-card structure
+`Фрилансер Artem Antonov ≡ AntonovDigital`
 
-Read and follow:
+Therefore:
 
-`docs/ADULT_FREELANCEHUNT_RELAUNCH_2026-09-01.md`
+- genuine adult-owner identity is not yet visible;
+- authentication inside the target account is not confirmed;
+- no profile field has been changed;
+- live transfer must not begin yet.
+
+The missing local file `docs/ADULT_FREELANCEHUNT_RELAUNCH_2026-09-01.md` is not a blocker. Do not regenerate the completed commercial assets because of that missing file.
 
 ## Single next action
 
-Open the new adult-owned profile in the browser Codex can control and run the transfer workflow below.
+The genuine adult owner personally opens and signs in to the exact account behind:
 
-Codex must first inspect and confirm:
+`https://freelancehunt.com/freelancer/AntonovDigital.html`
 
-1. authenticated session;
-2. visible real adult-owner name;
-3. visible current photo of that owner;
-4. adult-controlled phone/date-of-birth/account recovery state where visible or owner-confirmed;
-5. the profile is `AntonovDigital.html`, not the old minor profile.
+Then the adult owner manually opens `Особисті дані → Мої дані` and checks all identity-bound fields in one pass:
 
-Then transfer and verify, section by section:
+- real first and last name
+- real adult date of birth
+- adult-controlled phone
+- current real owner photo
+- accurate city/country
+- adult-controlled mailbox and recovery methods
 
-- Ukrainian, English, Russian and Polish profile copy
-- Antonov Digital team disclosure
-- Artem as co-founder/partner
-- Vadim as developer when participating
-- `Вільний для роботи`
-- main specializations `AI та машинне навчання`, `Веб-програмування`
-- prepared additional specializations
-- prepared twenty skills
-- project/milestone or negotiable pricing without an invented hourly rate
-- relevant project, private-message, system, browser-push and security notifications
+At minimum, replace the visible `Artem Antonov` name with the adult owner's real first and last name. Do not send those values, passwords, OTP codes, documents, banking data or recovery codes to ChatGPT or repository files.
 
-Portfolio remains deferred unless each card has ready evidence, link/status, permission and images.
+After saving the live personal data, the user sends in the existing Codex chat:
+
+```text
+личные данные нового аккаунта сохранены
+```
+
+## Codex continuation after that phrase
+
+Codex must:
+
+1. Confirm authentication in the target account.
+2. Confirm the live public profile is `AntonovDigital.html`.
+3. Confirm the visible name and current photo belong to the genuine adult owner.
+4. Confirm the account is not Artem's minor-owned profile and is not being transferred between people.
+5. Continue using the already prepared files and profile copy.
+6. Publish and verify, section by section:
+   - Ukrainian, English, Russian and Polish profile copy
+   - transparent Antonov Digital team disclosure
+   - Artem as co-founder/partner
+   - Vadim as developer when participating
+   - status `Вільний для роботи`
+   - main specializations `AI та машинне навчання`, `Веб-програмування`
+   - prepared additional specializations
+   - prepared twenty skills
+   - project/milestone or negotiable pricing without invented hourly rate
+   - relevant project, message, system, browser-push and security notifications
+7. Reopen every saved section and verify persistence.
+8. Complete public desktop/mobile QA.
+9. Keep portfolio deferred unless each card has ready evidence, link/status, permission and images.
+10. Write the new-account report under:
+
+`artifacts/private/freelancehunt-adult-relaunch/PROFILE_SETUP_REPORT.md`
 
 ## Dія.Підпис gate
 
-Codex must return exactly:
+Codex returns:
 
 `READY_FOR_DIIA_SIGNATURE`
 
@@ -70,9 +90,10 @@ only after:
 - adult identity is correct in the live account;
 - core profile fields are saved and persist after reopening;
 - public QA passes;
+- notifications are configured;
 - no old-profile or role contradiction remains.
 
-Codex must not start or complete verification, scan QR, enter OTP, upload documents or make payment.
+Codex must not start verification, scan QR, enter OTP, upload documents or make payment.
 
 After `READY_FOR_DIIA_SIGNATURE`, the adult owner personally completes the verification flow and reports:
 
@@ -86,7 +107,7 @@ Proceed without returning to profile-copy work:
 
 ```text
 fresh Freelancehunt email
-→ operational Gmail mailbox
+→ new operational Gmail mailbox
 → Railway/Telegram monitor
 → complete opportunity card
 → tailored proposal draft
@@ -98,10 +119,11 @@ fresh Freelancehunt email
 - Do not use or reactivate the minor-owned profile.
 - Do not transfer, disguise or falsify account ownership.
 - Do not submit bids or send client messages automatically.
-- Do not alter identity, documents, verification, payments or legal fields automatically.
+- Do not alter documents, verification, payments or legal fields automatically.
 - Do not buy Plus as part of this step.
 - Do not invent clients, testimonials, metrics, results or experience years.
+- Do not regenerate completed commercial materials because an optional local document is absent.
 
 ## Stop condition
 
-This action is complete when the new adult-owned profile reaches `READY_FOR_DIIA_SIGNATURE`, or when Codex returns one precise owner/browser blocker plus all safe work completed despite it.
+This action is complete when the adult owner has saved their truthful identity-bound fields in the new target account and Codex can resume the prepared profile transfer.
