@@ -8,18 +8,20 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 **Stage 1 — Freelancehunt launch preparation**
 
-Profile publication readiness: **80%**.
+Profile publication readiness: **75%**.
 
 Local preparation status:
 
 - `OFFLINE_PREP_COMPLETE`
 - `LIVE_SETUP_READY`
-- `OWNER_SOURCE_READY`
+- `OWNER_SOURCE_FAILED_VALIDATION`
+
+The prior `OWNER_SOURCE_READY` result is invalidated because the selected owner was reported as `Артем Антонов`, while the approved operating model requires a separate genuine adult owner. Removing placeholders and internal contradictions did not establish the correct owner.
 
 ## Completed
 
 - [x] Brand selected: Antonov Digital
-- [x] Public team model defined: adult founder/account owner, Artem as co-founder/partner, Vadim as developer
+- [x] Public team model defined: genuine adult founder/account owner, Artem as co-founder/partner, Vadim as developer
 - [x] Service-neutral discovery policy defined
 - [x] No-minimum-price policy defined
 - [x] Project/milestone pricing preference defined
@@ -47,12 +49,16 @@ Local preparation status:
 - [x] `RESUME_LIVE_SETUP_PROMPT.md` created
 - [x] `PROFILE_SETUP_REPORT.md` updated
 - [x] Publication copy checked for contact details and invented results
-- [x] Codex re-opened the prepared workspace and confirmed all required live-setup files exist
+- [x] Codex re-opened the prepared workspace and confirmed required live-setup files exist
 - [x] `LIVE_SETUP_READY` confirmed
-- [x] Genuine adult owner source corrected across 10 local files
-- [x] Owner-name placeholders removed from all prepared language versions
-- [x] Contradictions identifying Artem as account owner removed
-- [x] `OWNER_SOURCE_READY` confirmed
+- [x] Evidence-based Codex execution reporting standard added
+
+## Failed validation requiring correction
+
+- [ ] Replace the incorrect owner source `Артем Антонов` with the genuine adult owner’s approved public display name
+- [ ] Revalidate every owner-role occurrence using `expected -> observed -> correction`
+- [ ] Confirm zero stale values without deleting correct references to Artem as co-founder/partner
+- [ ] Require a detailed report listing all changed files and evidence before any new `OWNER_SOURCE_READY` status
 
 ## Remaining in the profile launch
 
