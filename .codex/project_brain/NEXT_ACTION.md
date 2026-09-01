@@ -2,45 +2,49 @@
 
 ## Immediate objective
 
-Register the sole adult-owned Freelancehunt account and complete its truthful Antonov Digital profile through a no-terminal Codex Desktop browser workflow.
+Launch the sole adult-owned Freelancehunt account, complete a high-conversion truthful Antonov Digital profile, and prove that new opportunity emails can be turned into immediate Telegram-ready proposal drafts.
 
 ## Exact sequence
 
-1. Obtain the adult owner's exact full legal name and desired public display name.
-2. Keep the minor-owned Freelancehunt account deactivated and unused.
-3. Enable recovery and two-factor authentication on the selected adult-owned operational mailbox.
-4. The adult owner registers the sole active Freelancehunt account using truthful personal data, adult-owned phone and the selected operational mailbox.
-5. Prepare the adult owner's real profile photo on the local computer.
-6. Use the ready-to-open Stage 0 project package or repository folder; no terminal commands are required.
-7. Copy `ops/freelancehunt/OWNER_INPUT_TEMPLATE_RU.txt` to the local ignored file `ops/freelancehunt/OWNER_INPUT.txt`.
-8. Fill only `FULL_LEGAL_NAME`, `PUBLIC_DISPLAY_NAME`, `ADULT_PHONE`, and `PROFILE_PHOTO_PATH`.
-9. Open the project folder in Codex in the ChatGPT desktop app.
-10. The adult owner opens Freelancehunt in the Codex browser and personally completes login, CAPTCHA, OTP and 2FA.
-11. Paste the complete contents of `ops/freelancehunt/CODEX_PROFILE_PROMPT_RU.txt` into the Codex chat.
-12. Let `$freelancehunt-profile-operator` inspect, fill, save and verify all ordinary reversible profile fields autonomously.
-13. The adult owner personally handles phone/identity verification, document upload, payment configuration and legal confirmations.
-14. Preserve `artifacts/private/freelancehunt-profile/PROFILE_SETUP_REPORT.md` and the final screenshots.
-15. When implementation begins, connect the same operational mailbox through minimum-permission Gmail OAuth for permitted Freelancehunt notification ingestion.
-16. Review Draft PR #1; do not merge yet.
-17. Rename the canonical repository to `antonov-digital-freelance-revenue-engine`.
-18. Change repository visibility to private before committing any exact mailbox mapping or sensitive commercial data.
-19. Confirm that Railway still points to the correct repository, branch and service after the rename.
-20. Finish the ChatGPT Project structure described in `docs/CHATGPT_PROJECT_SETUP.md`.
+1. Keep the minor-owned Freelancehunt account deactivated and unused.
+2. The genuine adult owner registers or opens the sole active account on the selected operational Gmail mailbox using truthful identity, phone and age data.
+3. The adult owner personally completes login, CAPTCHA, OTP/2FA, phone/identity verification, document upload and legal/payment confirmations.
+4. Confirm that the visible profile identity belongs to the adult owner.
+5. Complete the profile from `ops/freelancehunt/profile_source.yaml`:
+   - Ukrainian primary copy;
+   - Antonov Digital positioning;
+   - broad truthful categories and skills;
+   - full availability;
+   - project/milestone pricing or negotiable pricing;
+   - real owner photo;
+   - strongest evidence-backed cases.
+6. Use Codex browser automation only when it works reliably. Do not let local file, photo-path or browser-tool friction block launch; ordinary profile fields may be completed manually from the prepared source copy.
+7. Enable all relevant Freelancehunt project, message, contract and account email notifications on the operational mailbox.
+8. Confirm that at least one fresh notification reaches the operational Gmail account and belongs to the adult-owned account identity.
+9. Configure the existing Railway/Telegram monitor to detect permitted Freelancehunt mail near real time, normalize the full available task data and send a complete opportunity card.
+10. Generate the strongest tailored truthful proposal and a single next action for the adult owner.
+11. Run a controlled end-to-end test: Freelancehunt email → Gmail detection → Telegram opportunity card → proposal draft.
+12. Track profile, category, proposal and response data under `docs/STAGE_1_FREELANCEHUNT_LAUNCH.md`.
+13. Review Draft PR #1; do not merge or deploy production changes until the Stage 0 brain is approved.
+14. Rename the canonical repository to `antonov-digital-freelance-revenue-engine`, change it to private and then confirm Railway linkage.
 
 ## Constraints
 
-- Do not use the deactivated under-18 account.
-- Do not create a second freelancer account or alert-mirror identity.
-- Do not use a false birth date, borrowed identity, transferred account or staged weak bid.
-- The adult owner's account is not a shared team login.
-- Artem may be disclosed as co-founder/partner but may not operate or impersonate the adult owner.
-- Vadim may be disclosed as the developer responsible for the main technical implementation.
-- Codex may edit only ordinary reversible profile fields from approved source data.
-- Codex must pause for account mismatch, login, CAPTCHA, OTP, 2FA, phone or identity verification, document upload, payments, paid plans and contractual actions.
-- Automatic bidding, mass messaging and other prohibited automation remain forbidden.
-- Do not merge, deploy or modify production during Stage 0.
-- Do not publish literal mailbox addresses while the repository is public.
+- Do not use false age, identity, clients, testimonials, project outcomes, years of experience or fabricated metrics.
+- Do not create a second freelancer account, decoy profile or staged weak bid.
+- The adult owner controls the account, verification, platform messages, contracts and payments.
+- Artem may be disclosed truthfully as an Antonov Digital co-founder/partner.
+- Vadim may be disclosed truthfully as a developer when he participates in delivery.
+- Tailor every proposal aggressively to the client’s requested result, but prove suitability through real capability, plan, speed, demos and evidence—not invented history.
+- Automatic bidding and platform messaging remain prohibited unless Freelancehunt explicitly provides a permitted interface.
+- ChatGPT can search the connected Gmail mailbox on demand; proactive notification requires the Railway/Telegram automation.
 
 ## Stop condition
 
-Stage 0 is complete when the project brain is approved, repository identity/privacy are correct, the adult-owned Freelancehunt account is registered and truthfully completed, and the same operational mailbox is ready for permitted notification ingestion.
+Stage 1 launch preparation is complete when:
+
+1. the adult-owned profile is active and strong;
+2. relevant notifications reach the operational Gmail mailbox;
+3. the Telegram monitor detects and reports a test opportunity;
+4. a tailored proposal draft is produced without invented claims; and
+5. the adult owner can perform the final platform action with minimal editing.
