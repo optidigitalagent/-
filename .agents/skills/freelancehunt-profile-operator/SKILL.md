@@ -22,7 +22,8 @@ Before opening the browser, read:
 5. `.codex/project_brain/PORTFOLIO_REGISTRY.md`
 6. `docs/FREELANCEHUNT_ACCOUNT_STRATEGY.md`
 7. `docs/FREELANCEHUNT_LIVE_PROFILE_AUDIT_2026-09-01.md`
-8. `ops/freelancehunt/profile_source.yaml`
+8. `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`
+9. `ops/freelancehunt/profile_source.yaml`
 
 Local files such as `OWNER_INPUT.txt`, `.codex/private/freelancehunt_owner.local.yaml`, or `owner-photo.jpg` are optional aids, not launch blockers for ordinary non-identity profile fields.
 
@@ -192,6 +193,47 @@ Use these precise blocker codes:
 - `ACCOUNT_OWNERSHIP_UNCONFIRMED`
 - `AUTH_REQUIRED_IN_CONNECTED_BROWSER`
 - `ADULT_OWNER_ACTION_REQUIRED`
+
+## Mandatory execution report
+
+Never return only a status code, a changed-file count, or a short blocker sentence.
+
+Every response must follow `docs/CODEX_EXECUTION_REPORTING_STANDARD.md` and include:
+
+1. Objective and revenue milestone.
+2. Outcome: `COMPLETED`, `PARTIALLY_COMPLETED`, `BLOCKED`, or `FAILED_VALIDATION`.
+3. Actions actually performed.
+4. Evidence: file paths, URL or `URL_NOT_AVAILABLE`, visible account name, exact sections and screenshots when available.
+5. Source-of-truth comparison using:
+   `expected -> observed -> required correction`.
+6. Exact files and browser fields changed.
+7. Exact fields deliberately left unchanged.
+8. Every blocker, continued work, and the minimum adult-owner action.
+9. Readiness change and commercial impact.
+10. Exactly one next action.
+
+Before returning `OWNER_SOURCE_READY`, `LIVE_SETUP_READY`, or any other `*_READY` status:
+
+- re-read all changed files from disk;
+- search the relevant workspace for stale owner names, placeholders, and contradictory roles;
+- verify that the owner is the genuine adult owner and not Artem Antonov or a temporary nickname;
+- do not mark the source ready merely because contradiction counters equal zero;
+- include the actual expected and observed owner names in the report, without exposing sensitive private data beyond the approved public display name.
+
+For browser work, the report must additionally include:
+
+- connected-browser status;
+- authenticated status;
+- current URL or `URL_NOT_AVAILABLE`;
+- visible public name;
+- owner-name match result;
+- sections saved and persistence verification;
+- specializations and skills selected;
+- languages and pricing presentation;
+- portfolio items published/deferred;
+- notifications enabled;
+- final public profile URL;
+- remaining adult-owner actions.
 
 ## Completion condition
 
