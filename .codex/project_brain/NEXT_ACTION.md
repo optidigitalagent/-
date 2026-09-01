@@ -2,78 +2,60 @@
 
 ## Immediate objective
 
-Finish the Freelancehunt profile in the correct order without using the adult owner's literal name as a local-file blocker:
+Finish only the remaining Freelancehunt profile work, then move directly to verification and Gmail/Telegram proposal automation.
 
-```text
-adult owner corrects live identity
-→ Codex publishes prepared core profile
-→ adult owner completes verification
-→ Gmail/Telegram proposal flow launches
-```
+Already saved and verified:
 
-Preparation already complete:
+- four language versions and slogans
+- old project-specific resume removed
+- `Вільний для роботи`
+- main specializations: `AI та машинне навчання`, `Веб-програмування`
+- no invented hourly rate
+- core Antonov Digital positioning
 
-- `OFFLINE_PREP_COMPLETE`
-- `LIVE_SETUP_READY`
-- profile descriptions prepared in four languages
-- specializations and skills prepared
-- nine portfolio cards prepared
-- notification settings prepared
-
-Do not regenerate those materials.
+Do not recreate or overwrite these sections unless live verification shows they did not persist.
 
 ## Single next action
 
-The genuine adult owner personally opens the live Freelancehunt account and manually sets the identity-bound fields to their real values:
+Stop troubleshooting the Chrome extension. Open the same Codex workspace and chat in the ChatGPT desktop app, then use the built-in browser (`@Browser`) to open Freelancehunt.
 
-- real first and last name
-- current real photo
-- adult-owned phone
-- real date of birth
-- Kyiv, Ukraine when accurate
-- account recovery under the adult owner's control
+The built-in browser has its own session. The adult owner personally signs in there and completes any CAPTCHA, email/SMS OTP or 2FA.
 
-Do not pay for or begin verification while the live profile still shows another person's name or photo.
-
-The adult owner's literal name does not need to be written in local project files or chat. Prepared profile text must use neutral first-person ownership wording.
-
-After the live account shows the genuine adult owner, keep that account open in the browser Codex can control and send:
+After login, send:
 
 ```text
-личные данные владелицы установлены, продолжай оформление профиля
+@Browser
+
+The adult-owned Freelancehunt account is authenticated in this built-in browser.
+Continue only the remaining profile work from the last verified state.
 ```
 
 ## Codex continuation sequence
 
-Codex must then:
+Codex must:
 
-1. Confirm the session is authenticated and the visible name/photo belong to the adult owner.
-2. Read `docs/FREELANCEHUNT_IDENTITY_PROFILE_VERIFICATION_SEQUENCE.md`.
-3. Execute `artifacts/private/freelancehunt-profile/RESUME_LIVE_SETUP_PROMPT.md` using the already prepared files.
-4. Replace any literal owner-name dependency in public copy with identity-neutral first-person wording.
-5. Publish the core profile before waiting for every portfolio asset:
-   - Ukrainian description
-   - available English, Russian and Polish versions
-   - transparent Antonov Digital team disclosure
-   - Artem Antonov as co-founder/partner
-   - Vadim as developer when relevant
-   - main and additional specializations
-   - skills
-   - full availability
-   - project/milestone or negotiable pricing presentation
-6. Save one section at a time and reopen it to verify persistence.
-7. Enable relevant project, message, contract and account email notifications.
-8. Publish only portfolio cards with ready evidence; defer affected cards without blocking the core profile.
-9. Complete public-profile QA and update `PROFILE_SETUP_REPORT.md`.
-10. Stop only for CAPTCHA, OTP/2FA, phone verification, identity/document verification, payment, legal acceptance or another irreversible action.
+1. Confirm the adult-owned account is authenticated in the built-in browser.
+2. Reopen and verify persistence of the already completed core fields without rewriting them.
+3. Add available additional specializations from `artifacts/private/freelancehunt-profile/SPECIALIZATIONS.md`.
+4. Add up to 20 available skills from `artifacts/private/freelancehunt-profile/SKILLS.md`.
+5. Enable relevant email notifications using `artifacts/private/freelancehunt-profile/NOTIFICATION_SETTINGS.md`:
+   - new relevant projects
+   - private messages
+   - project and condition changes
+   - Workspace/contract events
+   - account and security events
+6. Complete final public-profile QA.
+7. Keep all nine portfolio cards deferred unless their required images, links, permission and status evidence are ready.
+8. Update `PROFILE_SETUP_REPORT.md` with exact persisted fields, live categories, live skills, enabled notifications, final profile URL and remaining adult-owner actions.
+9. Stop only for CAPTCHA, OTP/2FA, phone or identity verification, document upload, payment, legal acceptance or contract action.
 
 ## Verification step
 
-After Codex completes and verifies the ordinary profile fields, the adult owner personally starts the available Freelancehunt verification method and pays the displayed fee when required.
+After the remaining reversible profile work is complete, the adult owner personally starts the available Freelancehunt verification method and pays the displayed fee when required.
 
-Codex must not upload documents, complete identity verification, enter OTP codes or make payment.
+Codex must not upload documents, enter OTP codes, complete identity verification or make payment.
 
-## After profile and verification
+## After verification
 
 Proceed immediately to:
 
@@ -81,7 +63,7 @@ Proceed immediately to:
 2. connect permitted Gmail ingestion with minimum required access;
 3. configure the Railway/Telegram monitor;
 4. generate a complete opportunity card and tailored proposal draft;
-5. run the controlled end-to-end test:
+5. run:
 
 ```text
 Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
@@ -89,20 +71,12 @@ Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submissi
 
 ## Constraints
 
-- Do not use or reactivate Artem's deactivated account.
-- Do not verify an Artem-controlled account using another person's documents.
-- Do not transfer, disguise or falsify account ownership.
-- Do not require the adult owner's literal name in local files.
-- Do not regenerate completed materials unless a live field limit requires adaptation.
-- Do not invent clients, testimonials, results, experience years or metrics.
-- Do not submit bids, send platform messages, buy Plus, accept contracts or make financial changes automatically.
-- Do not let missing optional portfolio media block publication of the core profile.
+- Do not return to OWNER_SOURCE or OFFLINE_PREP.
+- Do not regenerate completed profile copy.
+- Do not alter identity, date of birth, phone, documents, verification, payments or legal fields.
+- Do not submit bids, send client messages, buy Plus or accept project conditions automatically.
+- Do not let deferred portfolio assets block profile completion.
 
 ## Stop condition
 
-The live profile step is complete when:
-
-1. the adult owner's real identity is visible in the account;
-2. all safely editable prepared core fields are published and verified;
-3. relevant email notifications are enabled;
-4. deferred portfolio assets and remaining adult-owner actions are listed clearly.
+The profile step is complete when additional specializations, skills and notifications are saved, the public profile passes QA, the report is updated and only adult-owner verification remains.
