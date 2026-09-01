@@ -51,10 +51,6 @@ Support-required state:
 
 `BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
 
-User-confirmed current state:
-
-`DEACTIVATED_UNTIL_18`
-
 Operational consequence:
 
 - no profile work, verification, alerts, browsing, bidding, messaging, paid plan or automation
@@ -64,11 +60,9 @@ Operational consequence:
 
 ### Current mailbox decision
 
-The sole active adult-owned Freelancehunt account will use one adult-owned operational Gmail mailbox for registration, security notices, project notifications and client-thread notifications.
+Any active Freelancehunt account must use a mailbox controlled by its genuine adult physical-person owner.
 
-The same mailbox may later be connected through minimum-permission Gmail OAuth for permitted notification ingestion by the internal revenue agent.
-
-No notification mirror or forwarding mailbox is used in the current architecture.
+The same adult-owned mailbox may later be connected through minimum-permission Gmail OAuth for permitted notification ingestion by the internal revenue agent.
 
 This mailbox design is an internal operational decision and does not expand the permissions stated by Freelancehunt support. The adult owner still performs every action inside Freelancehunt.
 
@@ -84,16 +78,51 @@ Freelancehunt support confirmed the following operating details:
 - Access to the account and every action made in the profile's name remain with the adult owner.
 - The team may prepare technical solutions, materials and communication drafts, but bids, approval of terms, Workspace actions, financial operations and messages sent in the profile's name must be performed by the adult owner.
 - A neutral Antonov Digital logo is not recommended as the avatar of a verified profile.
-- The preferred avatar is a real current photo of the adult owner or, only when accepted by the selected verification method, a stylized image that still depicts that owner.
+- The preferred avatar is a real current photo of the adult owner or, only when accepted by the selected verification method, a stylized image that still depicts the owner.
 
 Support supplied an acceptable disclosure pattern:
 
 > Профіль належить [ім’я власниці]. Працюю разом із командою Antonov Digital. До виконання проєктів можуть залучатися зазначені в профілі спеціалісти команди. Усі домовленості, угоди та фінансові операції на Freelancehunt здійснюються особисто власницею профілю.
 
-### Final route state
+Final adult route state:
 
 `APPROVED_ADULT_PHYSICAL_PERSON_PROFILE_WITH_DISCLOSED_ANTONOV_DIGITAL_TEAM`
 
+## 2026-09-01 — Successful minor identity verification did not grant work access
+
+### Event
+
+Artem personally completed the platform's verification flow using his own identity data. His date of birth is `2011-01-28`.
+
+No bids, agreements, project work or payments were performed after verification.
+
+### Final support ruling
+
+Freelancehunt support stated in writing that successful verification confirms identity and submitted data only. It does not override the platform's age restriction.
+
+Support confirmed:
+
+- Artem may not use Freelancehunt for work before age 18.
+- He may not submit bids, enter agreements, perform projects or receive payment through the platform.
+- He becomes age-eligible on `2029-01-28`.
+- No additional sanctions will be applied because he did not bid, contract or receive payment after verification.
+- The profile must be deactivated until he reaches age 18.
+- After `2029-01-28`, he may contact support to restore access.
+
+### Final minor-account state
+
+`VERIFIED_IDENTITY_BUT_DEACTIVATION_REQUIRED_UNTIL_2029-01-28`
+
+### Operational consequences
+
+- Stop all use of the minor-owned profile immediately.
+- Do not browse through the authenticated account, receive alerts through it, submit bids, message clients, enter Workspace, accept agreements, perform projects or receive payment.
+- Do not connect its notifications to the revenue agent.
+- Preserve the prepared profile copy, specializations, skills, notification plan and portfolio cards as reusable assets only.
+- Revenue acquisition must continue through either:
+  1. a separately created and genuinely adult-owned Freelancehunt profile under the previously approved support model; or
+  2. direct sales and other age-eligible channels.
+
 ### Evidence
 
-Primary evidence is the support-chat transcript and screenshots retained outside the public repository. No personal mailbox addresses, account identifiers or private screenshots are committed here.
+Primary evidence is the support-chat transcript retained outside the public repository. No identity documents, private screenshots, mailbox addresses or account identifiers are committed here.
