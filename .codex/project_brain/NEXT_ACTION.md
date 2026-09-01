@@ -2,81 +2,98 @@
 
 ## Immediate objective
 
-Finish only the remaining Freelancehunt profile work, then move directly to verification and Gmail/Telegram proposal automation.
+Complete adult-owner verification for the already published Freelancehunt profile, then immediately activate and test the Gmail → Telegram → proposal-draft revenue flow.
 
-Already saved and verified:
+Profile setup status:
 
-- four language versions and slogans
-- old project-specific resume removed
-- `Вільний для роботи`
-- main specializations: `AI та машинне навчання`, `Веб-програмування`
-- no invented hourly rate
-- core Antonov Digital positioning
+- core profile published and QA passed
+- four language versions saved
+- main and additional specializations saved
+- twenty skills saved
+- relevant notifications configured
+- portfolio deferred without blocking launch
+- publication readiness: 96%
 
-Do not recreate or overwrite these sections unless live verification shows they did not persist.
+Do not regenerate or rewrite the profile unless a real live defect is found.
 
 ## Single next action
 
-Stop troubleshooting the Chrome extension. Open the same Codex workspace and chat in the ChatGPT desktop app, then use the built-in browser (`@Browser`) to open Freelancehunt.
+The genuine adult account owner personally opens the Freelancehunt verification page and completes one available verification method.
 
-The built-in browser has its own session. The adult owner personally signs in there and completes any CAPTCHA, email/SMS OTP or 2FA.
+Recommended order:
 
-After login, send:
+1. Use `Дія.Підпис` when available and convenient.
+2. Otherwise use BankID or the available document-based method.
+3. Pay only the fee displayed by Freelancehunt in the live verification interface.
 
-```text
-@Browser
+The adult owner personally performs every identity-bound step:
 
-The adult-owned Freelancehunt account is authenticated in this built-in browser.
-Continue only the remaining profile work from the last verified state.
-```
+- authentication
+- QR scan or application confirmation
+- CAPTCHA
+- OTP/2FA
+- document transfer/upload
+- live check
+- payment
+- legal confirmation
 
-## Codex continuation sequence
+Do not send passwords, OTP codes, identity documents, banking details or recovery codes to ChatGPT, Codex or repository files.
 
-Codex must:
+## Verification acceptance check
 
-1. Confirm the adult-owned account is authenticated in the built-in browser.
-2. Reopen and verify persistence of the already completed core fields without rewriting them.
-3. Add available additional specializations from `artifacts/private/freelancehunt-profile/SPECIALIZATIONS.md`.
-4. Add up to 20 available skills from `artifacts/private/freelancehunt-profile/SKILLS.md`.
-5. Enable relevant email notifications using `artifacts/private/freelancehunt-profile/NOTIFICATION_SETTINGS.md`:
-   - new relevant projects
-   - private messages
-   - project and condition changes
-   - Workspace/contract events
-   - account and security events
-6. Complete final public-profile QA.
-7. Keep all nine portfolio cards deferred unless their required images, links, permission and status evidence are ready.
-8. Update `PROFILE_SETUP_REPORT.md` with exact persisted fields, live categories, live skills, enabled notifications, final profile URL and remaining adult-owner actions.
-9. Stop only for CAPTCHA, OTP/2FA, phone or identity verification, document upload, payment, legal acceptance or contract action.
+After the verification flow finishes:
 
-## Verification step
+1. Open the public profile:
+   `https://freelancehunt.com/freelancer/tijgadumg.html`
+2. Confirm the profile shows the verified status/badge.
+3. Confirm the adult owner’s current name and photo remain visible.
+4. Preserve a screenshot or written result in the local profile report.
+5. Report one of:
+   - `VERIFICATION_COMPLETED`
+   - `VERIFICATION_PENDING_REVIEW`
+   - `VERIFICATION_FAILED` plus the exact platform message
 
-After the remaining reversible profile work is complete, the adult owner personally starts the available Freelancehunt verification method and pays the displayed fee when required.
+## Immediately after verification
 
-Codex must not upload documents, enter OTP codes, complete identity verification or make payment.
+Proceed without returning to profile-copy work:
 
-## After verification
-
-Proceed immediately to:
-
-1. confirm a fresh Freelancehunt notification reaches the operational Gmail mailbox;
-2. connect permitted Gmail ingestion with minimum required access;
-3. configure the Railway/Telegram monitor;
-4. generate a complete opportunity card and tailored proposal draft;
-5. run:
+1. Trigger or wait for one fresh Freelancehunt project notification on the operational Gmail mailbox.
+2. Inspect its exact sender, subject, message structure, links and identifiers.
+3. Confirm the existing Gmail connection can read the new adult-account notification.
+4. Configure or update the Railway/Telegram monitor for near-real-time ingestion.
+5. Normalize the opportunity into a Telegram card containing:
+   - title
+   - source link
+   - full available description
+   - language
+   - budget and deadline
+   - service lane
+   - fit and delivery risk
+   - proposed project/milestone price
+   - realistic delivery time
+   - best matching evidence
+   - one tailored proposal
+   - one owner action
+6. Run the controlled end-to-end test:
 
 ```text
 Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
 ```
 
+## Portfolio policy
+
+Do not delay verification or notification automation for portfolio media.
+
+Publish a deferred portfolio card later only when its current link/status, publication permission, evidence and images are ready.
+
 ## Constraints
 
-- Do not return to OWNER_SOURCE or OFFLINE_PREP.
-- Do not regenerate completed profile copy.
-- Do not alter identity, date of birth, phone, documents, verification, payments or legal fields.
-- Do not submit bids, send client messages, buy Plus or accept project conditions automatically.
-- Do not let deferred portfolio assets block profile completion.
+- Codex or ChatGPT must not complete identity verification, upload documents, enter OTP codes or make verification payment.
+- Do not submit bids or send platform messages automatically.
+- Do not buy Plus as part of this step.
+- Do not alter identity, date of birth, phone, photo, payment or legal fields automatically.
+- Do not return to `OWNER_SOURCE`, `OFFLINE_PREP` or profile regeneration.
 
 ## Stop condition
 
-The profile step is complete when additional specializations, skills and notifications are saved, the public profile passes QA, the report is updated and only adult-owner verification remains.
+This action is complete when the platform returns a verified status or a precise pending/failure result that can be acted on. The next system action is Gmail/Telegram revenue-flow activation.
