@@ -10,6 +10,8 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 Profile publication readiness reported by Codex: **75%**.
 
+Local preparation status: `LIVE_SETUP_READY`.
+
 ## Completed
 
 - [x] Brand selected: Antonov Digital
@@ -41,15 +43,19 @@ Profile publication readiness reported by Codex: **75%**.
 - [x] `RESUME_LIVE_SETUP_PROMPT.md` created
 - [x] `PROFILE_SETUP_REPORT.md` updated
 - [x] Publication copy checked for contact details and invented results
+- [x] Codex re-opened the prepared workspace and confirmed all required live-setup files exist
+- [x] `LIVE_SETUP_READY` confirmed
 
-## Remaining in the profile launch
+## Confirmed remaining gaps
 
-- [ ] Genuine adult owner opens their correct Freelancehunt account in the browser connected to Codex
-- [ ] Adult owner personally completes login, CAPTCHA, OTP/2FA, phone and identity verification when required
-- [ ] Confirm that visible profile identity and current photo belong to the adult owner
-- [ ] Run `RESUME_LIVE_SETUP_PROMPT.md` in the authenticated Codex browser session
+- [ ] Replace `[ІМ’Я ВЛАСНИЦІ]` in all four language versions with the genuine adult owner’s public name
+- [ ] Remove the local contradiction where `OWNER_INPUT.txt` still identifies Artem as owner
+- [ ] Open and authenticate the genuine adult owner’s correct Freelancehunt account in the browser connected to Codex
+- [ ] Confirm visible name and current photo belong to the genuine adult owner
+- [ ] Run `RESUME_LIVE_SETUP_PROMPT.md` in that authenticated browser session
 - [ ] Apply and verify the prepared descriptions, specializations, skills, availability and project-pricing presentation
-- [ ] Publish only portfolio cases whose required images, links and evidence are available
+- [ ] Publish the core profile even if some portfolio media is not ready; defer only the affected portfolio cards
+- [ ] Publish portfolio cases only when each card’s required link, status, permission and image evidence is ready
 - [ ] Complete final public-profile QA and preserve screenshots/report
 - [ ] Enable all relevant Freelancehunt project, message, contract and account email notifications
 
