@@ -8,82 +8,71 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 **Stage 1 — Freelancehunt launch preparation**
 
-Profile publication readiness: **75%**.
+Profile publication readiness: **85%**.
 
-Local preparation status:
+Current live status:
 
-- `OFFLINE_PREP_COMPLETE`
-- `LIVE_SETUP_READY`
-- `OWNER_SOURCE_FAILED_VALIDATION`
-
-The prior `OWNER_SOURCE_READY` result is invalidated because the selected owner was reported as `Артем Антонов`, while the approved operating model requires a separate genuine adult owner. Removing placeholders and internal contradictions did not establish the correct owner.
+- `ADULT_IDENTITY_VISIBLE`
+- `CORE_PROFILE_PUBLISHED`
+- `FOUR_LANGUAGE_COPY_SAVED`
+- `PRIMARY_SPECIALIZATIONS_SAVED`
+- `BROWSER_EXTENSION_BLOCKED`
+- `BUILT_IN_BROWSER_FALLBACK_REQUIRED`
 
 ## Completed
 
-- [x] Brand selected: Antonov Digital
-- [x] Public team model defined: genuine adult founder/account owner, Artem as co-founder/partner, Vadim as developer
-- [x] Service-neutral discovery policy defined
-- [x] No-minimum-price policy defined
-- [x] Project/milestone pricing preference defined
-- [x] Ukrainian selected as primary profile language
-- [x] Ukrainian, Russian and English communication support defined; Polish limited to AI-assisted written communication
-- [x] Full public availability defined
-- [x] Portfolio publication permission confirmed for factual cases, links, screenshots, technologies and role descriptions
-- [x] Duplicate/fake Freelancehunt account strategy rejected
-- [x] Existing repository selected as canonical base
-- [x] Branch `setup/project-brain-v1` created
-- [x] Project-brain scaffold committed without production code changes
-- [x] Legacy Gmail/Telegram agent architecture preserved
-- [x] Draft PR #1 opened against `main`
-- [x] Freelancehunt support consulted about the under-18 account and adult-owner team model
-- [x] Minor-owned account recorded as deactivated and excluded from use
-- [x] Adult physical-person profile with disclosed Antonov Digital team approved by support
-- [x] One adult-owned operational Gmail mailbox selected for the active account and notification stream
-- [x] Repository-local Codex profile operator and live setup workflow prepared
-- [x] `OFFLINE_PREP` completed by Codex
-- [x] `PROFILE_PATCH_PLAN.md` created
-- [x] Final Ukrainian, English, Russian and Polish profile descriptions created
-- [x] `SPECIALIZATIONS.md` and `SKILLS.md` created
-- [x] Nine portfolio cards created and structurally validated
-- [x] Notification settings and minimum adult-owner actions documented
-- [x] `RESUME_LIVE_SETUP_PROMPT.md` created
-- [x] `PROFILE_SETUP_REPORT.md` updated
-- [x] Publication copy checked for contact details and invented results
-- [x] Codex re-opened the prepared workspace and confirmed required live-setup files exist
-- [x] `LIVE_SETUP_READY` confirmed
-- [x] Evidence-based Codex execution reporting standard added
+- [x] Adult owner’s real public identity is visible in the live account
+- [x] Old project-specific resume removed
+- [x] Four language versions and slogans saved
+- [x] Status saved as `Вільний для роботи`
+- [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
+- [x] No invented hourly rate published
+- [x] Core Antonov Digital team positioning published
+- [x] Portfolio cards prepared offline and deferred where evidence/assets are incomplete
+- [x] Brand, team roles, pricing model, languages, services, skills and portfolio policy defined
+- [x] Freelancehunt support approval for an adult physical-person account with disclosed Antonov Digital team recorded
+- [x] Gmail/Telegram legacy agent architecture preserved
+- [x] Draft PR #1 remains isolated from production
 
-## Failed validation requiring correction
+## Remaining in the live profile
 
-- [ ] Replace the incorrect owner source `Артем Антонов` with the genuine adult owner’s approved public display name
-- [ ] Revalidate every owner-role occurrence using `expected -> observed -> correction`
-- [ ] Confirm zero stale values without deleting correct references to Artem as co-founder/partner
-- [ ] Require a detailed report listing all changed files and evidence before any new `OWNER_SOURCE_READY` status
+- [ ] Open the adult-owned account in the ChatGPT desktop built-in browser
+- [ ] Confirm the previously saved core fields persisted
+- [ ] Add available additional specializations from `SPECIALIZATIONS.md`
+- [ ] Add up to 20 live platform skills from `SKILLS.md`
+- [ ] Enable relevant project, message, contract, account and security email notifications
+- [ ] Complete final public-profile QA
+- [ ] Update `PROFILE_SETUP_REPORT.md` with exact persisted fields and final URL
+- [ ] Adult owner personally completes profile verification and any displayed verification payment
 
-## Remaining in the profile launch
+## Deferred portfolio
 
-- [ ] Genuine adult owner opens and authenticates their correct Freelancehunt account in the browser connected to Codex
-- [ ] Confirm visible name and current photo belong to the genuine adult owner
-- [ ] Run `RESUME_LIVE_SETUP_PROMPT.md` in that authenticated browser session
-- [ ] Apply and verify the prepared descriptions, specializations, skills, availability and project-pricing presentation
-- [ ] Publish the core profile even if some portfolio media is not ready; defer only affected portfolio cards
-- [ ] Publish portfolio cases only when each card’s required link, status, permission and image evidence is ready
-- [ ] Complete final public-profile QA and preserve screenshots/report
-- [ ] Enable all relevant Freelancehunt project, message, contract and account email notifications
-- [ ] Adult owner personally completes phone/identity verification, OTP/2FA, documents and legal/payment confirmations when required
+The following prepared cards remain deferred until their required links, current status, permissions and images are verified:
+
+- Bella Dent
+- Dental Supplier AI Agent
+- Gmail/Telegram Job Agent
+- Status Dent
+- Amidental
+- Art Studio 184
+- Audiobook Cleaner
+- Mentium
+- NFC Review Cards
+
+Deferred portfolio does not block profile launch or notification automation.
 
 ## Remaining in Stage 1 automation
 
-- [ ] Confirm that a fresh adult-account Freelancehunt notification reaches the operational Gmail mailbox
+- [ ] Confirm a fresh adult-account Freelancehunt notification reaches the operational Gmail mailbox
 - [ ] Connect the operational mailbox through minimum-permission Gmail OAuth for permitted notification ingestion
-- [ ] Configure the Railway/Telegram monitor for near-real-time detection
+- [ ] Configure Railway/Telegram near-real-time detection
 - [ ] Produce a complete Telegram opportunity card and tailored proposal draft
 - [ ] Run the end-to-end test: Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
 - [ ] Track proposal, response, win-rate and funded-revenue metrics
 
 ## Repository administration still pending
 
-- [ ] Review and approve Draft PR #1; do not merge or deploy prematurely
+- [ ] Review and approve Draft PR #1
 - [ ] Rename repository to `antonov-digital-freelance-revenue-engine`
 - [ ] Change repository visibility to private
 - [ ] Confirm Railway/GitHub deployment linkage after rename
@@ -93,7 +82,7 @@ The prior `OWNER_SOURCE_READY` result is invalidated because the selected owner 
 
 Stage 1 is operational when:
 
-1. the adult-owned profile is accurately identified, published and conversion-ready;
+1. the adult-owned profile is published, verified and conversion-ready;
 2. relevant notification emails reach the operational mailbox;
 3. Telegram receives a complete opportunity card quickly;
 4. a tailored proposal draft is generated without invented claims; and
