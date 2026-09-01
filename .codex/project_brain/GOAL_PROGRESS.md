@@ -6,9 +6,9 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 1 — Freelancehunt launch preparation**
+**Stage 1 — Freelancehunt verification and revenue-channel activation**
 
-Profile publication readiness: **85%**.
+Profile publication readiness: **96%**.
 
 Current live status:
 
@@ -16,38 +16,90 @@ Current live status:
 - `CORE_PROFILE_PUBLISHED`
 - `FOUR_LANGUAGE_COPY_SAVED`
 - `PRIMARY_SPECIALIZATIONS_SAVED`
-- `BROWSER_EXTENSION_BLOCKED`
-- `BUILT_IN_BROWSER_FALLBACK_REQUIRED`
+- `ADDITIONAL_SPECIALIZATIONS_SAVED`
+- `TWENTY_SKILLS_SAVED`
+- `NOTIFICATIONS_CONFIGURED`
+- `PUBLIC_QA_PASSED`
+- `PORTFOLIO_DEFERRED`
+- `ADULT_VERIFICATION_REQUIRED`
 
-## Completed
+## Completed profile work
 
-- [x] Adult owner’s real public identity is visible in the live account
+- [x] Adult owner’s public identity is visible in the live account
+- [x] Public profile URL confirmed: `https://freelancehunt.com/freelancer/tijgadumg.html`
 - [x] Old project-specific resume removed
-- [x] Four language versions and slogans saved
+- [x] Ukrainian, English, Russian and Polish descriptions and slogans saved
 - [x] Status saved as `Вільний для роботи`
 - [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
+- [x] Twenty-six additional specializations saved
+- [x] Twenty live platform skill tags saved and publicly displayed
 - [x] No invented hourly rate published
-- [x] Core Antonov Digital team positioning published
-- [x] Portfolio cards prepared offline and deferred where evidence/assets are incomplete
-- [x] Brand, team roles, pricing model, languages, services, skills and portfolio policy defined
-- [x] Freelancehunt support approval for an adult physical-person account with disclosed Antonov Digital team recorded
-- [x] Gmail/Telegram legacy agent architecture preserved
-- [x] Draft PR #1 remains isolated from production
+- [x] Antonov Digital team positioning and roles published consistently
+- [x] Daily project digest enabled
+- [x] Private-message email notifications enabled
+- [x] System information emails enabled
+- [x] Browser push notifications enabled
+- [x] Sound notifications for personal events enabled
+- [x] Promotional offers, news digest and blog digest disabled
+- [x] Desktop and mobile public-profile QA passed
+- [x] Public copy checked for external contacts and unsupported results
+- [x] `PROFILE_SETUP_REPORT.md` updated locally by Codex
 
-## Remaining in the live profile
+## Saved additional specializations
 
-- [ ] Open the adult-owned account in the ChatGPT desktop built-in browser
-- [ ] Confirm the previously saved core fields persisted
-- [ ] Add available additional specializations from `SPECIALIZATIONS.md`
-- [ ] Add up to 20 live platform skills from `SKILLS.md`
-- [ ] Enable relevant project, message, contract, account and security email notifications
-- [ ] Complete final public-profile QA
-- [ ] Update `PROFILE_SETUP_REPORT.md` with exact persisted fields and final URL
-- [ ] Adult owner personally completes profile verification and any displayed verification payment
+- HTML та CSS верстання
+- Javascript та Typescript
+- Python
+- Бази даних та SQL
+- Парсинг даних
+- Розробка ботів
+- AI у дизайні
+- Інтернет-магазини та електронна комерція
+- Автоматизація управління підприємством
+- Збір інформації
+- Консультування з AI
+- Обробка даних
+- Робота з клієнтами
+- Створення сайту під ключ
+- Супровід сайтів
+- AI синтез голосу
+- AI створення відео
+- Аудіо та відео монтаж
+- Обробка фото
+- SEO-аудит сайтів
+- Маркетингові дослідження
+- Пошукова оптимізація (SEO)
+- Продажі та генерація лідів
+- Налаштування ПЗ та серверів
+- Управління проєктами
+- AI обробка текстів
+
+## Saved live skills
+
+- cloudflare
+- API Integration
+- seo optimization
+- Cloudinary
+- Gmail API
+- railway
+- OpenAI API
+- ai agents
+- javascript
+- REST API
+- CRM
+- python
+- TypeScript
+- Google Sheets
+- GitHub
+- Web Development
+- PostgreSQL
+- Workflow Automation
+- telegram bot api
+- HTML CSS
 
 ## Deferred portfolio
 
-The following prepared cards remain deferred until their required links, current status, permissions and images are verified:
+All nine prepared cards remain deferred until each has the required current link/status, publication permission, evidence and images:
 
 - Bella Dent
 - Dental Supplier AI Agent
@@ -59,12 +111,19 @@ The following prepared cards remain deferred until their required links, current
 - Mentium
 - NFC Review Cards
 
-Deferred portfolio does not block profile launch or notification automation.
+Deferred portfolio does not block verification, notifications or proposal automation.
+
+## Immediate remaining owner action
+
+- [ ] Genuine adult owner personally completes the available Freelancehunt profile-verification flow
+- [ ] Owner handles any CAPTCHA, OTP/2FA, document transfer/upload, live check and displayed verification payment
+- [ ] Confirm verified badge/status appears on the public profile
 
 ## Remaining in Stage 1 automation
 
 - [ ] Confirm a fresh adult-account Freelancehunt notification reaches the operational Gmail mailbox
-- [ ] Connect the operational mailbox through minimum-permission Gmail OAuth for permitted notification ingestion
+- [ ] Inspect exact sender, subject, labels and payload of fresh project/message emails
+- [ ] Connect or confirm minimum-permission Gmail ingestion for the operational mailbox
 - [ ] Configure Railway/Telegram near-real-time detection
 - [ ] Produce a complete Telegram opportunity card and tailored proposal draft
 - [ ] Run the end-to-end test: Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
