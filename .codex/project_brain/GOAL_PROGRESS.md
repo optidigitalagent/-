@@ -6,46 +6,62 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 1 — Freelancehunt verification and revenue-channel activation**
+**Stage 1 — Channel pivot after final Freelancehunt age ruling**
 
-Profile publication readiness: **96%**.
+Two readiness values must be tracked separately:
 
-Current live status:
+- **Reusable commercial-asset readiness: 96%**
+- **Current minor-owned Freelancehunt channel readiness: 0% operational**
 
-- `ADULT_IDENTITY_VISIBLE`
-- `CORE_PROFILE_PUBLISHED`
-- `FOUR_LANGUAGE_COPY_SAVED`
-- `PRIMARY_SPECIALIZATIONS_SAVED`
-- `ADDITIONAL_SPECIALIZATIONS_SAVED`
-- `TWENTY_SKILLS_SAVED`
-- `NOTIFICATIONS_CONFIGURED`
-- `PUBLIC_QA_PASSED`
-- `PORTFOLIO_DEFERRED`
-- `ADULT_VERIFICATION_REQUIRED`
+The prepared profile and sales materials remain valuable, but the verified minor-owned profile cannot be used until support restores it after `2029-01-28`.
 
-## Completed profile work
+## Final live status
 
-- [x] Adult owner’s public identity is visible in the live account
-- [x] Public profile URL confirmed: `https://freelancehunt.com/freelancer/tijgadumg.html`
-- [x] Old project-specific resume removed
-- [x] Ukrainian, English, Russian and Polish descriptions and slogans saved
-- [x] Status saved as `Вільний для роботи`
-- [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
-- [x] Twenty-six additional specializations saved
-- [x] Twenty live platform skill tags saved and publicly displayed
+- `MINOR_IDENTITY_VERIFIED`
+- `AGE_ELIGIBILITY_DENIED`
+- `DEACTIVATION_REQUIRED_UNTIL_2029-01-28`
+- `NO_BIDS_OR_CONTRACTS_PERFORMED`
+- `NO_ADDITIONAL_SANCTIONS`
+- `PROFILE_ASSETS_PRESERVED_FOR_REUSE`
+- `ADULT_OWNER_ROUTE_STILL_APPROVED`
+- `DIRECT_SALES_ROUTE_AVAILABLE`
+
+## Completed reusable profile and sales work
+
+- [x] Old project-specific resume removed during the profile exercise
+- [x] Ukrainian, English, Russian and Polish profile descriptions and slogans prepared and tested
+- [x] Status presentation prepared as `Вільний для роботи`
+- [x] Main specializations selected: `AI та машинне навчання`, `Веб-програмування`
+- [x] Twenty-six additional specializations selected
+- [x] Twenty live-platform skill tags selected
 - [x] No invented hourly rate published
-- [x] Antonov Digital team positioning and roles published consistently
-- [x] Daily project digest enabled
-- [x] Private-message email notifications enabled
-- [x] System information emails enabled
-- [x] Browser push notifications enabled
-- [x] Sound notifications for personal events enabled
-- [x] Promotional offers, news digest and blog digest disabled
-- [x] Desktop and mobile public-profile QA passed
-- [x] Public copy checked for external contacts and unsupported results
-- [x] `PROFILE_SETUP_REPORT.md` updated locally by Codex
+- [x] Antonov Digital team positioning and roles prepared consistently
+- [x] Notification settings mapped
+- [x] Desktop and mobile public-profile QA completed before the final ruling
+- [x] Nine portfolio cards prepared and deferred pending evidence/assets
+- [x] Proposal, reply-drafting and opportunity-card logic defined
+- [x] Freelancehunt support approved a separate genuine adult physical-person account with disclosed Antonov Digital team participation
 
-## Saved additional specializations
+## Final support outcome for Artem's account
+
+- [x] Artem's date of birth confirmed as `2011-01-28`
+- [x] Identity verification completed successfully
+- [x] Support clarified that verification does not override the age restriction
+- [x] Support stated that Artem may not submit bids, enter agreements, perform projects or receive payment through Freelancehunt before age 18
+- [x] Earliest age-eligible date confirmed as `2029-01-28`
+- [x] Support stated that no additional sanctions will apply because no bids, agreements or payments followed verification
+- [ ] Deactivate the minor-owned profile immediately
+- [ ] Preserve a screenshot or written record of deactivation
+- [ ] Exclude the minor-owned account and its notifications from all agent ingestion
+
+## Reusable saved specialization set
+
+### Main
+
+- AI та машинне навчання
+- Веб-програмування
+
+### Additional
 
 - HTML та CSS верстання
 - Javascript та Typescript
@@ -74,7 +90,7 @@ Current live status:
 - Управління проєктами
 - AI обробка текстів
 
-## Saved live skills
+## Reusable live-skill set
 
 - cloudflare
 - API Integration
@@ -97,9 +113,9 @@ Current live status:
 - telegram bot api
 - HTML CSS
 
-## Deferred portfolio
+## Deferred portfolio assets
 
-All nine prepared cards remain deferred until each has the required current link/status, publication permission, evidence and images:
+The prepared cards remain reusable but unpublished until each has the required current link/status, permission, evidence and images:
 
 - Bella Dent
 - Dental Supplier AI Agent
@@ -111,23 +127,28 @@ All nine prepared cards remain deferred until each has the required current link
 - Mentium
 - NFC Review Cards
 
-Deferred portfolio does not block verification, notifications or proposal automation.
+## Immediate lawful revenue paths
 
-## Immediate remaining owner action
+### Path A — approved adult-owned Freelancehunt profile
 
-- [ ] Genuine adult owner personally completes the available Freelancehunt profile-verification flow
-- [ ] Owner handles any CAPTCHA, OTP/2FA, document transfer/upload, live check and displayed verification payment
-- [ ] Confirm verified badge/status appears on the public profile
+Remaining work:
 
-## Remaining in Stage 1 automation
-
-- [ ] Confirm a fresh adult-account Freelancehunt notification reaches the operational Gmail mailbox
-- [ ] Inspect exact sender, subject, labels and payload of fresh project/message emails
-- [ ] Connect or confirm minimum-permission Gmail ingestion for the operational mailbox
-- [ ] Configure Railway/Telegram near-real-time detection
-- [ ] Produce a complete Telegram opportunity card and tailored proposal draft
+- [ ] Genuine adult owner creates their own separate account with truthful identity, phone, photo, mailbox, verification, contracts and payments
+- [ ] Adapt and transfer the prepared Antonov Digital profile assets to that account
+- [ ] Adult owner personally performs bids, platform messages, Workspace, agreements and financial actions
+- [ ] Connect only the adult-owned operational mailbox for permitted notification ingestion
 - [ ] Run the end-to-end test: Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
-- [ ] Track proposal, response, win-rate and funded-revenue metrics
+
+### Path B — direct sales and other eligible channels
+
+Remaining work:
+
+- [ ] Use the prepared Antonov Digital positioning, cases and proposal logic for direct email and inbound leads
+- [ ] Connect the selected direct-sales mailbox
+- [ ] Generate lead cards, personalized outreach, replies and follow-up reminders
+- [ ] Track replies, qualified leads, funded work and net revenue
+
+These paths can proceed in parallel. The blocked minor profile must not be used as a discovery or alert source.
 
 ## Repository administration still pending
 
@@ -139,10 +160,10 @@ Deferred portfolio does not block verification, notifications or proposal automa
 
 ## Stage 1 acceptance condition
 
-Stage 1 is operational when:
+Stage 1 becomes operational when at least one lawful acquisition channel passes a funded-work readiness test:
 
-1. the adult-owned profile is published, verified and conversion-ready;
-2. relevant notification emails reach the operational mailbox;
+1. a legally eligible owner/channel is active;
+2. relevant opportunities reach the approved mailbox or CRM;
 3. Telegram receives a complete opportunity card quickly;
 4. a tailored proposal draft is generated without invented claims; and
-5. the adult owner can perform the final platform action with minimal editing.
+5. the authorized adult owner or direct-sales operator can perform the final client-facing action with minimal editing.
