@@ -2,7 +2,7 @@
 
 ## Current status
 
-`READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY`
+`READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY_V2`
 
 GitHub issue #7 is implemented and locally validated on
 `fix/freelancehunt-live-status-guard`. Production remains on main commit
@@ -11,11 +11,14 @@ GitHub issue #7 is implemented and locally validated on
 
 Completed evidence:
 
-- the full 164-test regression suite passed;
-- compileall, additive migration contracts and production-like import passed;
-- sanitized blocked/active fixtures and Telegram formats passed;
-- Gmail single/digest and direct-parser paths use the shared live-status guard;
-- repeat/restart dedup and bounded UNKNOWN retry passed;
+- the full 181-test regression suite passed (the prior 164 plus 17 V2 tests);
+- compileall, additive migration contracts, diff check and production-like
+  Python 3.12 startup import passed;
+- the exact blocked URL is fail-closed and a current public-feed project is
+  positively active in the same Railway/Linux environment;
+- every proposal action uses the 60-second freshness guard;
+- UNKNOWN exhaustion, shared batch resources and diagnostic delivery retry are
+  durable and restart-safe;
 - no real Telegram card, bid, client message, contract, payment, merge,
   deployment or Railway variable change was performed.
 
@@ -23,5 +26,5 @@ The implementation is limited to the hotfix branch and its draft pull request.
 
 ## Exactly one next action
 
-Reply `AUTHORIZE_LIVE_STATUS_HOTFIX_DEPLOY` to authorize merge and a controlled
+Reply `AUTHORIZE_LIVE_STATUS_HOTFIX_DEPLOY_V2` to authorize merge and a controlled
 Railway deployment of this hotfix.

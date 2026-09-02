@@ -38,6 +38,20 @@ async def get_unseen_orders(session: AsyncSession) -> list[Order]:
     return list(result.all())
 
 
+async def get_orders_by_status(
+    session: AsyncSession, statuses: list[str], limit: int = 100
+) -> list[Order]:
+    if not statuses or limit <= 0:
+        return []
+    result = await session.scalars(
+        select(Order)
+        .where(Order.status.in_(statuses))
+        .order_by(Order.created_at.asc(), Order.id.asc())
+        .limit(limit)
+    )
+    return list(result.all())
+
+
 async def update_order_status(session: AsyncSession, order_id: int, status: str) -> None:
     await session.execute(update(Order).where(Order.id == order_id).values(status=status))
     await session.commit()

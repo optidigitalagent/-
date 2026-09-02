@@ -205,3 +205,27 @@ Stage 2 is operational when:
 - Production baseline remains main commit
   `60d5d3b30a9f21d8011f3d76f8b288fb3abcbd4d` on Railway deployment
   `fa129303-e1e3-42c1-b913-72469678b76d`; no production mutation was performed.
+
+## 2026-09-02 — Deployment review V2 completed
+
+- Closed the four review blockers: 60-second action freshness, durable UNKNOWN
+  exhaustion plus manual read-only recheck, bounded shared-resource batch
+  checking, and retry-safe Telegram diagnostics.
+- Added Freelancehunt's official anonymous open-project RSS as a positive-only
+  fallback for Cloudflare-protected HTML. Absence remains fail-closed and does
+  not become a terminal classification.
+- Full regression: 181/181 tests passed, including the previous 164 tests and
+  17 V2 tests. Compileall, diff check, additive migration contracts and the
+  dependency-complete Python 3.12 startup import passed; three scheduler jobs
+  remain registered with overlap protection unchanged.
+- Railway/Linux anonymous proof against the exact public URL 1650987 returned
+  `LIVE_STATUS_UNKNOWN`, `biddable=false`, and zero proposal-generation calls.
+  A current public-feed item returned `ACTIVE_BIDDABLE`, `biddable=true`, with
+  official RSS membership as evidence. Three cold ten-project runs returned
+  10/10 active; maximum measured time was 0.163 seconds.
+- Production remains exactly on main commit
+  `60d5d3b30a9f21d8011f3d76f8b288fb3abcbd4d`, deployment
+  `fa129303-e1e3-42c1-b913-72469678b76d`. No merge, deployment, Railway
+  variable, Gmail OAuth, Telegram secret or platform action occurred.
+- Deployment gate: `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY_V2`, pending exactly
+  one explicit authorization action documented in `NEXT_ACTION.md`.

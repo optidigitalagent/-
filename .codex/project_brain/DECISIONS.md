@@ -185,3 +185,30 @@
 - The hotfix remains isolated on `fix/freelancehunt-live-status-guard` until a
   separate merge/deploy authorization; production variables and the running
   deployment remain unchanged.
+
+## 2026-09-02 — Live-status deployment review V2
+
+- Every direct and Gmail proposal display, generation, rewrite or manual-copy
+  action uses the same asynchronous guard. A saved `ACTIVE_BIDDABLE` result is
+  reusable for at most 60 seconds; otherwise it is refreshed and persisted in a
+  separate short transaction after network work.
+- `LIVE_STATUS_UNKNOWN` keeps its canonical external value. After three
+  automatic attempts, the durable processing state becomes
+  `live_status_unknown_exhausted`; automatic reads stop, the item can settle,
+  and `/recheck_live` remains an explicit read-only recovery path.
+- One scan shares an anonymous HTTP client and one cookie-free Chromium
+  browser/context, limits concurrency to four (bounded to 3–5), caps HTTP at
+  five seconds and browser work at eight seconds, deduplicates URLs, and has an
+  80-second overall budget (hard-clamped to 90 seconds).
+- When public HTML is protected, membership in Freelancehunt's official
+  anonymous `projects.rss` open-project feed is sufficient positive active
+  evidence. Absence from that feed is not terminal and never proves closed.
+  Page-level terminal evidence still takes precedence.
+- A live-status diagnostic is marked delivered only after Telegram confirms a
+  successful send. Failed delivery remains `live_status_notice_pending` and is
+  retried independently with processed-key dedup after success.
+- Railway/Linux read-only proof used no login, cookies, CAPTCHA, bid, message,
+  secret or variable change: the exact public control project 1650987 remained
+  non-biddable/UNKNOWN, while a current feed item was positively
+  `ACTIVE_BIDDABLE`. Production remains on the unchanged known-good main
+  deployment until separate authorization.

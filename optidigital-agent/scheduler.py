@@ -15,6 +15,7 @@ from config import settings
 from db import AsyncSessionLocal
 from db.crud import (
     get_order_by_url,
+    get_orders_by_status,
     get_setting,
     save_order,
     update_order_fields,
@@ -167,6 +168,28 @@ async def _send_direct_live_status_card(bot: Bot, order: Order) -> bool:
     return await send_live_status_card(bot, settings.TELEGRAM_CHAT_ID, analysis)
 
 
+async def _drain_direct_live_status_notices(bot: Bot) -> None:
+    """Retry a failed diagnostic without re-scoring or exposing a proposal."""
+
+    async with AsyncSessionLocal() as session:
+        pending = await get_orders_by_status(
+            session, ["live_status_notice_pending"], limit=100
+        )
+    for order in pending:
+        if not await _send_direct_live_status_card(bot, order):
+            continue
+        if order.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value:
+            status = (
+                "live_status_unknown_exhausted"
+                if int(order.live_status_retry_count or 0) >= 3
+                else "live_status_pending_notified"
+            )
+        else:
+            status = "live_status_terminal"
+        async with AsyncSessionLocal() as session:
+            await update_order_status(session, order.id, status)
+
+
 async def check_new_orders(
     bot: Bot,
     *,
@@ -188,6 +211,41 @@ async def check_new_orders(
     new_saved = scored = notified = duplicates_skipped = below_min_score = errors = 0
     checker = live_status_checker or FreelancehuntLiveStatusChecker()
 
+    await _drain_direct_live_status_notices(bot)
+
+    existing_by_url: dict[str, Order | None] = {}
+    due_urls: list[str] = []
+    for project in projects:
+        if "freelancehunt" not in str(project.get("platform") or "").casefold():
+            continue
+        async with AsyncSessionLocal() as session:
+            existing = await get_order_by_url(session, project["url"])
+        existing_by_url[project["url"]] = existing
+        if existing is None:
+            due_urls.append(project["url"])
+            continue
+        if existing.status in {
+            "notified",
+            "sent",
+            "skipped",
+            "live_status_terminal",
+            "live_status_unknown_exhausted",
+            "live_status_active_manual",
+            "live_status_notice_pending",
+        }:
+            continue
+        if existing.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value:
+            if retry_due(
+                existing.live_status_checked_at,
+                int(existing.live_status_retry_count or 0),
+            ):
+                due_urls.append(project["url"])
+        else:
+            due_urls.append(project["url"])
+    if due_urls:
+        if hasattr(checker, "batch_check"):
+            await checker.batch_check(due_urls)
+
     for project in projects:
         try:
             existing = None
@@ -195,11 +253,18 @@ async def check_new_orders(
                 "freelancehunt" in str(project.get("platform") or "").casefold()
             )
             if is_freelancehunt:
-                async with AsyncSessionLocal() as session:
-                    existing = await get_order_by_url(session, project["url"])
+                existing = existing_by_url.get(project["url"])
                 if existing is not None and (
                     existing.status
-                    in {"notified", "sent", "skipped", "live_status_terminal"}
+                    in {
+                        "notified",
+                        "sent",
+                        "skipped",
+                        "live_status_terminal",
+                        "live_status_unknown_exhausted",
+                        "live_status_active_manual",
+                        "live_status_notice_pending",
+                    }
                     or existing.live_status
                     in {
                         LiveStatus.BLOCKED_RULE_VIOLATION.value,
@@ -213,6 +278,19 @@ async def check_new_orders(
                 previous_retry_count = (
                     int(existing.live_status_retry_count or 0) if existing else 0
                 )
+                if (
+                    existing is not None
+                    and existing.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+                    and previous_retry_count >= 3
+                ):
+                    async with AsyncSessionLocal() as session:
+                        await update_order_fields(
+                            session,
+                            existing.id,
+                            {"status": "live_status_unknown_exhausted", "qualified": False},
+                        )
+                    duplicates_skipped += 1
+                    continue
                 if (
                     existing is not None
                     and existing.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
@@ -243,7 +321,17 @@ async def check_new_orders(
 
                 if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
                     terminal = live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN
-                    status = "live_status_terminal" if terminal else "live_status_pending"
+                    exhausted = (
+                        live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                        and retry_count >= 3
+                    )
+                    status = (
+                        "live_status_terminal"
+                        if terminal
+                        else "live_status_unknown_exhausted"
+                        if exhausted
+                        else "live_status_pending"
+                    )
                     order_data = {
                         "platform": project.get("platform", "Freelancehunt"),
                         "title": project["title"],
@@ -267,7 +355,18 @@ async def check_new_orders(
                             order = await save_order(session, order_data)
                         if order is not None:
                             new_saved += 1
-                            await _send_direct_live_status_card(bot, order)
+                            sent_notice = await _send_direct_live_status_card(bot, order)
+                            notice_status = (
+                                status
+                                if terminal or exhausted
+                                else "live_status_pending_notified"
+                            )
+                            async with AsyncSessionLocal() as session:
+                                await update_order_status(
+                                    session,
+                                    order.id,
+                                    notice_status if sent_notice else "live_status_notice_pending",
+                                )
                     else:
                         async with AsyncSessionLocal() as session:
                             await update_order_fields(

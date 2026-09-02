@@ -518,9 +518,13 @@ class GmailJobProcessor:
             analysis.qualified = False
             analysis.recommended_price = ""
             analysis.realistic_timeline = ""
-            analysis.proposal_draft = ""
             analysis.next_action = (
-                "Дочекатися автоматичної повторної перевірки."
+                "Дочекатися автоматичної повторної перевірки або виконати read-only /recheck_live."
+                if (
+                    result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                    and retry_count < 3
+                )
+                else "Виконати лише read-only /recheck_live; нічого не надсилати."
                 if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
                 else "Нічого не надсилати."
             )
@@ -577,6 +581,22 @@ class GmailJobProcessor:
             not force
             and previous is not None
             and previous.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+            and previous_count >= self._live_status_max_retries
+        ):
+            return (
+                LiveStatusResult(
+                    status=LiveStatus.LIVE_STATUS_UNKNOWN,
+                    checked_at=previous.live_status_checked_at or datetime.now(timezone.utc),
+                    evidence=previous.live_status_evidence or "LIVE STATUS NOT VERIFIED",
+                    biddable=False,
+                    last_error=previous.live_status_last_error or "retry limit exhausted",
+                ),
+                previous_count,
+            )
+        if (
+            not force
+            and previous is not None
+            and previous.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
             and not retry_due(
                 previous.live_status_checked_at,
                 previous_count,
@@ -593,8 +613,19 @@ class GmailJobProcessor:
         )
         return result, retry_count
 
+    def _nonactive_state(
+        self, result: LiveStatusResult, retry_count: int
+    ) -> tuple[str, bool]:
+        """Return durable internal state and whether automatic work is settled."""
+
+        if result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+            return "live_status_terminal", True
+        if retry_count >= self._live_status_max_retries:
+            return "live_status_unknown_exhausted", True
+        return "live_status_pending", False
+
     @staticmethod
-    def _active_check_is_fresh(job: StoredGmailJob, seconds: int = 300) -> bool:
+    def _active_check_is_fresh(job: StoredGmailJob, seconds: int = 60) -> bool:
         checked_at = job.live_status_checked_at
         if (
             job.live_status != LiveStatus.ACTIVE_BIDDABLE.value
@@ -611,28 +642,51 @@ class GmailJobProcessor:
         self,
         analysis: JobAnalysis,
         stats: ProcessorStats,
-    ) -> None:
+    ) -> bool:
         if self._repository is None:
-            return
+            return False
         digest = hashlib.sha256(analysis.email_id.encode("utf-8")).hexdigest()
         notice_key = f"live-status-notice:{digest}"
         if await self._repository.is_processed(notice_key):
-            return
+            return True
         sent = await send_live_status_card(self._bot, self._chat_id, analysis)
-        await self._repository.upsert_processed(
-            ProcessedItem(
-                stable_key=notice_key,
-                source_email_id=analysis.source_email_id or analysis.email_id,
-                platform=analysis.platform,
-                item_type="live_status_diagnostic",
-                title=analysis.title,
-                url=analysis.url,
-                decision=analysis.live_status,
-                score=None,
-            )
-        )
         if sent:
+            await self._repository.upsert_processed(
+                ProcessedItem(
+                    stable_key=notice_key,
+                    source_email_id=analysis.source_email_id or analysis.email_id,
+                    platform=analysis.platform,
+                    item_type="live_status_diagnostic",
+                    title=analysis.title,
+                    url=analysis.url,
+                    decision=analysis.live_status,
+                    score=None,
+                )
+            )
             stats.live_status_diagnostics_sent += 1
+        return sent
+
+    async def _drain_live_status_notices(self, stats: ProcessorStats) -> None:
+        """Retry diagnostics independently from processed email/project keys."""
+
+        if self._repository is None:
+            return
+        jobs = await self._repository.list_jobs_by_status(
+            ["live_status_notice_pending"], limit=100
+        )
+        for job in jobs:
+            analysis = self._analysis_from_job(job)
+            if not await self._send_live_status_notice_once(analysis, stats):
+                continue
+            if job.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value:
+                logical_status = (
+                    "live_status_unknown_exhausted"
+                    if job.live_status_retry_count >= self._live_status_max_retries
+                    else "live_status_pending"
+                )
+            else:
+                logical_status = "live_status_terminal"
+            await self._repository.update_job_status(job.stable_key, logical_status)
 
     @staticmethod
     def _live_status_decision(status: LiveStatus) -> str:
@@ -705,28 +759,38 @@ class GmailJobProcessor:
                     return False
                 result, retry_count = checked
                 analysis = self._apply_live_result(analysis, result, retry_count)
+                settled = False
                 if result.status == LiveStatus.ACTIVE_BIDDABLE:
                     analysis.is_relevant = True
                     analysis.qualified = True
                     status = job.status
-                elif result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
-                    status = "live_status_pending"
-                    stats.live_status_unknown += 1
                 else:
-                    status = "live_status_terminal"
-                    stats.live_status_non_actionable += 1
+                    status, settled = self._nonactive_state(result, retry_count)
+                    if result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                        stats.live_status_unknown += 1
+                    else:
+                        stats.live_status_non_actionable += 1
                 job = await self._repository.save_job(
                     replace(job, status=status, **self._analysis_fields(analysis))
                 )
                 if result.status != LiveStatus.ACTIVE_BIDDABLE:
-                    await self._send_live_status_notice_once(analysis, stats)
-                    if result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                    notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                    if not notice_sent:
+                        await self._repository.update_job_status(
+                            job.stable_key, "live_status_notice_pending"
+                        )
+                    if settled:
                         await self._repository.upsert_processed(
                             self._processed_job_item(
-                                job, self._live_status_decision(result.status)
+                                job,
+                                (
+                                    "live_status_unknown_exhausted"
+                                    if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                                    else self._live_status_decision(result.status)
+                                ),
                             )
                         )
-                    return True
+                    return settled
 
         claimed = await self._repository.claim_job(candidate.stable_key)
         if not claimed:
@@ -844,6 +908,28 @@ class GmailJobProcessor:
         stats.candidates_found += len(candidates)
         all_children_handled = True
 
+        # Resolve every due public URL as one controlled concurrent batch. The
+        # later per-child logic consumes the checker's per-scan cache, so no
+        # database transaction is held while HTTP/Chromium is running.
+        if self._live_status_checker is not None:
+            due_urls: list[str] = []
+            for candidate in candidates:
+                if await self._repository.is_processed(candidate.stable_key):
+                    continue
+                previous = await self._repository.get_job(candidate.stable_key)
+                if previous is None:
+                    due_urls.append(candidate.url)
+                elif previous.status == "live_status_pending" and retry_due(
+                    previous.live_status_checked_at,
+                    previous.live_status_retry_count,
+                    base_seconds=self._live_status_retry_base_seconds,
+                    max_retries=self._live_status_max_retries,
+                ):
+                    due_urls.append(candidate.url)
+            if due_urls:
+                if hasattr(self._live_status_checker, "batch_check"):
+                    await self._live_status_checker.batch_check(due_urls)
+
         for candidate in candidates:
             try:
                 if await self._repository.is_processed(candidate.stable_key):
@@ -875,28 +961,37 @@ class GmailJobProcessor:
                                 result=live_result,
                                 retry_count=live_retry_count,
                             )
-                            terminal = (
-                                live_result.status
-                                != LiveStatus.LIVE_STATUS_UNKNOWN
+                            status, settled = self._nonactive_state(
+                                live_result, live_retry_count
                             )
                             job = await self._repository.save_job(
                                 self._stored_job(
                                     candidate,
                                     analysis,
-                                    status=(
-                                        "live_status_terminal"
-                                        if terminal
-                                        else "live_status_pending"
-                                    ),
+                                    status=status,
                                 )
                             )
-                            await self._send_live_status_notice_once(analysis, stats)
-                            if terminal:
-                                stats.live_status_non_actionable += 1
+                            notice_sent = await self._send_live_status_notice_once(
+                                analysis, stats
+                            )
+                            if not notice_sent:
+                                await self._repository.update_job_status(
+                                    job.stable_key, "live_status_notice_pending"
+                                )
+                            if settled:
+                                if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                                    stats.live_status_non_actionable += 1
                                 await self._repository.upsert_processed(
                                     self._processed_item(
                                         candidate,
-                                        self._live_status_decision(live_result.status),
+                                        (
+                                            "live_status_unknown_exhausted"
+                                            if live_result.status
+                                            == LiveStatus.LIVE_STATUS_UNKNOWN
+                                            else self._live_status_decision(
+                                                live_result.status
+                                            )
+                                        ),
                                         None,
                                     )
                                 )
@@ -951,8 +1046,23 @@ class GmailJobProcessor:
                     job = await self._repository.save_job(
                         self._stored_job(candidate, analysis)
                     )
-                elif job.status in {"sent", "skipped"}:
+                elif job.status in {
+                    "sent",
+                    "skipped",
+                    "live_status_terminal",
+                    "live_status_unknown_exhausted",
+                    "live_status_active_manual",
+                }:
                     stats.duplicates_skipped += 1
+                    continue
+                elif job.status == "live_status_notice_pending":
+                    # The dedicated delivery queue owns this row. A terminal or
+                    # exhausted decision is settled even while its notice retries.
+                    if (
+                        job.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+                        and job.live_status_retry_count < self._live_status_max_retries
+                    ):
+                        all_children_handled = False
                     continue
 
                 if cards_sent_this_scan >= self._max_cards_per_scan:
@@ -1062,8 +1172,16 @@ class GmailJobProcessor:
         job = await self._repository.get_job(email.id)
         pending_live_result: LiveStatusResult | None = None
         pending_live_retry_count = 0
-        if job is not None and job.status in {"sent", "skipped", "live_status_terminal"}:
+        if job is not None and job.status in {
+            "sent",
+            "skipped",
+            "live_status_terminal",
+            "live_status_unknown_exhausted",
+            "live_status_active_manual",
+        }:
             stats.duplicates_skipped += 1
+            return False
+        if job is not None and job.status == "live_status_notice_pending":
             return False
         if job is not None and job.status == "live_status_pending":
             checked = await self._check_live_status(job.url or "", job)
@@ -1076,28 +1194,36 @@ class GmailJobProcessor:
                     pending_live_result,
                     pending_live_retry_count,
                 )
-                terminal = (
-                    pending_live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN
+                status, settled = self._nonactive_state(
+                    pending_live_result, pending_live_retry_count
                 )
                 job = await self._repository.save_job(
                     replace(
                         job,
-                        status=(
-                            "live_status_terminal"
-                            if terminal
-                            else "live_status_pending"
-                        ),
+                        status=status,
                         **self._analysis_fields(analysis),
                     )
                 )
-                await self._send_live_status_notice_once(analysis, stats)
-                if terminal:
-                    stats.live_status_non_actionable += 1
+                notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                if not notice_sent:
+                    await self._repository.update_job_status(
+                        job.stable_key, "live_status_notice_pending"
+                    )
+                if settled:
+                    if pending_live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                        stats.live_status_non_actionable += 1
                     await self._repository.upsert_processed(
                         self._processed_single_item(
                             email,
                             analysis,
-                            self._live_status_decision(pending_live_result.status),
+                            (
+                                "live_status_unknown_exhausted"
+                                if pending_live_result.status
+                                == LiveStatus.LIVE_STATUS_UNKNOWN
+                                else self._live_status_decision(
+                                    pending_live_result.status
+                                )
+                            ),
                         )
                     )
                 else:
@@ -1144,26 +1270,36 @@ class GmailJobProcessor:
                         result=live_result,
                         retry_count=live_retry_count,
                     )
-                    terminal = live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN
+                    status, settled = self._nonactive_state(
+                        live_result, live_retry_count
+                    )
                     job = await self._repository.save_job(
                         self._stored_single_job(
                             email,
                             analysis,
-                            status=(
-                                "live_status_terminal"
-                                if terminal
-                                else "live_status_pending"
-                            ),
+                            status=status,
                         )
                     )
-                    await self._send_live_status_notice_once(analysis, stats)
-                    if terminal:
-                        stats.live_status_non_actionable += 1
+                    notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                    if not notice_sent:
+                        await self._repository.update_job_status(
+                            job.stable_key, "live_status_notice_pending"
+                        )
+                    if settled:
+                        if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                            stats.live_status_non_actionable += 1
                         await self._repository.upsert_processed(
                             self._processed_single_item(
                                 email,
                                 analysis,
-                                self._live_status_decision(live_result.status),
+                                (
+                                    "live_status_unknown_exhausted"
+                                    if live_result.status
+                                    == LiveStatus.LIVE_STATUS_UNKNOWN
+                                    else self._live_status_decision(
+                                        live_result.status
+                                    )
+                                ),
                             )
                         )
                     else:
@@ -1447,7 +1583,9 @@ class GmailJobProcessor:
     async def run(self, trigger: str = "manual") -> ProcessorStats:
         stats = ProcessorStats()
         started_at = datetime.now(timezone.utc)
-        try:
+
+        async def execute() -> ProcessorStats:
+            await self._drain_live_status_notices(stats)
             cards_sent_this_scan = await self._drain_retry_queue(stats)
             try:
                 emails = await self._provider.get_new_emails()
@@ -1463,6 +1601,15 @@ class GmailJobProcessor:
             )
             logger.info("GmailJobProcessor: fetched %d emails", stats.emails_fetched)
             return await self._run_emails(emails, stats, cards_sent_this_scan)
+
+        try:
+            if (
+                self._live_status_checker is not None
+                and hasattr(self._live_status_checker, "scan")
+            ):
+                async with self._live_status_checker.scan():
+                    return await execute()
+            return await execute()
         finally:
             await self._append_scan_run(trigger, started_at, stats)
 
