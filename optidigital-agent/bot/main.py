@@ -64,7 +64,7 @@ async def on_startup() -> None:
     state.start_time = datetime.utcnow()
     await init_db()
     state.playwright_ok = await _check_playwright()
-    logger.info("Antonov Digital Revenue Agent started ✅")
+    logger.info("OptiDigital Agent started ✅")
     _scheduler = setup_scheduler(bot)
 
     # Register Gmail job if enabled
@@ -81,7 +81,7 @@ async def on_startup() -> None:
 
     _scheduler.start()
     state.scheduler = _scheduler
-    logger.info("Scheduler running (Gmail every configured minute interval; reports 09:00 Kyiv).")
+    logger.info("Scheduler running (check every 1 hour, daily report 09:00 Kyiv, weekly report Sun 09:00 Kyiv).")
 
 
 async def on_shutdown() -> None:

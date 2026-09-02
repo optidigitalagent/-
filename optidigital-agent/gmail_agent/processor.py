@@ -2,21 +2,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 from .dedup import EmailDedup
 from .digest_parser import DigestJobCandidate, parse_freelancehunt_digest
-from .email_analyzer import JobAnalysis, analyze_candidate, analyze_email, detect_language
+from .email_analyzer import JobAnalysis, analyze_candidate, analyze_email
 from .email_classifier import EmailType, classify_email
 from .gmail_provider import EmailMessage, GmailProvider
-from .security import redact_security_event, redact_sensitive_content
 from .storage import (
     GmailRepository,
     ProcessedItem,
@@ -47,9 +43,6 @@ class ProcessorStats:
     # First 5 samples for diagnostic display.
     rejected_samples: list[dict] = field(default_factory=list)
     below_score_samples: list[dict] = field(default_factory=list)
-    event_counts: dict[str, int] = field(default_factory=dict)
-    mailbox_alias: str = ""
-    max_detection_latency_seconds: float = 0.0
 
     @property
     def duplicates(self) -> int:
@@ -121,73 +114,9 @@ class GmailJobProcessor:
     @staticmethod
     def _is_freelancehunt_digest(email: EmailMessage, email_type: EmailType) -> bool:
         return (
-            email_type == EmailType.PROJECT_DIGEST
+            email_type == EmailType.JOB_DIGEST
             and "freelancehunt" in email.sender.casefold()
         )
-
-    @staticmethod
-    def _source_url(email: EmailMessage, email_type: EmailType) -> str:
-        """Select only a normal public Freelancehunt URL for the event."""
-
-        if email_type == EmailType.ACCOUNT_OR_SECURITY_EVENT:
-            return ""
-        preferred_markers = {
-            EmailType.CLIENT_PRIVATE_MESSAGE: ("/messages", "/mailbox", "/dialog"),
-            EmailType.WORKSPACE_OR_CONTRACT_EVENT: ("/workspace", "/safe"),
-            EmailType.PROJECT_STATUS_EVENT: ("/project/", "/ua/project/", "/job/"),
-            EmailType.PROJECT_SINGLE: ("/project/", "/ua/project/", "/job/", "/ua/job/"),
-        }.get(email_type, ())
-        safe_links: list[str] = []
-        for link in email.links:
-            safe_link = GmailJobProcessor._clean_freelancehunt_url(link)
-            if safe_link:
-                safe_links.append(safe_link)
-        for marker in preferred_markers:
-            for link in safe_links:
-                if marker in link.casefold():
-                    return link
-        return safe_links[0] if safe_links else ""
-
-    @staticmethod
-    def _clean_freelancehunt_url(value: str) -> str:
-        """Return a canonical public HTTPS URL or fail closed."""
-
-        try:
-            parsed = urlsplit(value or "")
-            port = parsed.port
-        except (TypeError, ValueError):
-            return ""
-        if (
-            parsed.scheme.casefold() != "https"
-            or (parsed.hostname or "").casefold()
-            not in {"freelancehunt.com", "www.freelancehunt.com"}
-            or parsed.username is not None
-            or parsed.password is not None
-            or port not in {None, 443}
-        ):
-            return ""
-        return urlunsplit(("https", "freelancehunt.com", parsed.path or "/", "", ""))
-
-    @staticmethod
-    def _client_name_from_subject(subject: str) -> str:
-        match = re.search(
-            r"(?:нове\s+особисте\s+повідомлення\s+від|"
-            r"новое\s+личное\s+сообщение\s+от|"
-            r"new\s+private\s+message\s+from|"
-            r"(?:nowa\s+)?wiadomo(?:ś|s)ć\s+prywatna\s+od)\s+(.+)$",
-            subject or "",
-            re.IGNORECASE,
-        )
-        return match.group(1).strip(" :—-\"'") if match else ""
-
-    @staticmethod
-    def _detection_latency(received_at: datetime | None) -> float:
-        if received_at is None:
-            return 0.0
-        value = received_at
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return max(0.0, (datetime.now(timezone.utc) - value).total_seconds())
 
     @staticmethod
     def _analysis_from_job(job: StoredGmailJob) -> JobAnalysis:
@@ -203,79 +132,7 @@ class GmailJobProcessor:
             urgency=job.urgency,
             why_relevant=job.why_relevant,
             red_flags=[],
-            event_type=job.event_type,
-            source_email_id=job.source_email_id,
-            full_description=job.full_description,
-            description_completeness=job.description_completeness,
-            language=job.language,
-            category=job.category,
-            skills=job.skills,
-            deadline=job.deadline,
-            bid_count=job.bid_count,
-            client_name=job.client_name,
-            client_profile_url=job.client_profile_url,
-            client_context=job.client_context,
-            project_id=job.project_id,
-            thread_id=job.thread_id,
-            service_lane=job.service_lane,
-            executable=job.executable,
-            fit_score=job.fit_score,
-            win_probability_signal=job.win_probability_signal,
-            scope_clarity=job.scope_clarity,
-            estimated_effort=job.estimated_effort,
-            delivery_risk=job.delivery_risk,
-            client_payment_risk=job.client_payment_risk,
-            project_mode=job.project_mode,
-            project_mode_reason=job.project_mode_reason,
-            recommended_price=job.recommended_price,
-            realistic_timeline=job.realistic_timeline,
-            selected_evidence=job.selected_evidence,
-            evidence=job.analysis_evidence,
-            proposal_draft=job.proposal_draft,
-            needs_context=job.needs_context,
-            next_action=job.next_action,
-            received_at=job.received_at,
-            sensitive_redacted=job.sensitive_redacted,
-            source_mailbox_alias=job.source_mailbox_alias,
         )
-
-    @staticmethod
-    def _analysis_fields(analysis: JobAnalysis) -> dict[str, Any]:
-        return {
-            "event_type": analysis.event_type,
-            "full_description": analysis.full_description,
-            "description_completeness": analysis.description_completeness,
-            "language": analysis.language,
-            "category": analysis.category,
-            "skills": analysis.skills,
-            "deadline": analysis.deadline,
-            "bid_count": analysis.bid_count,
-            "client_name": analysis.client_name,
-            "client_profile_url": analysis.client_profile_url,
-            "client_context": analysis.client_context,
-            "project_id": analysis.project_id,
-            "thread_id": analysis.thread_id,
-            "service_lane": analysis.service_lane,
-            "executable": analysis.executable,
-            "fit_score": analysis.fit_score,
-            "win_probability_signal": analysis.win_probability_signal,
-            "scope_clarity": analysis.scope_clarity,
-            "estimated_effort": analysis.estimated_effort,
-            "delivery_risk": analysis.delivery_risk,
-            "client_payment_risk": analysis.client_payment_risk,
-            "project_mode": analysis.project_mode,
-            "project_mode_reason": analysis.project_mode_reason,
-            "recommended_price": analysis.recommended_price,
-            "realistic_timeline": analysis.realistic_timeline,
-            "selected_evidence": analysis.selected_evidence,
-            "analysis_evidence": analysis.evidence,
-            "proposal_draft": analysis.proposal_draft,
-            "needs_context": analysis.needs_context,
-            "next_action": analysis.next_action,
-            "received_at": analysis.received_at,
-            "sensitive_redacted": analysis.sensitive_redacted,
-            "source_mailbox_alias": analysis.source_mailbox_alias,
-        }
 
     @staticmethod
     def _stored_job(
@@ -295,7 +152,6 @@ class GmailJobProcessor:
             urgency=analysis.urgency,
             why_relevant=analysis.why_relevant,
             status=status,
-            **GmailJobProcessor._analysis_fields(analysis),
         )
 
     @staticmethod
@@ -341,10 +197,8 @@ class GmailJobProcessor:
             platform=job.platform,
             item_type=(
                 "single_job"
-                if job.event_type == EmailType.PROJECT_SINGLE.value
+                if job.stable_key == job.source_email_id
                 else "digest_job"
-                if job.event_type == EmailType.PROJECT_DIGEST.value
-                else job.event_type
             ),
             title=job.title,
             url=job.url,
@@ -370,7 +224,6 @@ class GmailJobProcessor:
             urgency=analysis.urgency,
             why_relevant=analysis.why_relevant,
             status=status,
-            **GmailJobProcessor._analysis_fields(analysis),
         )
 
     @staticmethod
@@ -383,11 +236,7 @@ class GmailJobProcessor:
             stable_key=email.id,
             source_email_id=email.id,
             platform=analysis.platform,
-            item_type=(
-                "single_job"
-                if analysis.event_type == EmailType.PROJECT_SINGLE.value
-                else analysis.event_type
-            ),
+            item_type="single_job",
             title=analysis.title or email.subject,
             url=analysis.url or None,
             decision=decision,
@@ -403,17 +252,8 @@ class GmailJobProcessor:
         return ProcessedItem(
             stable_key=email.id,
             source_email_id=email.id,
-            platform=(
-                "Freelancehunt"
-                if "freelancehunt" in email.sender.casefold()
-                else "Work.ua" if "work.ua" in email.sender.casefold() else ""
-            ),
-            item_type=(
-                "informational_newsletter"
-                if email_type == EmailType.MARKETING
-                and "work.ua" in email.sender.casefold()
-                else email_type.value
-            ),
+            platform="Work.ua" if "work.ua" in email.sender.casefold() else "",
+            item_type=email_type.value,
             title=email.subject,
             url=None,
             decision=decision,
@@ -474,18 +314,6 @@ class GmailJobProcessor:
                     "url": analysis.url,
                     "urgency": analysis.urgency,
                     "why_relevant": analysis.why_relevant,
-                    "event_type": analysis.event_type,
-                    "source_email_id": analysis.source_email_id,
-                    "full_description": analysis.full_description,
-                    "description_completeness": analysis.description_completeness,
-                    "language": analysis.language,
-                    "client_context": analysis.client_context,
-                    "selected_evidence": analysis.selected_evidence,
-                    "recommended_price": analysis.recommended_price,
-                    "realistic_timeline": analysis.realistic_timeline,
-                    "proposal_draft": analysis.proposal_draft,
-                    "needs_context": analysis.needs_context,
-                    "next_action": analysis.next_action,
                 },
                 path=self._job_store_path,
             )
@@ -631,7 +459,6 @@ class GmailJobProcessor:
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
                     )
-                    analysis.source_mailbox_alias = stats.mailbox_alias
                     if analysis.analysis_succeeded:
                         stats.ai_analyzed += 1
                     else:
@@ -639,10 +466,6 @@ class GmailJobProcessor:
                         stats.error_details.append(
                             f"{candidate.stable_key}: AI analysis failed"
                         )
-                        all_children_handled = False
-                        # A transient AI failure must remain retryable. Never
-                        # persist it as a not-relevant decision.
-                        continue
                     if not analysis.is_relevant:
                         await self._repository.upsert_processed(
                             self._processed_item(
@@ -768,10 +591,8 @@ class GmailJobProcessor:
         stats: ProcessorStats,
         allow_send: bool = True,
     ) -> bool:
-        """Process one actionable non-digest event with durable source context."""
+        """Process one non-digest job with the repository as source of truth."""
         assert self._repository is not None
-
-        email_type = self._email_type(email)
 
         if await self._repository.is_processed(email.id):
             stats.duplicates_skipped += 1
@@ -784,117 +605,18 @@ class GmailJobProcessor:
                 return False
             analysis = self._analysis_from_job(job)
         else:
-            security_event = email_type == EmailType.ACCOUNT_OR_SECURITY_EVENT
-            if security_event:
-                safe_body, redacted = redact_security_event(email.body)
-            else:
-                safe_body, redacted = redact_sensitive_content(email.body)
-            source_url = self._source_url(email, email_type)
-
-            if security_event:
-                # Security alerts do not need AI and must never let a model
-                # reconstruct or echo credentials removed by redaction.
-                analysis = JobAnalysis(
-                    email_id=email.id,
-                    is_relevant=True,
-                    title=email.subject,
-                    platform="Freelancehunt",
-                    score=10.0,
-                    reason="Actionable account/security notification.",
-                    budget="",
-                    url="",
-                    urgency="high",
-                    why_relevant="Protects account access and funds.",
-                    event_type=email_type.value,
-                    source_email_id=email.id,
-                    full_description=safe_body,
-                    description_completeness="FULL" if safe_body else "PARTIAL",
-                    language=detect_language(f"{email.subject}\n{safe_body}"),
-                    executable="yes",
-                    next_action=(
-                        "Відкрити Gmail або Freelancehunt напряму й особисто "
-                        "перевірити сповіщення."
-                    ),
-                    received_at=email.received_at,
-                    sensitive_redacted=redacted,
-                )
-            else:
-                analysis = await analyze_email(
-                    email_id=email.id,
-                    subject=email.subject,
-                    sender=email.sender,
-                    body=safe_body,
-                    client=self._openai_client,
-                    event_type=email_type.value,
-                    source_url=source_url,
-                )
-                analysis.received_at = email.received_at
-                analysis.source_email_id = email.id
-                analysis.full_description = safe_body
-                analysis.sensitive_redacted = redacted
-
-            analysis.event_type = email_type.value
-            analysis.source_mailbox_alias = stats.mailbox_alias
-            if security_event:
-                analysis.url = ""
-            elif "freelancehunt" in email.sender.casefold():
-                # Prefer links extracted directly from the message. A model URL
-                # is accepted only after the same strict host/scheme cleanup.
-                analysis.url = source_url or self._clean_freelancehunt_url(
-                    analysis.url
-                )
-            else:
-                analysis.url = source_url or analysis.url
-            if source_url and not analysis.project_id:
-                project_match = re.search(r"/(\d+)\.html$", source_url)
-                if project_match:
-                    analysis.project_id = project_match.group(1)
-            if source_url and not analysis.thread_id and email_type == EmailType.CLIENT_PRIVATE_MESSAGE:
-                thread_match = re.search(r"/(?:thread|dialog)/(\d+)$", source_url)
-                if thread_match:
-                    analysis.thread_id = thread_match.group(1)
-
-            if email_type == EmailType.CLIENT_PRIVATE_MESSAGE:
-                analysis.is_relevant = True
-                analysis.urgency = "high"
-                analysis.score = max(analysis.score, 10.0)
-                analysis.fit_score = analysis.score
-                analysis.client_name = (
-                    self._client_name_from_subject(email.subject)
-                    or analysis.client_name
-                )
-                has_prior_context = any(
-                    marker in safe_body.casefold()
-                    for marker in (
-                        "previous message",
-                        "попереднє повідомлення",
-                        "предыдущее сообщение",
-                        "poprzednia wiadomość",
-                    )
-                ) or "\n>" in safe_body
-                analysis.needs_context = analysis.needs_context or not has_prior_context
-                analysis.next_action = analysis.next_action or (
-                    "Відкрити гілку Freelancehunt, звірити попередній контекст "
-                    "і особисто надіслати підготовлену відповідь."
-                )
-            elif email_type in {
-                EmailType.PROJECT_STATUS_EVENT,
-                EmailType.WORKSPACE_OR_CONTRACT_EVENT,
-            }:
-                analysis.is_relevant = True
-                analysis.urgency = "high"
-                analysis.next_action = analysis.next_action or (
-                    "Відкрити подію на Freelancehunt і особисто перевірити потрібну дію."
-                )
-
+            analysis = await analyze_email(
+                email_id=email.id,
+                subject=email.subject,
+                sender=email.sender,
+                body=email.body,
+                client=self._openai_client,
+            )
             if analysis.analysis_succeeded:
-                if not security_event:
-                    stats.ai_analyzed += 1
+                stats.ai_analyzed += 1
             else:
                 stats.errors += 1
                 stats.error_details.append(f"{email.id}: AI analysis failed")
-                # Never turn a transient AI error into a terminal decision.
-                return False
 
             if not analysis.is_relevant:
                 await self._repository.upsert_processed(
@@ -908,11 +630,7 @@ class GmailJobProcessor:
                 return False
 
             stats.relevant += 1
-            score_filtered = email_type in {
-                EmailType.PROJECT_SINGLE,
-                EmailType.PROJECT_DIGEST,
-            }
-            if score_filtered and analysis.score < self._min_score:
+            if analysis.score < self._min_score:
                 await self._repository.upsert_processed(
                     self._processed_single_item(email, analysis, "below_threshold")
                 )
@@ -983,11 +701,6 @@ class GmailJobProcessor:
                     sent=stats.sent,
                     sent_from_queue=stats.sent_from_queue,
                     errors=stats.errors,
-                    event_counts=json.dumps(stats.event_counts, sort_keys=True),
-                    mailbox_alias=stats.mailbox_alias or None,
-                    max_detection_latency_seconds=(
-                        stats.max_detection_latency_seconds or None
-                    ),
                 )
             )
         except Exception as exc:
@@ -1004,13 +717,6 @@ class GmailJobProcessor:
         for email in emails:
             try:
                 email_type = self._email_type(email)
-                stats.event_counts[email_type.value] = (
-                    stats.event_counts.get(email_type.value, 0) + 1
-                )
-                stats.max_detection_latency_seconds = max(
-                    stats.max_detection_latency_seconds,
-                    self._detection_latency(email.received_at),
-                )
                 is_freelancehunt_digest = self._is_freelancehunt_digest(
                     email, email_type
                 )
@@ -1030,8 +736,9 @@ class GmailJobProcessor:
                 # architecture. With no repository configured, preserve the
                 # original analyze_email flow and its diagnostic reasons.
                 if self._repository is not None and email_type in {
+                    EmailType.INFORMATIONAL_NEWSLETTER,
+                    EmailType.ACCOUNT_NOTIFICATION,
                     EmailType.MARKETING,
-                    EmailType.UNKNOWN,
                 }:
                     if await self._repository.is_processed(email.id):
                         stats.duplicates_skipped += 1
@@ -1075,9 +782,6 @@ class GmailJobProcessor:
                 return stats
 
             stats.emails_fetched = len(emails)
-            stats.mailbox_alias = str(
-                getattr(self._provider, "identity_alias", "mock") or "mock"
-            )
             logger.info("GmailJobProcessor: fetched %d emails", stats.emails_fetched)
             return await self._run_emails(emails, stats, cards_sent_this_scan)
         finally:

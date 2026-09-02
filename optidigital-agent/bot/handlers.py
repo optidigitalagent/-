@@ -280,15 +280,14 @@ def register_gmail_job_analysis(analysis_dict: dict) -> None:
 
 @router.message(Command("reply_job"))
 async def cmd_reply_job(message: Message) -> None:
-    raw = (message.text or "").strip().split()
+    raw = (message.text or "").strip().split(maxsplit=1)
     if len(raw) < 2:
         await message.answer(
-            "❌ Використання: <code>/reply_job &lt;event_id&gt; [rewrite]</code>"
+            "❌ Використання: <code>/reply_job &lt;email_id&gt;</code>"
         )
         return
 
     job_id = raw[1].strip()
-    rewrite = len(raw) >= 3 and raw[2].casefold() == "rewrite"
     job = _gmail_job_store.get(job_id)
     if not job:
         repository_unavailable = False
@@ -323,24 +322,7 @@ async def cmd_reply_job(message: Message) -> None:
         )
         return
 
-    saved_proposal = str(job.get("proposal_draft") or "").strip()
-    if saved_proposal and not rewrite:
-        url = safe_http_url(job.get("url", ""))
-        link = (
-            f'\n\n🔗 <a href="{escape_html(url)}">Відкрити подію</a>'
-            if url else ""
-        )
-        await message.answer(
-            f"📝 <b>Збережена готова відповідь:</b>\n\n"
-            f"{escape_html(saved_proposal)}{link}\n\n"
-            f"<code>/reply_job {escape_html(job_id)} rewrite</code>"
-        )
-        return
-
-    await message.answer(
-        f"⏳ {'Переписую' if rewrite else 'Генерую'} відгук для "
-        f"<b>{escape_html(job.get('title', job_id))}</b>…"
-    )
+    await message.answer(f"⏳ Генерую відгук для <b>{escape_html(job.get('title', job_id))}</b>…")
 
     import sys, os
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -348,21 +330,10 @@ async def cmd_reply_job(message: Message) -> None:
 
     text = await generate_reply(
         title=job.get("title", ""),
-        description=(
-            job.get("full_description")
-            or job.get("description")
-            or (job.get("reason", "") + "\n" + job.get("why_relevant", ""))
-        ),
+        description=job.get("reason", "") + "\n" + job.get("why_relevant", ""),
         platform=job.get("platform", ""),
         budget=job.get("budget", "не вказано"),
         url=job.get("url", ""),
-        language=job.get("language", "uk"),
-        client_context=job.get("client_context", ""),
-        selected_evidence=job.get("selected_evidence", ""),
-        recommended_price=job.get("recommended_price", ""),
-        recommended_timeline=job.get("realistic_timeline", ""),
-        existing_proposal=saved_proposal,
-        rewrite=rewrite,
     )
 
     if not text:
@@ -557,7 +528,6 @@ async def _cmd_scan_debug(message: Message) -> None:
 @admin_router.message(Command("status"))
 async def cmd_status(message: Message) -> None:
     import asyncio
-    import json
     import state
 
     uptime = _fmt_uptime(state.start_time)
@@ -614,9 +584,6 @@ async def cmd_status(message: Message) -> None:
                 "sent": last.sent,
                 "sent_from_queue": last.sent_from_queue,
                 "errors": last.errors,
-                "mailbox_alias": getattr(last, "mailbox_alias", None) or "—",
-                "latency": getattr(last, "max_detection_latency_seconds", None),
-                "event_counts": getattr(last, "event_counts", "{}") or "{}",
             }
     except Exception as exc:
         gmail_memory_fallback = True
@@ -638,9 +605,6 @@ async def cmd_status(message: Message) -> None:
                 "sent": last.get("sent", 0),
                 "sent_from_queue": last.get("sent_from_queue", 0),
                 "errors": last.get("errors", 0),
-                "mailbox_alias": last.get("mailbox_alias", "—"),
-                "latency": last.get("max_detection_latency_seconds"),
-                "event_counts": last.get("event_counts", "{}"),
             }
 
     if gmail_telemetry is None:
@@ -656,25 +620,7 @@ async def cmd_status(message: Message) -> None:
             "sent": "—",
             "sent_from_queue": "—",
             "errors": "—",
-            "mailbox_alias": "—",
-            "latency": None,
-            "event_counts": "{}",
         }
-
-    try:
-        raw_event_counts = gmail_telemetry.get("event_counts", "{}")
-        event_counts = (
-            raw_event_counts
-            if isinstance(raw_event_counts, dict)
-            else json.loads(raw_event_counts)
-        )
-        event_counts_text = ", ".join(
-            f"{key}={value}" for key, value in sorted(event_counts.items())
-        ) or "—"
-    except (TypeError, ValueError, json.JSONDecodeError):
-        event_counts_text = "—"
-    latency = gmail_telemetry.get("latency")
-    latency_text = "—" if latency is None else f"{float(latency):.1f}s"
 
     telemetry_source = (
         "\nTelemetry source: <b>memory fallback</b>" if gmail_memory_fallback else ""
@@ -684,7 +630,6 @@ async def cmd_status(message: Message) -> None:
         "\n\n📬 <b>Gmail Agent</b>\n"
         f"Enabled: <b>{'✅ так' if gmail_enabled else '❌ ні'}</b>\n"
         f"Mode: <b>{gmail_mode}</b>\n"
-        f"OAuth identity: <b>{escape_html(gmail_telemetry['mailbox_alias'])}</b>\n"
         f"Next scan: <b>{gmail_next_run}</b>\n"
         f"Last completed scan: <b>{_fmt_dt(gmail_telemetry['timestamp'])}</b>\n"
         f"Trigger: <b>{escape_html(gmail_telemetry['trigger'])}</b>\n"
@@ -697,8 +642,6 @@ async def cmd_status(message: Message) -> None:
         f"Sent: <b>{gmail_telemetry['sent']}</b>\n"
         f"Sent from queue: <b>{gmail_telemetry['sent_from_queue']}</b>\n"
         f"Errors: <b>{gmail_telemetry['errors']}</b>"
-        f"\nMax detection latency: <b>{latency_text}</b>"
-        f"\nEvent counts: <b>{escape_html(event_counts_text)}</b>"
         + telemetry_source
     )
 
@@ -770,17 +713,15 @@ async def cmd_gmail_account(message: Message) -> None:
         return
 
     try:
-        from gmail_agent.gmail_provider import RealGmailProvider, mask_email_address
+        from gmail_agent.gmail_provider import RealGmailProvider
 
         provider = RealGmailProvider(
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
-            expected_account=getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None),
-            lookback_days=getattr(settings, "GMAIL_LOOKBACK_DAYS", 7),
         )
         profile = await asyncio.wait_for(provider.get_account_profile(), timeout=30.0)
         await message.answer(
-            f"Connected Gmail account: <code>{escape_html(mask_email_address(profile['email_address']))}</code>\n"
+            f"Connected Gmail account: <code>{escape_html(profile['email_address'])}</code>\n"
             f"Inbox messages count: <b>{int(profile['inbox_messages_count'])}</b>\n"
             f"OAuth status: <b>{escape_html(profile['oauth_status'])}</b>"
         )
@@ -901,18 +842,6 @@ def _diagnose_gmail_connection(creds_file: str, token_file: str) -> dict:
         from googleapiclient.discovery import build
         svc = build("gmail", "v1", credentials=creds)
 
-        expected_account = _os.getenv("GMAIL_EXPECTED_ACCOUNT", "").strip().casefold()
-        if not expected_account:
-            result["status"] = "identity_required"
-            result["message"] = "GMAIL_EXPECTED_ACCOUNT is required in real mode"
-            return result
-        profile = svc.users().getProfile(userId="me").execute()
-        observed_account = str(profile.get("emailAddress", "")).strip().casefold()
-        if observed_account != expected_account:
-            result["status"] = "identity_mismatch"
-            result["message"] = "Gmail OAuth mailbox mismatch; scan refused"
-            return result
-
         resp = svc.users().messages().list(
             userId="me", labelIds=["INBOX"], maxResults=10
         ).execute()
@@ -977,10 +906,6 @@ async def cmd_gmail_test(message: Message) -> None:
     lines.append(f"GMAIL_USE_MOCK: <code>{'true' if settings.GMAIL_USE_MOCK else 'false'}</code>")
     lines.append(f"GMAIL_MIN_SCORE: <code>{settings.GMAIL_MIN_SCORE}</code>")
     lines.append(f"GMAIL_CHECK_INTERVAL: <code>{settings.GMAIL_CHECK_INTERVAL_MINUTES} хв</code>")
-    lines.append(
-        "GMAIL_EXPECTED_ACCOUNT: "
-        + ("<code>configured</code>" if getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None) else "<code>missing</code>")
-    )
 
     creds_file = settings.GMAIL_CREDENTIALS_FILE
     token_file = settings.GMAIL_TOKEN_FILE
@@ -1118,8 +1043,6 @@ async def cmd_gmail_scan(message: Message) -> None:
             use_mock=settings.GMAIL_USE_MOCK,
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
-            expected_account=getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None),
-            lookback_days=getattr(settings, "GMAIL_LOOKBACK_DAYS", 7),
         )
         try:
             repository = PostgresGmailRepository(AsyncSessionLocal)
@@ -1178,9 +1101,7 @@ async def cmd_gmail_scan(message: Message) -> None:
         f"📤 Відправлено нових: <b>{fresh_sent}</b>\n"
         f"🔁 Відправлено з черги: <b>{sent_from_queue}</b>\n"
         f"📨 Всього відправлено: <b>{sent}</b>\n"
-        f"❌ Помилок: <b>{errors}</b>\n"
-        f"⏱ Max detection latency: <b>{float(getattr(stats, 'max_detection_latency_seconds', 0.0)):.1f}s</b>\n"
-        f"📮 OAuth identity: <b>{escape_html(getattr(stats, 'mailbox_alias', '') or '—')}</b>"
+        f"❌ Помилок: <b>{errors}</b>"
     )
 
     if sent_from_queue > 0:
@@ -1263,11 +1184,6 @@ async def cmd_gmail_scan(message: Message) -> None:
             "sent": sent,
             "sent_from_queue": sent_from_queue,
             "errors": errors,
-            "event_counts": getattr(stats, "event_counts", {}),
-            "mailbox_alias": getattr(stats, "mailbox_alias", ""),
-            "max_detection_latency_seconds": getattr(
-                stats, "max_detection_latency_seconds", None
-            ),
         })
         if len(_state.gmail_scan_history) > 20:
             _state.gmail_scan_history = _state.gmail_scan_history[-20:]
@@ -1295,8 +1211,6 @@ def _gmail_digest_processor(message: Message):
         use_mock=settings.GMAIL_USE_MOCK,
         credentials_file=settings.GMAIL_CREDENTIALS_FILE,
         token_file=settings.GMAIL_TOKEN_FILE,
-        expected_account=getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None),
-        lookback_days=getattr(settings, "GMAIL_LOOKBACK_DAYS", 7),
     )
     repository = PostgresGmailRepository(AsyncSessionLocal)
     return GmailJobProcessor(
@@ -1496,8 +1410,6 @@ async def cmd_gmail_debug(message: Message) -> None:
             mock_emails=mock_emails,
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
-            expected_account=getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None),
-            lookback_days=getattr(settings, "GMAIL_LOOKBACK_DAYS", 7),
         )
 
         results = await provider.get_recent_email_diagnostics(max_results=10)

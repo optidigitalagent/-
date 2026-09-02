@@ -280,7 +280,7 @@ async def weekly_report(bot: Bot) -> None:
         ) or 0
 
     text = (
-        "📊 <b>Тижневий звіт Antonov Digital</b>\n\n"
+        "📊 <b>Тижневий звіт OptiDigital</b>\n\n"
         f"🔍 Знайдено: <b>{found}</b>\n"
         f"⚡ Оцінено: <b>{scored}</b>\n"
         f"✅ Відправлено відгуків: <b>{sent}</b>"

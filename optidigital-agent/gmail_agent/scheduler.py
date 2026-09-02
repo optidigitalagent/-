@@ -36,8 +36,6 @@ async def check_gmail_jobs(bot: Any) -> None:
             use_mock=settings.GMAIL_USE_MOCK,
             credentials_file=settings.GMAIL_CREDENTIALS_FILE,
             token_file=settings.GMAIL_TOKEN_FILE,
-            expected_account=getattr(settings, "GMAIL_EXPECTED_ACCOUNT", None),
-            lookback_days=getattr(settings, "GMAIL_LOOKBACK_DAYS", 7),
         )
         try:
             repository = PostgresGmailRepository(session_factory)
@@ -128,11 +126,6 @@ async def check_gmail_jobs(bot: Any) -> None:
                 "sent": stats.sent,
                 "sent_from_queue": getattr(stats, "sent_from_queue", 0),
                 "errors": stats.errors,
-                "event_counts": getattr(stats, "event_counts", {}),
-                "mailbox_alias": getattr(stats, "mailbox_alias", ""),
-                "max_detection_latency_seconds": getattr(
-                    stats, "max_detection_latency_seconds", None
-                ),
             }
         )
         if len(_state.gmail_scan_history) > 20:
@@ -141,7 +134,7 @@ async def check_gmail_jobs(bot: Any) -> None:
         logger.exception("Failed to save gmail scan history")
 
 
-def register_gmail_job(scheduler: Any, bot: Any, interval_minutes: int = 1) -> None:
+def register_gmail_job(scheduler: Any, bot: Any, interval_minutes: int = 30) -> None:
     """Register Gmail check as APScheduler recurring job."""
     import sys
 
@@ -155,7 +148,7 @@ def register_gmail_job(scheduler: Any, bot: Any, interval_minutes: int = 1) -> N
     scheduler.add_job(
         check_gmail_jobs,
         trigger="interval",
-        minutes=max(1, interval_minutes),
+        minutes=interval_minutes,
         id="check_gmail_jobs",
         args=[bot],
         max_instances=1,

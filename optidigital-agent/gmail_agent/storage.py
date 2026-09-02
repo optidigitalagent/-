@@ -54,39 +54,6 @@ class StoredGmailJob:
     created_at: datetime = dataclass_field(default_factory=utc_now)
     status: str = "queued"
     status_updated_at: datetime = dataclass_field(default_factory=utc_now)
-    event_type: str = "PROJECT_SINGLE"
-    full_description: str = ""
-    description_completeness: str = "PARTIAL"
-    language: str = "uk"
-    category: str = ""
-    skills: str = ""
-    deadline: str = ""
-    bid_count: int | None = None
-    client_name: str = ""
-    client_profile_url: str = ""
-    client_context: str = ""
-    project_id: str = ""
-    thread_id: str = ""
-    service_lane: str = ""
-    executable: str = "uncertain"
-    fit_score: float | None = None
-    win_probability_signal: str = ""
-    scope_clarity: str = ""
-    estimated_effort: str = ""
-    delivery_risk: str = ""
-    client_payment_risk: str = ""
-    project_mode: str = ""
-    project_mode_reason: str = ""
-    recommended_price: str = ""
-    realistic_timeline: str = ""
-    selected_evidence: str = ""
-    analysis_evidence: str = ""
-    proposal_draft: str = ""
-    needs_context: bool = False
-    next_action: str = ""
-    source_mailbox_alias: str = ""
-    received_at: datetime | None = None
-    sensitive_redacted: bool = False
 
 
 # Short public name for callers; the longer name makes its persistence role
@@ -110,9 +77,6 @@ class ScanRun:
     sent: int = 0
     sent_from_queue: int = 0
     errors: int = 0
-    event_counts: str = "{}"
-    mailbox_alias: str | None = None
-    max_detection_latency_seconds: float | None = None
     id: int | None = None
 
 
@@ -197,16 +161,6 @@ class InMemoryGmailRepository:
                     created_at=current.created_at,
                     status=status,
                     status_updated_at=status_updated_at,
-                    # Never lose the source specification or first selected
-                    # proposal when a retry/restart saves a thinner payload.
-                    full_description=(
-                        job.full_description or current.full_description
-                    ),
-                    client_context=(job.client_context or current.client_context),
-                    proposal_draft=(job.proposal_draft or current.proposal_draft),
-                    selected_evidence=(
-                        job.selected_evidence or current.selected_evidence
-                    ),
                 )
             stored = replace(job)
             self._jobs[job.stable_key] = stored
@@ -351,18 +305,7 @@ class PostgresGmailRepository:
         incoming = {
             key: value
             for key, value in excluded.items()
-            if key not in {
-                "stable_key",
-                "created_at",
-                "status",
-                "status_updated_at",
-                # Source truth and the original proposal remain immutable on
-                # conflict; rewrites are returned separately by /reply_job.
-                "full_description",
-                "client_context",
-                "proposal_draft",
-                "selected_evidence",
-            }
+            if key not in {"stable_key", "created_at", "status", "status_updated_at"}
         }
         incoming["status"] = _preserved_job_status(excluded.status, self._job_model)
         incoming["status_updated_at"] = _preserved_job_status_updated_at(

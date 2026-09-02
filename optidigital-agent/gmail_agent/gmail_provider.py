@@ -8,24 +8,13 @@ import logging
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from email.header import decode_header, make_header
 from email.utils import parseaddr
 from typing import Any
 from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
-
-
-def mask_email_address(value: str) -> str:
-    """Return a non-secret operational alias suitable for status cards/logs."""
-
-    address = (value or "").strip().casefold()
-    if "@" not in address:
-        return "unverified"
-    local, domain = address.rsplit("@", 1)
-    prefix = local[:2] if len(local) >= 2 else local[:1]
-    return f"{prefix}***@{domain}"
 
 
 def _gmail_reauth_message(reason: str) -> str:
@@ -121,14 +110,17 @@ class MockGmailProvider(GmailProvider):
         self, days: int = 7
     ) -> list[EmailMessage]:
         _validate_lookback_days(days)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         matches: list[EmailMessage] = []
         for email in self._emails:
             diagnostic = build_email_diagnostic(email.sender, email.subject)
             if not _is_freelancehunt_digest(diagnostic):
                 continue
-            # Synthetic fixture timestamps are intentionally independent of
-            # wall-clock time; real lookback semantics are enforced by Gmail q.
-            matches.append(email)
+            received_at = email.received_at
+            if received_at.tzinfo is None:
+                received_at = received_at.replace(tzinfo=timezone.utc)
+            if received_at >= cutoff:
+                matches.append(email)
         return matches
 
 
@@ -251,22 +243,11 @@ class RealGmailProvider(GmailProvider):
 
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-    def __init__(
-        self,
-        credentials_file: str,
-        token_file: str,
-        max_results: int = 100,
-        expected_account: str | None = None,
-        lookback_days: int = 7,
-    ):
+    def __init__(self, credentials_file: str, token_file: str, max_results: int = 50):
         self._credentials_file = credentials_file
         self._token_file = token_file
         self._max_results = max_results
-        self._expected_account = (expected_account or "").strip().casefold()
-        self._lookback_days = max(1, int(lookback_days))
         self._service: Any = None
-        self._identity_verified = False
-        self._identity_alias = "unverified"
 
     def _build_service(self) -> Any:
         try:
@@ -322,36 +303,11 @@ class RealGmailProvider(GmailProvider):
 
         return build("gmail", "v1", credentials=creds)
 
-    def _verify_service_identity(self, service: Any) -> None:
-        """Fail closed unless users.getProfile matches the configured mailbox."""
-
-        if self._identity_verified:
-            return
-        if not self._expected_account:
-            # Direct construction is retained for isolated unit tests and
-            # account diagnostics. The production factory below requires it.
-            self._identity_alias = "unverified"
-            self._identity_verified = True
-            return
-        profile = service.users().getProfile(userId="me").execute()
-        observed = str(profile.get("emailAddress", "")).strip().casefold()
-        if not observed or observed != self._expected_account:
-            raise RuntimeError(
-                "Gmail OAuth mailbox mismatch; refusing to read or process mail"
-            )
-        self._identity_alias = mask_email_address(observed)
-        self._identity_verified = True
-
     @property
     def service(self) -> Any:
         if self._service is None:
             self._service = self._build_service()
-        self._verify_service_identity(self._service)
         return self._service
-
-    @property
-    def identity_alias(self) -> str:
-        return self._identity_alias
 
     @staticmethod
     def _decode_part_data(part: dict) -> str:
@@ -676,7 +632,6 @@ class RealGmailProvider(GmailProvider):
             "threads_total": profile.get("threadsTotal", 0),
             "inbox_messages_count": inbox.get("messagesTotal", 0),
             "oauth_status": "OK",
-            "identity_alias": mask_email_address(profile.get("emailAddress", "")),
         }
 
     async def get_account_profile(self) -> dict[str, Any]:
@@ -689,11 +644,7 @@ class RealGmailProvider(GmailProvider):
             svc = self.service
             result = svc.users().messages().list(
                 userId="me",
-                q=(
-                    "from:(freelancehunt.com OR work.ua OR robota.ua OR upwork.com) "
-                    f"newer_than:{self._lookback_days}d"
-                ),
-                includeSpamTrash=False,
+                labelIds=["INBOX"],
                 maxResults=self._max_results,
             ).execute()
 
@@ -742,19 +693,7 @@ def build_provider(
     mock_emails: list[EmailMessage] | None = None,
     credentials_file: str = "credentials.json",
     token_file: str = "gmail_token.json",
-    expected_account: str | None = None,
-    lookback_days: int = 7,
 ) -> GmailProvider:
     if use_mock:
         return MockGmailProvider(emails=mock_emails or [])
-    if not (expected_account or "").strip():
-        raise RuntimeError(
-            "GMAIL_EXPECTED_ACCOUNT is required in real Gmail mode; "
-            "mailbox identity was not verified"
-        )
-    return RealGmailProvider(
-        credentials_file=credentials_file,
-        token_file=token_file,
-        expected_account=expected_account,
-        lookback_days=lookback_days,
-    )
+    return RealGmailProvider(credentials_file=credentials_file, token_file=token_file)

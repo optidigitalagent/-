@@ -401,8 +401,8 @@ token.json: ✅ знайдено
 ### Read-only account and token proof ✅
 
 - The premise that production still used the previous Gmail account was rechecked before changing any secret.
-- Railway production env proof via Gmail `users().getProfile(userId="me")`: connected legacy account `ti***@gmail.com`, messages total 613, threads total 584, OAuth refresh/status OK.
-- Local `gmail_token_fh.json` proof: despite its legacy filename, the token belongs to the same masked legacy account, contains a refresh token, and refreshes successfully.
+- Railway production env proof via Gmail `users().getProfile(userId="me")`: connected account `tijgadymg@gmail.com`, messages total 613, threads total 584, OAuth refresh/status OK.
+- Local `gmail_token_fh.json` proof: despite its legacy filename, the token belongs to `tijgadymg@gmail.com`, contains a refresh token, and refreshes successfully.
 - Because both local and production identities already match the required account, no new OAuth flow was started and `GMAIL_TOKEN_JSON` was not replaced.
 - No OAuth token, refresh token, client secret, credentials JSON, message ID, or email body was printed.
 
@@ -421,7 +421,7 @@ token.json: ✅ знайдено
 - Added `RealGmailProvider.get_account_profile()`, which calls only Gmail profile and Inbox label metadata endpoints.
 - The command shows only connected Gmail account, Inbox messages count, and OAuth status; errors expose only the exception type.
 - Unit proof verifies that the profile and Inbox label endpoints are called and Gmail message list/get endpoints are not called.
-- Production-env proof through the new code path: connected legacy account `ti***@gmail.com`, Inbox messages count 611, OAuth status OK.
+- Production-env proof through the new code path: connected account `tijgadymg@gmail.com`, Inbox messages count 611, OAuth status OK.
 - QA proof: `python -m unittest discover -s gmail_agent\\tests -v` -> 58/58 OK.
 - Compile proof: `python -m py_compile gmail_agent\\gmail_provider.py bot\\handlers.py` -> OK.
 - `git diff --check` -> clean apart from existing line-ending notices; credential/token files remain ignored.
@@ -516,7 +516,7 @@ token.json: ✅ знайдено
 ### Stage 12 — Railway production proof ✅
 
 - Targeted implementation commit `ec78f4f049c13811165cc1fcce00630e6c82f43c` was pushed to `main`; pre-deploy Railway deployment `7b7f2fb4-2d5e-48ec-8831-ab6d1fda5a9d` reached `SUCCESS` on Python 3.13.14. Startup completed, migrations ran before polling, and the Gmail scheduler registered at 60 minutes.
-- Production account proof after deploy: legacy alias `ti***@gmail.com`, OAuth `OK`, Inbox count 611. No token, credential, Gmail message ID, or body was printed.
+- Production account proof after deploy: `tijgadymg@gmail.com`, OAuth `OK`, Inbox count 611. No token, credential, Gmail message ID, or body was printed.
 - Read-only `/gmail_digest_preview 7` equivalent found exactly two real Freelancehunt digests and extracted 2 + 1 individual jobs. Scores were 0.0, 2.0, and 2.0; no item met the unchanged 6.0 threshold. Preview returned zero errors and changed neither PostgreSQL nor dedup.
 - First production backfill: emails=2, candidates=3, relevant=2, not_relevant=1, below_threshold=2, sent=0, duplicates=0, errors=0. No Telegram card was sent because no child met score 6.0.
 - Immediate repeated backfill: emails=2, candidates=3, duplicates=3, sent=0, errors=0. It did not repeat AI analysis or Telegram delivery.
