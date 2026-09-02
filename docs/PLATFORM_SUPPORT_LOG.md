@@ -1,0 +1,159 @@
+# Platform Support Log
+
+## 2026-08-31 — Freelancehunt under-18 account and adult-owner route
+
+### Initial question
+
+Artem disclosed that he is 15 and asked whether the truthful account could remain active only for project viewing, email alerts and market analysis. The same message asked whether Antonov Digital could operate through a genuine adult owner while openly disclosing Artem's role.
+
+### Initial support answer
+
+Freelancehunt support stated that platform activity is permitted only for adult users and that Artem's account cannot currently be used for any purpose.
+
+Support instructed Artem to deactivate the account for the next three years. After reaching age 18, he should contact `support@freelancehunt.com` so support can restore access.
+
+### Follow-up question
+
+Artem clarified a separate operating model:
+
+- the adult person registers and operates their own account using truthful personal data
+- the adult person independently controls the login, verification, bids, correspondence, contracts and payments
+- Artem has no access to the adult owner's account and does not act in the adult owner's name
+- Artem may be disclosed to clients as a partner in Antonov Digital
+
+### Follow-up support answer
+
+Freelancehunt support confirmed that the adult person may independently register and operate their own account.
+
+Support also stated that it sees no problem with identifying Artem in client correspondence as a partner because the legal account owner is a legally capable adult.
+
+### Approved operating path
+
+Route status:
+
+`APPROVED_ADULT_OWNER_WITH_DISCLOSED_PARTNER`
+
+The approval is bounded by the operating model described to support:
+
+- the account belongs to the genuine adult owner
+- the adult owner controls the account and credentials
+- the adult owner passes verification
+- the adult owner submits bids and conducts platform correspondence
+- the adult owner is the contracting party and payment recipient
+- Artem does not log in, operate the account or impersonate the adult owner
+- Artem may be truthfully disclosed as an Antonov Digital co-founder/partner
+- roles, responsibility and who will perform work are described truthfully to each client
+- platform automation restrictions still apply; this approval does not authorize automatic bidding, mass messaging or credential sharing
+
+### Minor founder account decision
+
+Support-required state:
+
+`BLOCKED_UNTIL_18_DEACTIVATION_REQUIRED`
+
+Operational consequence:
+
+- no profile work, verification, alerts, browsing, bidding, messaging, paid plan or automation
+- no Gmail/OAuth ingestion may depend on that platform account
+- no replacement account for Artem
+- after age 18, contact support to restore it
+
+### Current mailbox decision
+
+Any active Freelancehunt account must use a mailbox controlled by its genuine adult physical-person owner.
+
+The same adult-owned mailbox may later be connected through minimum-permission Gmail OAuth for permitted notification ingestion by the internal revenue agent.
+
+This mailbox design is an internal operational decision and does not expand the permissions stated by Freelancehunt support. The adult owner still performs every action inside Freelancehunt.
+
+## 2026-09-01 — Final clarification on brand, team, communication and profile photo
+
+Freelancehunt support confirmed the following operating details:
+
+- The format is permitted only when the account genuinely belongs to the adult owner, who uses their own registration and verification data, manages the profile, approves project terms, enters agreements and receives payment.
+- `Antonov Digital` may be named in the profile description as the team with which the adult owner works.
+- The profile must clearly remain an account of one specific physical person, not a corporate or shared team account.
+- The team composition and roles should be disclosed openly, including Artem Antonov as co-founder/partner and Vadim as developer.
+- When the team will participate in a specific project, the client should be told during discussion of the cooperation terms.
+- Access to the account and every action made in the profile's name remain with the adult owner.
+- The team may prepare technical solutions, materials and communication drafts, but bids, approval of terms, Workspace actions, financial operations and messages sent in the profile's name must be performed by the adult owner.
+- A neutral Antonov Digital logo is not recommended as the avatar of a verified profile.
+- The preferred avatar is a real current photo of the adult owner or, only when accepted by the selected verification method, a stylized image that still depicts the owner.
+
+Support supplied an acceptable disclosure pattern:
+
+> Профіль належить [ім’я власниці]. Працюю разом із командою Antonov Digital. До виконання проєктів можуть залучатися зазначені в профілі спеціалісти команди. Усі домовленості, угоди та фінансові операції на Freelancehunt здійснюються особисто власницею профілю.
+
+Final adult route state:
+
+`APPROVED_ADULT_PHYSICAL_PERSON_PROFILE_WITH_DISCLOSED_ANTONOV_DIGITAL_TEAM`
+
+## 2026-09-01 — Successful minor identity verification did not grant work access
+
+### Event
+
+Artem personally completed the platform's verification flow using his own identity data. His date of birth is `2011-01-28`.
+
+No bids, agreements, project work or payments were performed after verification.
+
+### Final support ruling
+
+Freelancehunt support stated in writing that successful verification confirms identity and submitted data only. It does not override the platform's age restriction.
+
+Support confirmed:
+
+- Artem may not use Freelancehunt for work before age 18.
+- He may not submit bids, enter agreements, perform projects or receive payment through the platform.
+- He becomes age-eligible on `2029-01-28`.
+- No additional sanctions will be applied because he did not bid, contract or receive payment after verification.
+- The profile must be deactivated until he reaches age 18.
+- After `2029-01-28`, he may contact support to restore access.
+
+### Final minor-account state
+
+`VERIFIED_IDENTITY_BUT_DEACTIVATION_REQUIRED_UNTIL_2029-01-28`
+
+### Operational consequences
+
+- Stop all use of the minor-owned profile immediately.
+- Do not browse through the authenticated account, receive alerts through it, submit bids, message clients, enter Workspace, accept agreements, perform projects or receive payment.
+- Do not connect its notifications to the revenue agent.
+- Preserve the prepared profile copy, specializations, skills, notification plan and portfolio cards as reusable assets only.
+- Revenue acquisition must continue through either:
+  1. a separately created and genuinely adult-owned Freelancehunt profile under the previously approved support model; or
+  2. direct sales and other age-eligible channels.
+
+## 2026-09-02 — Phone-number release for the new adult-owned profile
+
+### Context
+
+The new adult-owned profile `AntonovDigital.html` was commercially configured, but phone confirmation was blocked because the adult owner's number remained attached to the old profile.
+
+### Support response observed in the new operational mailbox
+
+Freelancehunt support stated that it could deactivate the old profile and detach the phone number so the adult owner could use it on the new profile. Support asked whether that solution was acceptable.
+
+A later message in the same platform-support conversation said that they were glad to help and wished the owner a good day. That later message suggests the support action may have been completed, but it does not explicitly state in the email body that the number was detached.
+
+### Operational status
+
+- `PHONE_RELEASE_OFFER_CONFIRMED`
+- `PHONE_RELEASE_LIKELY_COMPLETED_BUT_NOT_YET_TESTED`
+- `NEW_PROFILE_PHONE_CONFIRMATION_REQUIRED`
+
+### Required validation
+
+The adult owner must now try to add and confirm the number in the new `AntonovDigital` account.
+
+- If the number is accepted and the SMS/OTP confirmation succeeds, record `ADULT_PHONE_CONFIRMED_NEW_ACCOUNT` and proceed to the final pre-verification audit.
+- If Freelancehunt still reports that the number is occupied, reply in the existing support thread with the exact platform error and request confirmation that the old profile was deactivated and the number detached.
+
+Do not expose the phone number in repository files or reports.
+
+### Evidence
+
+Primary evidence is the Freelancehunt notification email in the connected adult-owned Gmail mailbox. No phone number, private account identifiers, OTP codes or screenshots are committed here.
+
+### Evidence policy
+
+Primary evidence for all support decisions is the support-chat transcript and connected mailbox messages retained outside the public repository. No identity documents, private screenshots, mailbox addresses, phone numbers or account identifiers are committed here.

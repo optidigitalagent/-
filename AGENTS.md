@@ -1,182 +1,85 @@
-# AGENTS — Gmail-based AI Job Notification System
+# AGENTS.md — Antonov Digital Freelance Revenue Engine
 
-## Архітектура агентів
+## Required reading
 
-```
-Gmail Inbox
-    │
-    ▼
-[gmail-integration-agent]
-    │  читає нові листи
-    │  фільтрує за sender/subject
-    ▼
-[ai-analyzer-agent]
-    │  score 0–10
-    │  reason, budget, platform, urgency
-    ▼
-[qa-tester] ← перевіряє score >= threshold
-    │
-    ▼
-[telegram-agent]
-    │  відправляє картку
-    │  /reply_job <id>
-    ▼
-[reply-generator-agent]
-    │  генерує відгук
-    │  НЕ відправляє автоматично
-    ▼
-[final-verifier]
-    │  користувач перевіряє
-    │  копіює вручну
-```
+Before any work, read in this order:
 
----
+1. `.codex/project_brain/PROJECT_BRAIN.md`
+2. `.codex/project_brain/BUSINESS_RULES.md`
+3. `.codex/project_brain/PLATFORM_RULES.md`
+4. `.codex/project_brain/DECISIONS.md`
+5. `.codex/project_brain/GOAL_PROGRESS.md`
+6. `.codex/project_brain/NEXT_ACTION.md`
+7. `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`
+8. Existing `GOAL.md`, root `GOAL_PROGRESS.md` and `docs/LEGACY_AGENT_ARCHITECTURE.md` when work touches the legacy agent.
 
-## Ролі агентів
+For adult-owned Freelancehunt profile setup, also use:
 
-### goal-executor
-**Файл:** `GOAL.md` + `GOAL_PROGRESS.md`
+- `.agents/skills/freelancehunt-profile-operator/SKILL.md`
+- `docs/FREELANCEHUNT_BROWSER_PROFILE_AUTOMATION.md`
+- `ops/freelancehunt/profile_source.yaml`
+- `.codex/private/freelancehunt_owner.local.yaml` when present
 
-Відповідальність:
-- Читає `GOAL.md` на початку кожного циклу
-- Оновлює `GOAL_PROGRESS.md` після кожного кроку
-- Визначає чи ціль досягнута
-- Зупиняється тільки коли є практичний доказ роботи
+## Primary objective
 
----
+Maximize legitimate net funded revenue for Antonov Digital through:
 
-### planner
-**Файл:** `GOAL_PROGRESS.md` → план дій
+`opportunity -> qualification -> proposal -> reply -> negotiation -> funded project -> delivery -> payout -> review/repeat work`
 
-Відповідальність:
-- Розбиває ціль на мінімальні безпечні кроки
-- Не пише код поки план не погоджений
-- Враховує існуючий код — не ломає старе
+Do not optimize for feature count, technical novelty, message volume or activity without a measurable commercial purpose.
 
----
+## Existing implementation baseline
 
-### backend-implementer
-**Файли:** `gmail_agent/*.py`
+The current production-oriented agent lives under `optidigital-agent/` and already contains Gmail ingestion, AI analysis, Telegram notifications, reply drafting, persistence and Railway-related runtime logic. Preserve existing working behavior unless a task explicitly replaces it.
 
-Відповідальність:
-- Реалізує модулі по одному
-- Кожен модуль — окремий файл з чіткою відповідальністю
-- Не додає зайвих залежностей
+The current baseline is a job-notification and proposal-draft system, not yet a complete revenue engine. Production development is out of scope during Stage 0.
 
----
+## Non-negotiable rules
 
-### gmail-integration-agent
-**Файл:** `gmail_agent/gmail_provider.py`
+- Use only truthful identities, team structure, experience, portfolio evidence and metrics.
+- Use one legitimate Freelancehunt freelancer account in an approved format.
+- Do not create or support duplicate/fake accounts, decoy bids, staged competition, spam, prohibited auto-bidding, verification bypasses or policy evasion.
+- Do not invent client facts, results, testimonials, timelines or capabilities.
+- Do not commit passwords, OAuth tokens, API keys, cookies, session files, client secrets or literal private mailbox mappings to a public repository.
+- Do not merge, deploy, change production or modify `main` without explicit authorization.
+- Use a branch and draft pull request for repository changes.
+- Keep ordinary reversible work autonomous, but do not make irreversible legal, payment, scope or production commitments outside approved rules.
 
-Відповідальність:
-- `GmailProvider` — абстрактний інтерфейс
-- `MockGmailProvider` — для тестів без credentials
-- `RealGmailProvider` — реальний Gmail OAuth2 API
-- Повертає список `EmailMessage` об'єктів
-- Запам'ятовує прочитані email IDs (через dedup)
+## Working protocol
 
-Методи:
-```python
-async def get_new_emails() -> list[EmailMessage]
-async def mark_as_processed(email_id: str) -> None
-```
+1. Inspect the repository and project-state files before changing anything.
+2. Map every task to a funnel stage and measurable result.
+3. Prefer the smallest change that improves revenue, conversion, reliability or delivery speed.
+4. Preserve existing working behavior outside scope.
+5. Validate changes with targeted tests or document checks.
+6. Update `DECISIONS.md`, `GOAL_PROGRESS.md` and `NEXT_ACTION.md` when state changes.
+7. Report using the full structure in `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`.
 
----
+## Reporting requirement
 
-### ai-analyzer-agent
-**Файл:** `gmail_agent/email_analyzer.py`
+A short status such as `READY`, a changed-file count, or a blocker code is never sufficient by itself.
 
-Відповідальність:
-- Отримує `EmailMessage`
-- Викликає OpenAI для аналізу
-- Повертає `JobAnalysis`:
-  - `score: float` (0–10)
-  - `reason: str`
-  - `platform: str`
-  - `title: str`
-  - `budget: str`
-  - `url: str`
-  - `urgency: str` (high/medium/low)
-  - `is_relevant: bool`
-  - `why_relevant: str`
+Every response must state:
 
----
+- exact objective
+- actual outcome
+- actions performed
+- evidence
+- source-of-truth comparison
+- exact files or browser fields changed
+- unchanged/prohibited actions
+- blockers and continued work
+- readiness impact
+- exactly one next action
 
-### telegram-agent
-**Файл:** `gmail_agent/telegram_notifier.py`
+Before returning any `*_READY` status, re-read the changed files, search for stale placeholders and contradictory values, and verify that the selected adult account owner is the genuine adult owner—not Artem, a temporary nickname, or a value chosen merely to satisfy a check.
 
-Відповідальність:
-- Форматує `JobAnalysis` в Telegram-картку
-- Відправляє картку з кнопками `/reply_job` і `/skip_job`
-- НЕ відправляє відгук автоматично
+## Browser profile-operation boundary
 
-Картка:
-```
-🔥 New Job Match
+Codex may use an interactive Playwright or Chrome DevTools browser to inspect, fill, save and verify ordinary reversible fields on the adult-owned Freelancehunt profile. It must use approved source files and pause for account mismatch, login, CAPTCHA, OTP, 2FA, identity verification, document upload, paid-plan/payment actions and contractual commitments. It must not operate the minor-owned account, submit bids or send client messages during profile setup.
 
-Платформа: ...
-Назва: ...
-Score: .../10
-Бюджет: ...
-Опис: ...
-Чому підходить: ...
-Посилання: ...
+A browser/account blocker applies only to live browser changes. Continue all safe offline preparation, validation and reporting that remains possible.
 
-/reply_job <id>   /skip_job <id>
-```
+## Discovery policy
 
----
-
-### reply-generator-agent
-**Файл:** `gmail_agent/reply_generator.py`
-
-Відповідальність:
-- Отримує `JobAnalysis` по ID
-- Генерує короткий впевнений відгук
-- НЕ вигадує технології яких немає
-- Показує draft користувачу для перевірки
-
----
-
-### qa-tester
-**Файли:** `gmail_agent/tests/*.py`
-
-Відповідальність:
-- `test_dedup.py` — тести дедуплікації
-- `test_analyzer.py` — тести AI аналізатора
-- `test_processor.py` — end-to-end pipeline тест
-- Всі тести запускаються без реального Gmail і Telegram
-
-Критерії pass:
-- Mock email читається
-- Score рахується коректно
-- Дублікати не пропускаються
-- Нерелевантні email відхиляються
-
----
-
-### bug-fixer
-Відповідальність:
-- Аналізує логи при падінні тестів
-- Знаходить root cause
-- Мінімальний fix — не рефакторинг
-- Після fix — повторно запускає тести
-
----
-
-### final-verifier
-Відповідальність:
-- Перевіряє що старий бот не зламаний
-- Перевіряє що нова Gmail-архітектура ізольована
-- Підтверджує що `GMAIL_ENABLED=false` вимикає нову функцію
-- Документує як запустити реальне тестування
-
----
-
-## Правила взаємодії агентів
-
-1. Кожен агент пише тільки свій модуль
-2. Агенти не змінюють чужий код без погодження
-3. Всі зміни в `GOAL_PROGRESS.md`
-4. Тест падає → bug-fixer → тест повторно
-5. Не вважати "готово" без proof of work
+Do not pre-prioritize AI agents, automation, Telegram bots, CRM, websites, MVPs, AI content or other supported services. Test them using real market data and shift resources only after measurable response, win-rate, profit and delivery evidence exists.

@@ -1,0 +1,61 @@
+# Copy this file locally to:
+# .codex/private/freelancehunt_owner.local.yaml
+#
+# Never commit the completed local file.
+# The adult account owner must review these values and remain the sole controller
+# of login, verification, platform correspondence, contracts, and payments.
+
+adult_owner:
+  full_legal_name: ""
+  public_display_name: ""
+  date_of_birth: "" # only if the live profile requires it; adult owner enters/reviews
+  country: "Ukraine"
+  city: "Kyiv"
+  phone: "" # adult-owned number
+  profile_photo_path: "" # absolute local path to the approved real photo
+  gender_for_copy: "female"
+  public_role_uk: "Засновниця Antonov Digital"
+  operational_role_uk: "клієнтська комунікація, організація роботи, договори та оплата"
+  years_of_experience: null # leave null unless factually verified
+  education: []
+  certifications: []
+
+team:
+  cofounder_partner_name: "Артем Антонов"
+  cofounder_partner_role_uk: "менеджмент, маркетинг, залучення клієнтів та окремі задачі розробки"
+  primary_developer_name: "Вадим"
+  primary_developer_role_uk: "основна технічна реалізація"
+
+account:
+  expected_profile_url: ""
+  expected_login_email_alias: "PLATFORM_OWNER_MAILBOX_ADDRESS"
+  expected_visible_account_name: ""
+  active_freelancehunt_account_exists: false
+
+public_preferences:
+  preferred_profile_language: "uk"
+  allow_english_summary_when_supported: true
+  public_hourly_rate_usd: null
+  public_monthly_salary_uah: null
+  pricing_model: "project_or_milestone"
+  use_negotiable_rate_when_supported: true
+  available_for_work: true
+  add_polish_as_written_ai_assisted_only: true
+
+verification:
+  identity_verification_completed_by_owner: false
+  phone_verification_completed_by_owner: false
+  two_factor_enabled_by_owner: false
+
+assets:
+  adult_owner_real_photo_available: true
+  antonov_digital_logo_available: false
+
+notes_for_codex:
+  - "Do not infer or invent blank identity fields."
+  - "Use Ukrainian as the primary profile language."
+  - "Do not describe the adult owner as the primary developer."
+  - "Do not claim unsupported Polish oral fluency."
+  - "Use project or milestone pricing; do not invent an hourly rate."
+  - "Pause for the adult owner at login, CAPTCHA, OTP, document upload, and identity verification."
+  - "Do not store browser cookies, passwords, recovery codes, or identity documents in the repository."
