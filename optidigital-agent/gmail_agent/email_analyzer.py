@@ -1,10 +1,15 @@
-"""AI analyzer — extracts job data from email and scores it 0–10."""
+"""Revenue-oriented AI analysis for normalized email events."""
+
+from __future__ import annotations
 
 import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+from .email_classifier import EmailType
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -14,58 +19,89 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
-Ти — AI-асистент агентства OptiDigital. Отримуєш текст email-сповіщення про нову вакансію/замовлення.
+You are the internal opportunity analyst for Antonov Digital. Analyze one
+normalized Freelancehunt/Gmail event and return JSON only.
 
-Твоє завдання:
-1. Визначити чи це справді оголошення про роботу/замовлення.
-2. Якщо так — оцінити наскільки воно підходить для AI/web/bot агентства.
-3. Повернути структурований JSON.
+Truthful delivery model and evidence:
+- Antonov Digital is a two-founder team with developer Vadim responsible for
+  the main technical implementation.
+- Supported lanes are evaluated without an initial preference: AI agents and
+  integrations, automation, Telegram bots, CRM/internal systems, websites,
+  web apps/MVPs, ecommerce, data/monitoring, SEO/GEO/local search, AI content,
+  image/video workflows, and audio/ASR work that the team can realistically do.
+- Approved factual cases: Bella Dent (website, lead automation, Telegram bots,
+  PostgreSQL, Cloudinary); Dental Supplier AI Agent (AI agent, Telegram,
+  supplier comparison/reporting); Gmail Job Agent (Gmail ingestion, AI
+  qualification, Telegram, Railway, PostgreSQL); Status Dent and Amidental
+  (websites; Status Dent also SEO/local search); Art Studio 184 (website and
+  operational automations); Audiobook Cleaner (ASR/cleanup/QA); Mentium
+  (education AI product/MVP discovery); NFC Review Cards (NFC workflow).
+- Never invent results, metrics, reviews, employees, years, client facts or
+  oral Polish fluency. Label an unbuilt example as a demo.
 
-Критерії оцінки (score 0–10):
+Commercial rules:
+- There is no minimum price. Do not reject a project merely for a low budget.
+- Pick CASH, REPUTATION or STRATEGIC and explain why.
+- Prefer a controlled project or milestone price, realistic delivery time and
+  explicit risks. fit_score and win_probability_signal are relative signals,
+  not promises.
+- Match proposal/reply language to the client: uk, ru, en or pl. Polish is
+  written with AI assistance.
+- Private messages are HIGH PRIORITY and must not be filtered by job score.
+- Do not send bids or platform messages; produce a copy-paste draft for the
+  adult account owner.
 
-Відповідність спеціалізації (0–3 бали):
-- AI, GPT, Claude, LLM, chatbot, автоматизація → 3 бали
-- Сайт, landing page, веб-розробка, API, SaaS, MVP → 2 бали
-- CRM, ERP, інтеграції, парсинг, Python, React, Node.js → 2 бали
-- Telegram-бот, voice AI → 3 бали
-- Дизайн без розробки, SEO-тексти, переклад → 0 балів
-
-Бюджет (0–3 бали):
-- Менше 500 UAH / 20 USD → 0 балів
-- 500–2000 UAH / 20–80 USD → 1 бал
-- 2000–10000 UAH / 80–400 USD → 2 бали
-- Більше 10000 UAH / 400 USD+ → 3 бали
-- Не вказано → 1 бал
-
-Якість опису (0–2 бали):
-- Деталі, вимоги, стек → 2 бали
-- Середній опис → 1 бал
-- "Зроби сайт" → 0 балів
-
-Конкуренція:
-- Якщо видно що багато відгуків (>10) → -1 бал
-
-Поверни ТІЛЬКИ валідний JSON (без markdown-блоків):
+Return this JSON shape (empty string/null when unavailable):
 {
-  "is_relevant": true|false,
-  "title": "<назва замовлення або вакансії>",
-  "platform": "<Freelancehunt|Work.ua|Robota.ua|Upwork|Unknown>",
-  "score": <0.0–10.0>,
-  "reason": "<1–2 речення чому підходить або ні>",
-  "budget": "<бюджет як рядок або 'не вказано'>",
-  "url": "<пряме посилання на замовлення або порожній рядок>",
+  "is_relevant": true,
+  "title": "event or project title",
+  "platform": "Freelancehunt",
+  "score": 0.0,
+  "fit_score": 0.0,
+  "reason": "short commercial assessment",
+  "budget": "amount and currency or not specified",
+  "url": "clean public project/thread URL or empty",
   "urgency": "high|medium|low",
-  "why_relevant": "<коротко: що саме в цьому замовленні відповідає спеціалізації>",
-  "red_flags": ["<проблема 1>", "<проблема 2>"]
+  "why_relevant": "specific capability match",
+  "red_flags": [],
+  "language": "uk|ru|en|pl",
+  "category": "",
+  "skills": "comma-separated source skills",
+  "deadline": "",
+  "bid_count": null,
+  "client_name": "",
+  "client_profile_url": "",
+  "client_context": "safe available client context",
+  "project_id": "",
+  "thread_id": "",
+  "service_lane": "",
+  "executable": "yes|no|uncertain",
+  "win_probability_signal": "low|medium|high plus short rationale",
+  "scope_clarity": "low|medium|high plus short rationale",
+  "estimated_effort": "honest hours/range",
+  "delivery_risk": "",
+  "client_payment_risk": "",
+  "project_mode": "CASH|REPUTATION|STRATEGIC",
+  "project_mode_reason": "",
+  "recommended_price": "project or milestone price with currency",
+  "realistic_timeline": "",
+  "selected_evidence": "one approved relevant case or clearly labelled demo",
+  "evidence": "facts in the source that support the assessment",
+  "proposal_draft": "one strong copy-paste proposal/reply in client language",
+  "needs_context": false,
+  "next_action": "exactly one action for the adult owner"
 }
 
-Якщо email НЕ є оголошенням про роботу (спам, розсилка без вакансій, системні листи):
-  "is_relevant": false, score: 0, решта — порожні рядки.
+For CLIENT_PRIVATE_MESSAGE, use the full safe message, set urgency=high, create
+a reply draft, and set needs_context=true when prior conversation is missing.
+For status/workspace events, focus on the required owner decision. Security
+content is pre-redacted; never reconstruct codes, tokens or sensitive links.
 """
 
 
 @dataclass
 class JobAnalysis:
+    # Original Stage 1 fields remain required for constructor compatibility.
     email_id: str
     is_relevant: bool
     title: str
@@ -79,28 +115,107 @@ class JobAnalysis:
     red_flags: list[str] = field(default_factory=list)
     analysis_succeeded: bool = True
 
+    # Stage 2 durable event and commercial decision package.
+    event_type: str = EmailType.PROJECT_SINGLE.value
+    source_email_id: str = ""
+    full_description: str = ""
+    description_completeness: str = "PARTIAL"
+    language: str = "uk"
+    category: str = ""
+    skills: str = ""
+    deadline: str = ""
+    bid_count: int | None = None
+    client_name: str = ""
+    client_profile_url: str = ""
+    client_context: str = ""
+    project_id: str = ""
+    thread_id: str = ""
+    service_lane: str = ""
+    executable: str = "uncertain"
+    fit_score: float | None = None
+    win_probability_signal: str = ""
+    scope_clarity: str = ""
+    estimated_effort: str = ""
+    delivery_risk: str = ""
+    client_payment_risk: str = ""
+    project_mode: str = ""
+    project_mode_reason: str = ""
+    recommended_price: str = ""
+    realistic_timeline: str = ""
+    selected_evidence: str = ""
+    evidence: str = ""
+    proposal_draft: str = ""
+    needs_context: bool = False
+    next_action: str = ""
+    received_at: datetime | None = None
+    sensitive_redacted: bool = False
+    source_mailbox_alias: str = ""
+
     @property
     def score_display(self) -> str:
         return f"{self.score:.1f}/10"
 
 
-def _format_email(subject: str, sender: str, body: str) -> str:
-    # Trim body to avoid huge prompts
-    trimmed = body[:3000] if len(body) > 3000 else body
+def detect_language(text: str) -> str:
+    """Conservative deterministic fallback for uk/ru/en/pl."""
+
+    normalized = (text or "").casefold()
+    if re.search(r"[іїєґ]", normalized) or any(
+        word in normalized for word in ("проєкт", "потрібно", "замовник", "термін")
+    ):
+        return "uk"
+    if re.search(r"[ыэъё]", normalized) or any(
+        word in normalized for word in ("проект", "нужно", "заказчик", "срок")
+    ):
+        return "ru"
+    if re.search(r"[ąćęłńóśźż]", normalized) or any(
+        word in normalized for word in ("projekt", "potrzebuję", "termin", "zlecenie")
+    ):
+        return "pl"
+    return "en"
+
+
+def _format_email(
+    subject: str,
+    sender: str,
+    body: str,
+    event_type: str,
+    source_url: str,
+    client_context: str,
+) -> str:
+    # Keep enough source context for real specifications while bounding API cost.
+    trimmed = body[:16000]
     return (
+        f"Event type: {event_type}\n"
         f"From: {sender}\n"
         f"Subject: {subject}\n"
-        f"Body:\n{trimmed}"
+        f"Source URL: {source_url or '(not available)'}\n"
+        f"Known client context: {client_context or '(not available)'}\n"
+        f"Full available safe body:\n{trimmed}"
     )
 
 
 def _extract_json(raw: str) -> dict:
-    """Extract JSON from model output, handling potential markdown wrapping."""
     raw = raw.strip()
-    # Strip markdown code blocks if present
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
     return json.loads(raw)
+
+
+def _float(value: Any, default: float = 0.0) -> float:
+    try:
+        return max(0.0, min(10.0, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _optional_int(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return None
 
 
 async def analyze_email(
@@ -110,12 +225,19 @@ async def analyze_email(
     body: str,
     client: "Any | None" = None,
     model: str = "gpt-4o-mini",
+    *,
+    event_type: str = EmailType.PROJECT_SINGLE.value,
+    source_url: str = "",
+    client_context: str = "",
 ) -> JobAnalysis:
     if client is None:
         from openai import AsyncOpenAI
-        import sys, os
+        import os
+        import sys
+
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from config import settings
+
         if not settings.OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY is not configured")
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
@@ -127,10 +249,15 @@ async def analyze_email(
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _format_email(subject, sender, body)},
+                {
+                    "role": "user",
+                    "content": _format_email(
+                        subject, sender, body, event_type, source_url, client_context
+                    ),
+                },
             ],
             temperature=0.1,
-            max_tokens=400,
+            max_tokens=1600,
         )
         data = _extract_json(response.choices[0].message.content)
     except Exception:
@@ -138,19 +265,55 @@ async def analyze_email(
         data = {}
         analysis_succeeded = False
 
+    score = _float(data.get("fit_score", data.get("score", 0.0)))
+    language = str(data.get("language") or detect_language(f"{subject}\n{body}"))
+    if language not in {"uk", "ru", "en", "pl"}:
+        language = detect_language(f"{subject}\n{body}")
+
     return JobAnalysis(
         email_id=email_id,
         is_relevant=bool(data.get("is_relevant", False)),
-        title=str(data.get("title", subject)),
-        platform=str(data.get("platform", _detect_platform(sender))),
-        score=float(data.get("score", 0.0)),
+        title=str(data.get("title") or subject),
+        platform=str(data.get("platform") or _detect_platform(sender)),
+        score=score,
         reason=str(data.get("reason", "")),
-        budget=str(data.get("budget", "не вказано")),
-        url=str(data.get("url", "")),
-        urgency=str(data.get("urgency", "medium")),
+        budget=str(data.get("budget") or "не вказано"),
+        url=str(data.get("url") or source_url),
+        urgency=str(data.get("urgency") or "medium"),
         why_relevant=str(data.get("why_relevant", "")),
-        red_flags=list(data.get("red_flags", [])),
+        red_flags=[str(item) for item in (data.get("red_flags") or [])],
         analysis_succeeded=analysis_succeeded,
+        event_type=event_type,
+        source_email_id=email_id,
+        full_description=body,
+        description_completeness="FULL" if body.strip() else "PARTIAL",
+        language=language,
+        category=str(data.get("category", "")),
+        skills=str(data.get("skills", "")),
+        deadline=str(data.get("deadline", "")),
+        bid_count=_optional_int(data.get("bid_count")),
+        client_name=str(data.get("client_name", "")),
+        client_profile_url=str(data.get("client_profile_url", "")),
+        client_context=str(data.get("client_context") or client_context),
+        project_id=str(data.get("project_id", "")),
+        thread_id=str(data.get("thread_id", "")),
+        service_lane=str(data.get("service_lane", "")),
+        executable=str(data.get("executable") or "uncertain"),
+        fit_score=score,
+        win_probability_signal=str(data.get("win_probability_signal", "")),
+        scope_clarity=str(data.get("scope_clarity", "")),
+        estimated_effort=str(data.get("estimated_effort", "")),
+        delivery_risk=str(data.get("delivery_risk", "")),
+        client_payment_risk=str(data.get("client_payment_risk", "")),
+        project_mode=str(data.get("project_mode", "")),
+        project_mode_reason=str(data.get("project_mode_reason", "")),
+        recommended_price=str(data.get("recommended_price", "")),
+        realistic_timeline=str(data.get("realistic_timeline", "")),
+        selected_evidence=str(data.get("selected_evidence", "")),
+        evidence=str(data.get("evidence", "")),
+        proposal_draft=str(data.get("proposal_draft", "")),
+        needs_context=bool(data.get("needs_context", False)),
+        next_action=str(data.get("next_action", "")),
     )
 
 
@@ -159,11 +322,7 @@ async def analyze_candidate(
     client: "Any | None" = None,
     model: str = "gpt-4o-mini",
 ) -> JobAnalysis:
-    """Analyze one parsed digest candidate through the existing scoring flow.
-
-    Only normalized plain-text candidate fields are passed onward; digest HTML
-    and unrelated sibling vacancies never enter the model prompt.
-    """
+    """Analyze one deterministic digest child, never the whole digest HTML."""
 
     body_lines = [f"Description: {candidate.description}"]
     if candidate.budget:
@@ -180,27 +339,40 @@ async def analyze_candidate(
         body="\n".join(body_lines),
         client=client,
         model=model,
+        event_type=EmailType.PROJECT_DIGEST.value,
+        source_url=candidate.url,
     )
-
-    # The parser's platform and direct URL are deterministic and must not be
-    # replaced by a model-generated digest-level or tracking URL.
     analysis.platform = candidate.platform
     analysis.url = candidate.url
+    analysis.source_email_id = candidate.source_email_id
+    analysis.full_description = candidate.description
+    analysis.description_completeness = "PARTIAL"
+    analysis.category = analysis.category or candidate.category
+    analysis.deadline = analysis.deadline or candidate.deadline
+    analysis.bid_count = (
+        analysis.bid_count if analysis.bid_count is not None else candidate.bid_count
+    )
+    analysis.client_name = analysis.client_name or candidate.client_name
+    analysis.client_profile_url = (
+        analysis.client_profile_url or candidate.client_profile_url
+    )
+    analysis.project_id = analysis.project_id or candidate.project_id
+    analysis.received_at = candidate.received_at
     if not analysis.title:
         analysis.title = candidate.title
-    if not analysis.budget and candidate.budget:
+    if (not analysis.budget or analysis.budget == "не вказано") and candidate.budget:
         analysis.budget = candidate.budget
     return analysis
 
 
 def _detect_platform(sender: str) -> str:
-    s = sender.lower()
-    if "freelancehunt" in s:
+    normalized = sender.casefold()
+    if "freelancehunt" in normalized:
         return "Freelancehunt"
-    if "work.ua" in s:
+    if "work.ua" in normalized:
         return "Work.ua"
-    if "robota.ua" in s:
+    if "robota.ua" in normalized:
         return "Robota.ua"
-    if "upwork" in s:
+    if "upwork" in normalized:
         return "Upwork"
     return "Unknown"
