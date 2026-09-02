@@ -25,7 +25,13 @@ def _client_config(credentials_path: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_oauth(credentials_path: str, token_path: str, expected_account: str) -> str:
+def run_oauth(
+    credentials_path: str,
+    token_path: str,
+    expected_account: str,
+    *,
+    open_browser: bool = True,
+) -> str:
     """Authorize, verify users.getProfile, then and only then persist the token."""
 
     try:
@@ -41,7 +47,13 @@ def run_oauth(credentials_path: str, token_path: str, expected_account: str) -> 
         raise RuntimeError("--expected-account is required and must be an email address")
 
     flow = InstalledAppFlow.from_client_config(_client_config(credentials_path), SCOPES)
-    creds = flow.run_local_server(port=0, open_browser=True)
+    # Always force the account chooser. Reusing an unrelated signed-in Google
+    # session must not silently create a token for the wrong mailbox.
+    creds = flow.run_local_server(
+        port=0,
+        open_browser=open_browser,
+        prompt="select_account",
+    )
     service = build("gmail", "v1", credentials=creds)
     profile = service.users().getProfile(userId="me").execute()
     observed = str(profile.get("emailAddress", "")).strip().casefold()
@@ -68,9 +80,19 @@ def main() -> None:
         default=os.getenv("GMAIL_EXPECTED_ACCOUNT", ""),
         help="Exact approved adult-owned mailbox (or GMAIL_EXPECTED_ACCOUNT)",
     )
+    parser.add_argument(
+        "--no-open-browser",
+        action="store_true",
+        help="Print the authorization URL without opening the system browser",
+    )
     args = parser.parse_args()
     try:
-        verified = run_oauth(args.credentials, args.token, args.expected_account)
+        verified = run_oauth(
+            args.credentials,
+            args.token,
+            args.expected_account,
+            open_browser=not args.no_open_browser,
+        )
     except Exception as exc:
         print(f"OAuth failed closed: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

@@ -6,6 +6,7 @@ import ast
 import asyncio
 import logging
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from gmail_agent.email_analyzer import JobAnalysis
 from gmail_agent.email_classifier import EmailType, classify_email
 from gmail_agent.gmail_provider import EmailMessage, MockGmailProvider, RealGmailProvider
+from gmail_agent.oauth_local import run_oauth
 from gmail_agent.processor import GmailJobProcessor
 from gmail_agent.reply_generator import generate_reply
 from gmail_agent.security import redact_security_event, redact_sensitive_content
@@ -415,6 +417,41 @@ class TestMailboxIdentityGate(unittest.IsolatedAsyncioTestCase):
         profile = await provider.get_account_profile()
         self.assertEqual(profile["email_address"], "adult@example.com")
         self.assertEqual(provider.identity_alias, "ad***@example.com")
+
+    def test_local_oauth_mismatch_never_writes_token_and_forces_account_chooser(self):
+        flow = MagicMock()
+        credentials = MagicMock()
+        credentials.to_json.return_value = '{"must_not":"be_written"}'
+        flow.run_local_server.return_value = credentials
+        service = self._service("wrong@example.com")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            token_path = Path(temp_dir) / "token.json"
+            with (
+                patch(
+                    "gmail_agent.oauth_local._client_config",
+                    return_value={"installed": {}},
+                ),
+                patch(
+                    "google_auth_oauthlib.flow.InstalledAppFlow.from_client_config",
+                    return_value=flow,
+                ),
+                patch("googleapiclient.discovery.build", return_value=service),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "mailbox mismatch"):
+                    run_oauth(
+                        "unused.json",
+                        str(token_path),
+                        "adult@example.com",
+                        open_browser=False,
+                    )
+
+            self.assertFalse(token_path.exists())
+        flow.run_local_server.assert_called_once_with(
+            port=0,
+            open_browser=False,
+            prompt="select_account",
+        )
 
 
 class TestMigrationBrandAndScheduler(unittest.TestCase):
