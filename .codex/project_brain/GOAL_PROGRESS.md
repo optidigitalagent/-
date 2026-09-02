@@ -6,91 +6,92 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 1 — New adult-owned Freelancehunt account relaunch**
+**Stage 1 — Adult-owned Freelancehunt account activation**
 
-Readiness is tracked separately:
+Readiness is tracked by workstream:
 
-- **Reusable commercial-asset readiness: 96%**
-- **New adult-owned profile publication readiness: blocked at live identity gate**
-- **Minor-owned Freelancehunt channel readiness: 0% operational**
+- **Commercial profile core: 100% complete**
+- **Adult account verification: blocked only on phone confirmation**
+- **Gmail connection: confirmed**
+- **Railway → Telegram opportunity flow: not yet activated**
+- **Minor-owned account: 0% operational and excluded**
 
 ## New lawful account
 
-- [x] New target profile created
-- [x] Public profile URL recorded: `https://freelancehunt.com/freelancer/AntonovDigital.html`
+- [x] New adult-owned profile created
+- [x] Public URL confirmed: `https://freelancehunt.com/freelancer/AntonovDigital.html`
+- [x] Adult-owner name and photo visible
+- [x] Four language descriptions and slogans published
+- [x] Status saved as `Вільний для роботи`
+- [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
+- [x] Twenty-six additional specializations saved
+- [x] Twenty skills saved and publicly displayed
+- [x] No invented hourly rate published
+- [x] Antonov Digital team roles disclosed consistently
+- [x] Daily project digest enabled
+- [x] Private-message email notifications enabled
+- [x] System information emails enabled
+- [x] Browser push enabled
+- [x] Sound notifications enabled
+- [x] Promotional, news and blog mail disabled
+- [x] Desktop/mobile public QA passed
+- [x] Portfolio intentionally deferred where evidence/media is incomplete
 - [x] New operational Gmail mailbox connected to ChatGPT
-- [x] Gmail connector access verified
-- [ ] Fresh Freelancehunt email received on the new mailbox
-- [ ] Authenticated session confirmed inside the target account
-- [ ] Visible first and last name corrected to the genuine adult owner
-- [ ] Real adult-owner photo, phone and adult date of birth confirmed
-- [ ] Prepared Antonov Digital profile assets transferred
-- [ ] Public profile QA passed
-- [ ] Codex returned `READY_FOR_DIIA_SIGNATURE`
-- [ ] Adult owner completed verification
-- [ ] Verified badge/status confirmed
+- [x] Freelancehunt support communication is arriving on the new mailbox
 
-## Current live blocker — 2026-09-01
+## Current phone blocker
 
-Codex opened the target public URL and observed:
+Support stated that it could deactivate the old profile and detach the adult owner's number so the number could be used on the new profile.
 
-- visible title: `Фрилансер Artem Antonov ≡ AntonovDigital`
-- adult-owner identity condition: failed
-- authentication in the target account: not confirmed
-- browser changes performed: none
-- old minor profile used: no
+A later support message indicated completion/help, but the notification email did not explicitly state that the number had been detached.
 
 Current status:
 
-- `NEW_ACCOUNT_IDENTITY_MISMATCH`
-- `TARGET_ACCOUNT_AUTHENTICATION_UNCONFIRMED`
-- `NO_LIVE_PROFILE_CHANGES`
-- `ADULT_OWNER_MANUAL_INPUT_REQUIRED`
+- `PHONE_RELEASE_OFFER_CONFIRMED`
+- `PHONE_RELEASE_LIKELY_COMPLETED_BUT_NOT_TESTED`
+- `PHONE_CONFIRMATION_REQUIRED_IN_NEW_ACCOUNT`
 
-The missing local file `docs/ADULT_FREELANCEHUNT_RELAUNCH_2026-09-01.md` is not an identity substitute and must not cause profile strategy regeneration. The live adult-owned account is the source of truth for identity.
+## Immediate remaining account work
 
-## Reusable work that is already complete
+- [ ] Adult owner attempts to add the phone number in `AntonovDigital`
+- [ ] Adult owner completes SMS/OTP confirmation personally
+- [ ] Record `ADULT_PHONE_CONFIRMED_NEW_ACCOUNT`
+- [ ] Run final pre-verification audit
+- [ ] Return `READY_FOR_DIIA_SIGNATURE`
+- [ ] Adult owner completes the available verification method personally
+- [ ] Confirm verified badge/status on the public profile
 
-- [x] Ukrainian, English, Russian and Polish descriptions and slogans
-- [x] Main specializations: `AI та машинне навчання`, `Веб-програмування`
-- [x] Twenty-six additional specializations
-- [x] Twenty live-platform skills
-- [x] Project/milestone pricing presentation without invented hourly rate
-- [x] `Вільний для роботи` status strategy
-- [x] Transparent Antonov Digital team disclosure
-- [x] Artem co-founder/partner role
-- [x] Vadim developer role
-- [x] Notification-settings plan
-- [x] Nine portfolio cards prepared and deferred pending evidence/assets
-- [x] Proposal and reply-drafting logic
-- [x] Telegram opportunity-card structure
-- [x] Adult-owned route approved by Freelancehunt support
+## Deferred portfolio
 
-## New account transfer work
+The following prepared cards remain deferred until each has current links/status, permission, evidence and images:
 
-- [ ] Adult owner personally authenticates in `AntonovDigital.html`
-- [ ] Adult owner manually corrects real first and last name
-- [ ] Confirm real adult-owner photo, phone and adult date of birth
-- [ ] Publish four language versions
-- [ ] Save main and additional specializations
-- [ ] Save twenty skills
-- [ ] Configure availability and pricing presentation
-- [ ] Enable relevant project, message, system, push and security notifications
-- [ ] Reopen every edited section and verify persistence
-- [ ] Complete desktop/mobile public QA
-- [ ] Keep portfolio deferred unless evidence, links, permission and images are ready
+- Bella Dent
+- Dental Supplier AI Agent
+- Gmail/Telegram Job Agent
+- Status Dent
+- Amidental
+- Art Studio 184
+- Audiobook Cleaner
+- Mentium
+- NFC Review Cards
 
-## Dія.Підпис readiness gate
+This does not block account verification or opportunity automation.
 
-Codex may return `READY_FOR_DIIA_SIGNATURE` only when:
+## Revenue automation after verification
 
-1. the live account belongs to the genuine adult owner;
-2. visible name and photo match that owner;
-3. adult phone/date-of-birth state is correct;
-4. the core profile is saved and publicly readable;
-5. no old minor-profile or team-role contradiction remains.
+- [ ] Receive one fresh project digest or project notification on the adult-owned mailbox
+- [ ] Inspect exact sender, subject, body, links and identifiers
+- [ ] Confirm minimum-permission Gmail ingestion
+- [ ] Configure Railway near-real-time monitoring
+- [ ] Send a complete Telegram opportunity card
+- [ ] Generate one tailored proposal draft
+- [ ] Run:
 
-The adult owner then personally completes QR/application confirmation, CAPTCHA, OTP/2FA, documents/live check, payment and legal confirmation.
+```text
+Freelancehunt → Gmail → Railway → Telegram → proposal draft → adult-owner submission
+```
+
+- [ ] Track proposals, replies, qualified leads, wins and funded revenue
 
 ## Minor-owned account final state
 
@@ -98,37 +99,22 @@ The adult owner then personally completes QR/application confirmation, CAPTCHA, 
 - [x] Support confirmed ineligibility until `2029-01-28`
 - [x] No bids, agreements or payments occurred after verification
 - [ ] Preserve deactivation confirmation
-- [ ] Keep that account and its notifications excluded from all ingestion
-
-## Revenue automation after verification
-
-- [ ] Receive one fresh adult-account Freelancehunt email
-- [ ] Inspect sender, subject, body, links and identifiers
-- [ ] Connect or confirm minimum-permission Gmail ingestion
-- [ ] Configure Railway/Telegram near-real-time monitoring
-- [ ] Produce a complete opportunity card and tailored proposal draft
-- [ ] Run:
-
-```text
-Freelancehunt → Gmail → Telegram → proposal draft → adult-owner submission
-```
-
-- [ ] Track proposals, replies, qualified leads, wins and funded revenue
+- [ ] Keep the account and its notifications excluded from all ingestion
 
 ## Repository administration still pending
 
 - [ ] Review and approve Draft PR #1
 - [ ] Rename repository to `antonov-digital-freelance-revenue-engine`
 - [ ] Change repository visibility to private
-- [ ] Confirm Railway/GitHub deployment linkage after rename
+- [ ] Confirm Railway/GitHub linkage after rename
 - [ ] Finish the ChatGPT Project and chat structure
 
 ## Stage 1 acceptance condition
 
 Stage 1 is operational when:
 
-1. the new adult-owned profile is published, verified and conversion-ready;
-2. relevant notification emails reach the new operational mailbox;
+1. the adult-owned profile is verified and conversion-ready;
+2. relevant opportunity emails reach the adult-owned mailbox;
 3. Telegram receives a complete opportunity card quickly;
-4. a tailored proposal draft is produced without invented claims; and
+4. a tailored proposal draft is generated without invented claims; and
 5. the adult owner can perform the final platform action with minimal editing.
