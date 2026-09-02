@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 2 — Gmail → Railway → Telegram revenue-flow activation**
+**Stage 3 — instant broad Freelancehunt discovery and first live revenue cycle**
 
 ## Readiness by workstream
 
@@ -36,6 +36,19 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `FREELANCEHUNT_PRIVATE_MESSAGE_EMAIL_CONFIRMED`
 - `PORTFOLIO_DEFERRED`
 - `REVENUE_FLOW_IMPLEMENTATION_REQUIRED`
+- `DEPLOYED_LIVE_STATUS_HOTFIX_V2`
+- `ISSUE_7_COMPLETED`
+- `STAGE_3_ACTIVE`
+- `ISSUE_9_CURRENT_WORK_ITEM`
+
+## Protected production baseline
+
+- Production `main`: `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`.
+- Railway deployment: `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a`.
+- Railway state: `SUCCESS / RUNNING`.
+- Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
+- GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
+- Stage 3 is active; GitHub issue #9 is the current work item.
 
 ## Completed account and profile work
 
@@ -179,8 +192,9 @@ Stage 2 is operational when:
 ## 2026-09-02 — Issue #7 live-status hotfix validation
 
 - Hotfix implementation and local validation: 100% complete.
-- Deployment status: `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY`; merge and Railway
-  deployment remain gated by explicit authorization.
+- Historical validation status at that checkpoint was
+  `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY`; it was subsequently deployed and is
+  superseded by the protected production baseline recorded above.
 - Root cause closed in code: email/parser freshness was previously trusted
   without a live positive bid-availability proof, so a blocked project could
   reach scoring, proposal generation and a revenue-ready Telegram card.
@@ -223,9 +237,49 @@ Stage 2 is operational when:
   A current public-feed item returned `ACTIVE_BIDDABLE`, `biddable=true`, with
   official RSS membership as evidence. Three cold ten-project runs returned
   10/10 active; maximum measured time was 0.163 seconds.
-- Production remains exactly on main commit
+- At that review checkpoint production remained on main commit
   `60d5d3b30a9f21d8011f3d76f8b288fb3abcbd4d`, deployment
   `fa129303-e1e3-42c1-b913-72469678b76d`. No merge, deployment, Railway
-  variable, Gmail OAuth, Telegram secret or platform action occurred.
-- Deployment gate: `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY_V2`, pending exactly
-  one explicit authorization action documented in `NEXT_ACTION.md`.
+  variable, Gmail OAuth, Telegram secret or platform action occurred. That
+  historical snapshot is superseded by the deployed baseline below.
+- Deployment state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2` on production `main`
+  `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`, Railway deployment
+  `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS / RUNNING`). Issue #7 is
+  completed and superseded as the current work item by Stage 3 issue #9.
+
+## 2026-09-02 — Stage 3 issue #9 deployment gate
+
+- Created isolated branch `feature/freelancehunt-instant-discovery-v1` from
+  the exact protected production baseline `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`.
+- The official public Freelancehunt project RSS is the primary discovery
+  source. It feeds the shared live-status, commercial-analysis, durable dedup
+  and Telegram pipeline on a 60-second overlap-protected schedule.
+- One numeric Freelancehunt project ID now produces one stable repository key
+  across RSS, Gmail single/digest events and the retained legacy parser.
+- The feed path has no legacy keyword rejection or minimum-budget gate. It
+  records executable yes/maybe/no, service lane, fit, effort, delivery/payment
+  risk and CASH/REPUTATION/STRATEGIC mode.
+- Only `ACTIVE_BIDDABLE` reaches price, timeline and proposal generation.
+  Non-active and UNKNOWN states fail closed under the deployed V2 guard.
+- Freelancehunt was removed from the old hourly automatic parser while
+  Kabanchik and FreelanceUA remain. The read-only manual debug path remains.
+- No bid, client message, merge, production deployment or Railway variable
+  change is part of this implementation branch.
+- Canonical QA: 200/200 tests passed (181 protected baseline + 19 Stage 3),
+  compileall passed and `git diff --check` is clean apart from line-ending
+  notices.
+- PostgreSQL-like migration proof executed all 79 additive migration statements
+  twice; all required Stage 3 columns existed and no destructive statement ran.
+- Python 3.12 production-like startup under Railway runtime configuration
+  imported the application and registered 60 seconds, `max_instances=1`,
+  `coalesce=true`.
+- A current official feed returned 50 parseable public projects; a sanitized
+  current item resolved to a canonical ID and `ACTIVE_BIDDABLE`,
+  `biddable=true`, without browser fallback.
+- Controlled sanitized card telemetry measured 25.053 seconds from publication
+  to send; immediate repeat and repository recreation each produced one
+  duplicate and total send calls remained one.
+- Production recheck confirmed unchanged `main`
+  `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5` and Railway deployment
+  `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS`).
+- Status: `READY_FOR_INSTANT_DISCOVERY_DEPLOY`.

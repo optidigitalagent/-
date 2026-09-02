@@ -13,9 +13,11 @@ from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from .project_identity import freelancehunt_project_stable_key
 
 TERMINAL_JOB_STATUSES = frozenset(
     {
@@ -28,6 +30,18 @@ TERMINAL_JOB_STATUSES = frozenset(
 )
 DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed")
 DEFAULT_SENDING_LEASE = timedelta(minutes=15)
+_IDENTITY_RECONCILIATION_MARKER = "stage3_freelancehunt_identity_v1"
+_LEGACY_CARD_STATUSES = frozenset(
+    {
+        "notified",
+        "sent",
+        "skipped",
+        "live_status_terminal",
+        "live_status_unknown_exhausted",
+        "live_status_active_manual",
+        "live_status_pending_notified",
+    }
+)
 
 
 def utc_now() -> datetime:
@@ -76,7 +90,7 @@ class StoredGmailJob:
     project_id: str = ""
     thread_id: str = ""
     service_lane: str = ""
-    executable: str = "uncertain"
+    executable: str = "maybe"
     fit_score: float | None = None
     win_probability_signal: str = ""
     scope_clarity: str = ""
@@ -102,6 +116,16 @@ class StoredGmailJob:
     live_status_retry_count: int = 0
     live_status_last_error: str = ""
     qualified: bool = False
+    tags: str = ""
+    budget_currency: str = ""
+    discovery_source: str = ""
+    discovery_sources: str = ""
+    source_publication_at: datetime | None = None
+    source_feed_timestamp: datetime | None = None
+    feed_fetched_at: datetime | None = None
+    first_seen_at: datetime | None = None
+    telegram_sent_at: datetime | None = None
+    publication_to_telegram_latency_seconds: float | None = None
 
 
 # Short public name for callers; the longer name makes its persistence role
@@ -128,6 +152,12 @@ class ScanRun:
     event_counts: str = "{}"
     mailbox_alias: str | None = None
     max_detection_latency_seconds: float | None = None
+    duplicate_source_pairs: str = "{}"
+    live_status_active: int = 0
+    live_status_non_actionable: int = 0
+    live_status_unknown: int = 0
+    ai_calls_avoided: int = 0
+    max_publication_to_telegram_latency_seconds: float | None = None
     id: int | None = None
 
 
@@ -177,6 +207,8 @@ class GmailRepository(Protocol):
 
     async def list_scan_runs(self, limit: int = 20) -> list[ScanRun]: ...
 
+    async def reconcile_freelancehunt_identities(self) -> int: ...
+
 
 class InMemoryGmailRepository:
     """Concurrency-safe repository for unit tests."""
@@ -190,13 +222,72 @@ class InMemoryGmailRepository:
         self._state = state
         self._lock = state.setdefault("lock", asyncio.Lock())
 
+    async def reconcile_freelancehunt_identities(self) -> int:
+        """One-time test-equivalent aliasing for historical source identities."""
+
+        async with self._lock:
+            if self._state.get(_IDENTITY_RECONCILIATION_MARKER):
+                return 0
+            aliases: dict[str, ProcessedItem] = {}
+            for item in list(self._processed.values()):
+                if "freelancehunt" not in item.platform.casefold() or not item.url:
+                    continue
+                canonical_key = freelancehunt_project_stable_key(item.url)
+                if canonical_key and canonical_key != item.stable_key:
+                    aliases.setdefault(canonical_key, replace(item, stable_key=canonical_key))
+            for order in self._state.get("legacy_orders", []):
+                if (
+                    "freelancehunt" not in str(order.get("platform") or "").casefold()
+                    or str(order.get("status") or "") not in _LEGACY_CARD_STATUSES
+                ):
+                    continue
+                canonical_key = freelancehunt_project_stable_key(
+                    str(order.get("url") or "")
+                )
+                if not canonical_key:
+                    continue
+                aliases.setdefault(
+                    canonical_key,
+                    ProcessedItem(
+                        stable_key=canonical_key,
+                        source_email_id=f"legacy-order:{order.get('id', '')}",
+                        platform="Freelancehunt",
+                        item_type="legacy_parser",
+                        title=str(order.get("title") or ""),
+                        url=str(order.get("url") or ""),
+                        decision=f"legacy_{order.get('status', 'handled')}",
+                        score=order.get("score"),
+                    ),
+                )
+            inserted = 0
+            for key, item in aliases.items():
+                if key not in self._processed:
+                    self._processed[key] = replace(item)
+                    inserted += 1
+            self._state[_IDENTITY_RECONCILIATION_MARKER] = True
+            return inserted
+
     async def is_processed(self, stable_key: str) -> bool:
         async with self._lock:
-            return stable_key in self._processed
+            return stable_key in self._processed or any(
+                item.item_type == "single_job"
+                and item.source_email_id == stable_key
+                for item in self._processed.values()
+            )
 
     async def get_processed(self, stable_key: str) -> ProcessedItem | None:
         async with self._lock:
             item = self._processed.get(stable_key)
+            if item is None:
+                item = next(
+                    (
+                        candidate
+                        for candidate in self._processed.values()
+                        if candidate.item_type == "single_job"
+                        and candidate.source_email_id == stable_key
+                    ),
+                    None,
+                )
             return replace(item) if item is not None else None
 
     async def upsert_processed(self, item: ProcessedItem) -> ProcessedItem:
@@ -230,6 +321,14 @@ class InMemoryGmailRepository:
                     selected_evidence=(
                         job.selected_evidence or current.selected_evidence
                     ),
+                    first_seen_at=(current.first_seen_at or job.first_seen_at),
+                    discovery_source=(
+                        current.discovery_source or job.discovery_source
+                    ),
+                    discovery_sources=_merge_sources(
+                        current.discovery_sources,
+                        job.discovery_sources or job.discovery_source,
+                    ),
                 )
             stored = replace(job)
             self._jobs[job.stable_key] = stored
@@ -238,6 +337,16 @@ class InMemoryGmailRepository:
     async def get_job(self, stable_key: str) -> StoredGmailJob | None:
         async with self._lock:
             job = self._jobs.get(stable_key)
+            if job is None:
+                job = next(
+                    (
+                        candidate
+                        for candidate in self._jobs.values()
+                        if candidate.event_type == "PROJECT_SINGLE"
+                        and candidate.source_email_id == stable_key
+                    ),
+                    None,
+                )
             return replace(job) if job is not None else None
 
     async def update_job_status(
@@ -362,18 +471,148 @@ class PostgresGmailRepository:
     """PostgreSQL repository using an injectable SQLAlchemy async session factory."""
 
     def __init__(self, session_factory: AsyncSessionFactory) -> None:
-        from db.models import GmailJob, GmailProcessedItem, GmailScanRun
+        from db.models import (
+            GmailJob,
+            GmailProcessedItem,
+            GmailScanRun,
+            Order,
+            Setting,
+        )
 
         self._session_factory = session_factory
         self._job_model = GmailJob
         self._processed_item_model = GmailProcessedItem
         self._scan_run_model = GmailScanRun
+        self._order_model = Order
+        self._setting_model = Setting
+
+    async def reconcile_freelancehunt_identities(self) -> int:
+        """Alias already-handled Gmail/parser rows to the Stage 3 project key.
+
+        The marker and aliases commit atomically, so a restart either retries the
+        reconciliation or observes it complete. Existing rows are never updated
+        or deleted; canonical aliases use conflict-safe inserts only.
+        """
+
+        async with self._session_factory() as session:
+            marker = await session.get(
+                self._setting_model, _IDENTITY_RECONCILIATION_MARKER
+            )
+            if marker is not None and marker.value == "complete":
+                return 0
+
+            aliases: dict[str, ProcessedItem] = {}
+            historical = await session.scalars(
+                select(self._processed_item_model).where(
+                    self._processed_item_model.platform.ilike("%freelancehunt%"),
+                    self._processed_item_model.url.is_not(None),
+                )
+            )
+            for row in historical.all():
+                canonical_key = freelancehunt_project_stable_key(row.url or "")
+                if canonical_key and canonical_key != row.stable_key:
+                    aliases.setdefault(
+                        canonical_key,
+                        ProcessedItem(
+                            stable_key=canonical_key,
+                            source_email_id=row.source_email_id,
+                            platform=row.platform,
+                            item_type=row.item_type,
+                            title=row.title,
+                            url=row.url,
+                            decision=row.decision,
+                            score=row.score,
+                        ),
+                    )
+
+            legacy_orders = await session.scalars(
+                select(self._order_model).where(
+                    self._order_model.platform.ilike("%freelancehunt%"),
+                    self._order_model.status.in_(_LEGACY_CARD_STATUSES),
+                )
+            )
+            for row in legacy_orders.all():
+                canonical_key = freelancehunt_project_stable_key(row.url or "")
+                if not canonical_key:
+                    continue
+                aliases.setdefault(
+                    canonical_key,
+                    ProcessedItem(
+                        stable_key=canonical_key,
+                        source_email_id=f"legacy-order:{row.id}",
+                        platform="Freelancehunt",
+                        item_type="legacy_parser",
+                        title=row.title,
+                        url=row.url,
+                        decision=f"legacy_{row.status}",
+                        score=row.score,
+                    ),
+                )
+
+            terminal_jobs = await session.scalars(
+                select(self._job_model).where(
+                    self._job_model.platform.ilike("%freelancehunt%"),
+                    self._job_model.url.is_not(None),
+                    self._job_model.status.in_(TERMINAL_JOB_STATUSES),
+                )
+            )
+            for row in terminal_jobs.all():
+                canonical_key = freelancehunt_project_stable_key(row.url or "")
+                if not canonical_key or canonical_key == row.stable_key:
+                    continue
+                aliases.setdefault(
+                    canonical_key,
+                    ProcessedItem(
+                        stable_key=canonical_key,
+                        source_email_id=row.source_email_id,
+                        platform=row.platform,
+                        item_type=(
+                            "single_job"
+                            if row.event_type == "PROJECT_SINGLE"
+                            else "digest_job"
+                        ),
+                        title=row.title,
+                        url=row.url,
+                        decision=row.status,
+                        score=row.score,
+                    ),
+                )
+
+            for item in aliases.values():
+                statement = postgres_insert(self._processed_item_model).values(
+                    **_processed_values(item)
+                )
+                await session.execute(
+                    statement.on_conflict_do_nothing(
+                        index_elements=[self._processed_item_model.stable_key]
+                    )
+                )
+            marker_statement = postgres_insert(self._setting_model).values(
+                key=_IDENTITY_RECONCILIATION_MARKER,
+                value="complete",
+            )
+            await session.execute(
+                marker_statement.on_conflict_do_update(
+                    index_elements=[self._setting_model.key],
+                    set_={"value": "complete"},
+                )
+            )
+            await session.commit()
+            return len(aliases)
 
     async def is_processed(self, stable_key: str) -> bool:
         async with self._session_factory() as session:
             result = await session.execute(
                 select(self._processed_item_model.stable_key)
-                .where(self._processed_item_model.stable_key == stable_key)
+                .where(
+                    or_(
+                        self._processed_item_model.stable_key == stable_key,
+                        and_(
+                            self._processed_item_model.item_type == "single_job",
+                            self._processed_item_model.source_email_id == stable_key,
+                        ),
+                    )
+                )
                 .limit(1)
             )
             return result.scalar_one_or_none() is not None
@@ -381,6 +620,16 @@ class PostgresGmailRepository:
     async def get_processed(self, stable_key: str) -> ProcessedItem | None:
         async with self._session_factory() as session:
             model = await session.get(self._processed_item_model, stable_key)
+            if model is None:
+                result = await session.execute(
+                    select(self._processed_item_model)
+                    .where(
+                        self._processed_item_model.item_type == "single_job",
+                        self._processed_item_model.source_email_id == stable_key,
+                    )
+                    .limit(1)
+                )
+                model = result.scalar_one_or_none()
             return _processed_from_row(model) if model is not None else None
 
     async def upsert_processed(self, item: ProcessedItem) -> ProcessedItem:
@@ -414,6 +663,8 @@ class PostgresGmailRepository:
                 "client_context",
                 "proposal_draft",
                 "selected_evidence",
+                "first_seen_at",
+                "discovery_source",
             }
         }
         incoming["status"] = _preserved_job_status(excluded.status, self._job_model)
@@ -432,6 +683,17 @@ class PostgresGmailRepository:
     async def get_job(self, stable_key: str) -> StoredGmailJob | None:
         async with self._session_factory() as session:
             model = await session.get(self._job_model, stable_key)
+            if model is None:
+                result = await session.scalars(
+                    select(self._job_model)
+                    .where(
+                        self._job_model.event_type == "PROJECT_SINGLE",
+                        self._job_model.source_email_id == stable_key,
+                    )
+                    .order_by(self._job_model.created_at.desc())
+                    .limit(1)
+                )
+                model = result.first()
             return _job_from_row(model) if model is not None else None
 
     async def update_job_status(
@@ -618,6 +880,16 @@ def _row_value(row: Any, field: str) -> Any:
     if isinstance(row, Mapping):
         return row[field]
     return getattr(row, field)
+
+
+def _merge_sources(*values: str) -> str:
+    sources: list[str] = []
+    for value in values:
+        for source in str(value or "").split(","):
+            normalized = source.strip()
+            if normalized and normalized not in sources:
+                sources.append(normalized)
+    return ",".join(sources)
 
 
 def _processed_values(item: ProcessedItem) -> dict[str, Any]:

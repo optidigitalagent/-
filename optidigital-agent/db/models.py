@@ -100,6 +100,14 @@ class GmailScanRun(Base):
     event_counts: Mapped[str] = mapped_column(Text, default="{}", server_default="{}", nullable=False)
     mailbox_alias: Mapped[str | None] = mapped_column(String(255), nullable=True)
     max_detection_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    duplicate_source_pairs: Mapped[str] = mapped_column(
+        Text, default="{}", server_default="{}", nullable=False
+    )
+    live_status_active: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    live_status_non_actionable: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    live_status_unknown: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    ai_calls_avoided: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    max_publication_to_telegram_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class GmailJob(Base):
@@ -170,6 +178,16 @@ class GmailJob(Base):
     live_status_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     live_status_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     qualified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    tags: Mapped[str | None] = mapped_column(Text, nullable=True)
+    budget_currency: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    discovery_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    discovery_sources: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_publication_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source_feed_timestamp: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    feed_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    publication_to_telegram_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 _MIGRATIONS = [
@@ -240,6 +258,22 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS event_counts TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS mailbox_alias TEXT",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS max_detection_latency_seconds DOUBLE PRECISION",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS tags TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS budget_currency TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS discovery_source TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS discovery_sources TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS source_publication_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS source_feed_timestamp TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS feed_fetched_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS telegram_sent_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS publication_to_telegram_latency_seconds DOUBLE PRECISION",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS duplicate_source_pairs TEXT NOT NULL DEFAULT '{}'",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_active INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_non_actionable INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_unknown INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS ai_calls_avoided INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS max_publication_to_telegram_latency_seconds DOUBLE PRECISION",
 ]
 
 

@@ -28,7 +28,8 @@ Truthful delivery model and evidence:
 - Supported lanes are evaluated without an initial preference: AI agents and
   integrations, automation, Telegram bots, CRM/internal systems, websites,
   web apps/MVPs, ecommerce, data/monitoring, SEO/GEO/local search, AI content,
-  image/video workflows, and audio/ASR work that the team can realistically do.
+  image/video workflows, audio/ASR, research, lead generation, SMM/content
+  operations and project-management work that the team can realistically do.
 - Approved factual cases: Bella Dent (website, lead automation, Telegram bots,
   PostgreSQL, Cloudinary); Dental Supplier AI Agent (AI agent, Telegram,
   supplier comparison/reporting); Gmail Job Agent (Gmail ingestion, AI
@@ -75,7 +76,7 @@ Return this JSON shape (empty string/null when unavailable):
   "project_id": "",
   "thread_id": "",
   "service_lane": "",
-  "executable": "yes|no|uncertain",
+  "executable": "yes|maybe|no",
   "win_probability_signal": "low|medium|high plus short rationale",
   "scope_clarity": "low|medium|high plus short rationale",
   "estimated_effort": "honest hours/range",
@@ -131,7 +132,7 @@ class JobAnalysis:
     project_id: str = ""
     thread_id: str = ""
     service_lane: str = ""
-    executable: str = "uncertain"
+    executable: str = "maybe"
     fit_score: float | None = None
     win_probability_signal: str = ""
     scope_clarity: str = ""
@@ -157,6 +158,16 @@ class JobAnalysis:
     live_status_retry_count: int = 0
     live_status_last_error: str = ""
     qualified: bool = False
+    tags: str = ""
+    budget_currency: str = ""
+    discovery_source: str = ""
+    discovery_sources: str = ""
+    source_publication_at: datetime | None = None
+    source_feed_timestamp: datetime | None = None
+    feed_fetched_at: datetime | None = None
+    first_seen_at: datetime | None = None
+    telegram_sent_at: datetime | None = None
+    publication_to_telegram_latency_seconds: float | None = None
 
     @property
     def score_display(self) -> str:
@@ -225,6 +236,15 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _executable(value: Any) -> str:
+    normalized = str(value or "maybe").strip().casefold()
+    if normalized in {"yes", "true", "1"}:
+        return "yes"
+    if normalized in {"no", "false", "0"}:
+        return "no"
+    return "maybe"
+
+
 async def analyze_email(
     email_id: str,
     subject: str,
@@ -277,9 +297,11 @@ async def analyze_email(
     if language not in {"uk", "ru", "en", "pl"}:
         language = detect_language(f"{subject}\n{body}")
 
+    executable = _executable(data.get("executable"))
+    is_relevant = bool(data.get("is_relevant", False)) and executable != "no"
     return JobAnalysis(
         email_id=email_id,
-        is_relevant=bool(data.get("is_relevant", False)),
+        is_relevant=is_relevant,
         title=str(data.get("title") or subject),
         platform=str(data.get("platform") or _detect_platform(sender)),
         score=score,
@@ -305,7 +327,7 @@ async def analyze_email(
         project_id=str(data.get("project_id", "")),
         thread_id=str(data.get("thread_id", "")),
         service_lane=str(data.get("service_lane", "")),
-        executable=str(data.get("executable") or "uncertain"),
+        executable=executable,
         fit_score=score,
         win_probability_signal=str(data.get("win_probability_signal", "")),
         scope_clarity=str(data.get("scope_clarity", "")),
@@ -314,13 +336,23 @@ async def analyze_email(
         client_payment_risk=str(data.get("client_payment_risk", "")),
         project_mode=str(data.get("project_mode", "")),
         project_mode_reason=str(data.get("project_mode_reason", "")),
-        recommended_price=str(data.get("recommended_price", "")),
-        realistic_timeline=str(data.get("realistic_timeline", "")),
+        recommended_price=(
+            "" if executable == "no" else str(data.get("recommended_price", ""))
+        ),
+        realistic_timeline=(
+            "" if executable == "no" else str(data.get("realistic_timeline", ""))
+        ),
         selected_evidence=str(data.get("selected_evidence", "")),
         evidence=str(data.get("evidence", "")),
-        proposal_draft=str(data.get("proposal_draft", "")),
+        proposal_draft=(
+            "" if executable == "no" else str(data.get("proposal_draft", ""))
+        ),
         needs_context=bool(data.get("needs_context", False)),
-        next_action=str(data.get("next_action", "")),
+        next_action=(
+            "Не подавати ставку: виконання не підтверджене."
+            if executable == "no"
+            else str(data.get("next_action", ""))
+        ),
     )
 
 
@@ -346,14 +378,14 @@ async def analyze_candidate(
         body="\n".join(body_lines),
         client=client,
         model=model,
-        event_type=EmailType.PROJECT_DIGEST.value,
+        event_type=candidate.event_type,
         source_url=candidate.url,
     )
     analysis.platform = candidate.platform
     analysis.url = candidate.url
     analysis.source_email_id = candidate.source_email_id
     analysis.full_description = candidate.description
-    analysis.description_completeness = "PARTIAL"
+    analysis.description_completeness = candidate.description_completeness
     analysis.category = analysis.category or candidate.category
     analysis.deadline = analysis.deadline or candidate.deadline
     analysis.bid_count = (
@@ -365,6 +397,14 @@ async def analyze_candidate(
     )
     analysis.project_id = analysis.project_id or candidate.project_id
     analysis.received_at = candidate.received_at
+    analysis.tags = candidate.tags
+    analysis.budget_currency = candidate.budget_currency
+    analysis.discovery_source = candidate.discovery_source
+    analysis.discovery_sources = candidate.discovery_source
+    analysis.source_publication_at = candidate.source_publication_at
+    analysis.source_feed_timestamp = candidate.source_feed_timestamp
+    analysis.feed_fetched_at = candidate.feed_fetched_at
+    analysis.first_seen_at = candidate.first_seen_at
     if not analysis.title:
         analysis.title = candidate.title
     if (not analysis.budget or analysis.budget == "не вказано") and candidate.budget:
