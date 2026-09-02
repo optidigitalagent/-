@@ -77,16 +77,16 @@ Do not rewrite it from scratch.
 
 ## Confirmed implementation gaps
 
-- [ ] Gmail production mode is disabled by default and mock mode is enabled by default
-- [ ] Current production polling is too slow for competitive freelance work
-- [ ] Freelancehunt private-message patterns are not explicit event types
-- [ ] Current Telegram cards lack the complete commercial decision package
-- [ ] Stored Gmail jobs do not preserve enough full task/context data
-- [ ] `/reply_job` uses analysis summaries instead of the full task description
-- [ ] Active Gmail prompts/messages still contain the old `OptiDigital` brand
-- [ ] Current scoring does not implement the approved no-priority, revenue-oriented service policy
+- [x] Feature configuration defaults now use real mode and a 60-second interval; production deployment remains gated
+- [x] Feature polling target is fast enough for the two-minute normal-latency objective
+- [x] Freelancehunt private-message patterns are explicit high-priority event types
+- [x] Telegram cards contain the complete commercial decision package
+- [x] Stored Gmail jobs preserve full safe task/message context
+- [x] `/reply_job` uses the full persisted description, context, evidence, price, timeline and saved proposal
+- [x] Active Gmail prompts/messages use Antonov Digital branding
+- [x] Scoring uses the approved no-minimum-budget, no-preferred-lane revenue policy
 - [ ] The new adult-owned OAuth identity is not yet installed and proven in Railway
-- [ ] No end-to-end adult-mailbox test has been completed
+- [x] Local adult-mailbox read-only test and one controlled Telegram TEST completed; production end-to-end remains gated
 
 ## Stage 2 implementation plan
 
@@ -106,19 +106,32 @@ fresh Freelancehunt project/private-message email
 
 ## Immediate implementation work
 
-- [ ] Create an isolated feature branch from the confirmed current production baseline
-- [ ] Add explicit multilingual project/private-message/account event classification
-- [ ] Switch all active Gmail-path branding to Antonov Digital
-- [ ] Preserve full task/message context in durable storage
-- [ ] Fix proposal generation to use the full task description
-- [ ] Add revenue-oriented price/time/risk/evidence fields
-- [ ] Reduce normal Gmail detection latency to at most 2 minutes
-- [ ] Add high-priority private-message cards and safe security-event handling
-- [ ] Add tests for classification, deduplication, migration, proposals and Telegram formatting
-- [ ] Generate a local read-only OAuth token for the adult-owned operational mailbox
-- [ ] Verify the OAuth account identity without exposing token material
-- [ ] Run a real-mail dry run and one controlled Telegram delivery
-- [ ] Stop at `READY_FOR_RAILWAY_DEPLOY` with proof, variables and rollback plan
+- [x] Create an isolated feature branch from the confirmed safe Stage 2 base
+- [x] Add explicit multilingual project/private-message/account event classification
+- [x] Switch all active Gmail-path branding to Antonov Digital
+- [x] Preserve full task/message context in durable storage
+- [x] Fix proposal generation to use the full task description
+- [x] Add revenue-oriented price/time/risk/evidence fields
+- [x] Reduce normal Gmail detection latency to at most 2 minutes
+- [x] Add high-priority private-message cards and safe security-event handling
+- [x] Add tests for classification, deduplication, migration, proposals and Telegram formatting
+- [x] Generate a local read-only OAuth token for the adult-owned operational mailbox
+- [x] Verify the OAuth account identity without exposing token material
+- [x] Run a real-mail dry run and one controlled Telegram delivery
+- [x] Stop at `READY_FOR_RAILWAY_DEPLOY` with proof, variables and rollback plan
+
+## 2026-09-02 — Stage 2 local validation result
+
+- Local deployment-gate readiness: 0% -> 100%.
+- Live production activation remains pending explicit Railway authorization.
+- OAuth `gmail.readonly` identity: verified as public-safe alias
+  `ur***@gmail.com`; mismatches wrote no token.
+- Historical read-only Gmail probe: 8 platform emails; 4 private-message,
+  1 marketing and 3 unknown; zero Gmail mutations.
+- Controlled Telegram validation: one synthetic `[TEST]` card accepted as one
+  message; zero real client/project data and zero Freelancehunt actions.
+- Final implementation evidence is maintained in
+  `docs/STAGE_2_DEPLOYMENT_GATE.md` and Draft PR #2.
 
 ## Deferred portfolio
 

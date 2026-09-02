@@ -31,6 +31,11 @@ class DigestJobCandidate:
     category: str
     received_at: datetime | None
     stable_key: str
+    deadline: str = ""
+    bid_count: int | None = None
+    client_name: str = ""
+    client_profile_url: str = ""
+    project_id: str = ""
 
 
 def _clean_text(value: str) -> str:
@@ -115,7 +120,7 @@ def _first_class_text(container: Tag, fragment: str) -> str:
     return _clean_text(element.get_text(" ", strip=True)) if element else ""
 
 
-def _card_parts(anchor: Tag) -> tuple[str, str, str, str] | None:
+def _card_parts(anchor: Tag) -> tuple[str, str, str, str, str, int | None, str] | None:
     table = anchor.find_parent("table")
     if table is None:
         return None
@@ -141,10 +146,15 @@ def _card_parts(anchor: Tag) -> tuple[str, str, str, str] | None:
 
     budget = _first_class_text(heading_row, "budget")
     category = _first_class_text(table, "category")
+    deadline = _first_class_text(table, "deadline") or _first_class_text(table, "term")
+    bid_text = _first_class_text(table, "bid") or _first_class_text(table, "proposal")
+    bid_match = re.search(r"\d+", bid_text)
+    bid_count = int(bid_match.group(0)) if bid_match else None
+    client_name = _first_class_text(table, "client") or _first_class_text(table, "employer")
     normalized_url = _normalize_direct_job_url(str(title_anchor.get("href", "")))
     if normalized_url is None:
         return None
-    return title, description, budget, category
+    return title, description, budget, category, deadline, bid_count, client_name
 
 
 def parse_freelancehunt_digest(
@@ -172,7 +182,7 @@ def parse_freelancehunt_digest(
         parts = _card_parts(anchor)
         if parts is None:
             continue
-        title, description, budget, category = parts
+        title, description, budget, category, deadline, bid_count, client_name = parts
         stable_key = _stable_key(
             _PLATFORM,
             normalized_url,
@@ -194,6 +204,14 @@ def parse_freelancehunt_digest(
                 category=category,
                 received_at=getattr(email, "received_at", None),
                 stable_key=stable_key,
+                deadline=deadline,
+                bid_count=bid_count,
+                client_name=client_name,
+                project_id=(
+                    re.search(r"/(\d+)\.html$", normalized_url).group(1)
+                    if re.search(r"/(\d+)\.html$", normalized_url)
+                    else ""
+                ),
             )
         )
         if len(candidates) >= max_candidates:
