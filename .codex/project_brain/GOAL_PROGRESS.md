@@ -6,22 +6,39 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 1 — Adult-owned Freelancehunt account activation**
+**Stage 1 — Adult-owned Freelancehunt verification and revenue-channel activation**
 
-Readiness is tracked by workstream:
+Readiness by workstream:
 
 - **Commercial profile core: 100% complete**
-- **Adult account verification: blocked only on phone confirmation**
+- **Adult phone confirmation: complete**
+- **Pre-verification audit: complete**
+- **Дія.Підпис readiness: ready**
 - **Gmail connection: confirmed**
 - **Railway → Telegram opportunity flow: not yet activated**
 - **Minor-owned account: 0% operational and excluded**
 
-## New lawful account
+## Current live status
+
+- `ADULT_IDENTITY_VISIBLE`
+- `ADULT_PHONE_CONFIRMED_NEW_ACCOUNT`
+- `CORE_PROFILE_PUBLISHED`
+- `FOUR_LANGUAGE_COPY_SAVED`
+- `PRIMARY_SPECIALIZATIONS_SAVED`
+- `ADDITIONAL_SPECIALIZATIONS_SAVED`
+- `TWENTY_SKILLS_SAVED`
+- `NOTIFICATIONS_CONFIGURED`
+- `PUBLIC_QA_PASSED`
+- `PORTFOLIO_DEFERRED`
+- `READY_FOR_DIIA_SIGNATURE`
+
+## Completed profile work
 
 - [x] New adult-owned profile created
 - [x] Public URL confirmed: `https://freelancehunt.com/freelancer/AntonovDigital.html`
-- [x] Adult-owner name and photo visible
-- [x] Four language descriptions and slogans published
+- [x] Adult-owner name and current photo visible
+- [x] Adult-owned phone confirmed without storing or exposing the number
+- [x] Ukrainian, English, Russian and Polish descriptions and slogans published
 - [x] Status saved as `Вільний для роботи`
 - [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
 - [x] Twenty-six additional specializations saved
@@ -35,31 +52,10 @@ Readiness is tracked by workstream:
 - [x] Sound notifications enabled
 - [x] Promotional, news and blog mail disabled
 - [x] Desktop/mobile public QA passed
-- [x] Portfolio intentionally deferred where evidence/media is incomplete
+- [x] Final read-only pre-verification audit passed
+- [x] Codex returned `READY_FOR_DIIA_SIGNATURE`
 - [x] New operational Gmail mailbox connected to ChatGPT
 - [x] Freelancehunt support communication is arriving on the new mailbox
-
-## Current phone blocker
-
-Support stated that it could deactivate the old profile and detach the adult owner's number so the number could be used on the new profile.
-
-A later support message indicated completion/help, but the notification email did not explicitly state that the number had been detached.
-
-Current status:
-
-- `PHONE_RELEASE_OFFER_CONFIRMED`
-- `PHONE_RELEASE_LIKELY_COMPLETED_BUT_NOT_TESTED`
-- `PHONE_CONFIRMATION_REQUIRED_IN_NEW_ACCOUNT`
-
-## Immediate remaining account work
-
-- [ ] Adult owner attempts to add the phone number in `AntonovDigital`
-- [ ] Adult owner completes SMS/OTP confirmation personally
-- [ ] Record `ADULT_PHONE_CONFIRMED_NEW_ACCOUNT`
-- [ ] Run final pre-verification audit
-- [ ] Return `READY_FOR_DIIA_SIGNATURE`
-- [ ] Adult owner completes the available verification method personally
-- [ ] Confirm verified badge/status on the public profile
 
 ## Deferred portfolio
 
@@ -75,7 +71,14 @@ The following prepared cards remain deferred until each has current links/status
 - Mentium
 - NFC Review Cards
 
-This does not block account verification or opportunity automation.
+This does not block verification or opportunity automation.
+
+## Immediate remaining owner action
+
+- [ ] Genuine adult owner personally completes an available Freelancehunt verification method, preferably `Дія.Підпис` when convenient
+- [ ] Owner handles QR/application confirmation, CAPTCHA, OTP/2FA, document transfer/live check, any displayed payment and legal confirmation
+- [ ] Confirm verified badge/status appears on the public profile
+- [ ] Record one result: `VERIFICATION_COMPLETED`, `VERIFICATION_PENDING_REVIEW`, or `VERIFICATION_FAILED` with the exact platform message
 
 ## Revenue automation after verification
 
