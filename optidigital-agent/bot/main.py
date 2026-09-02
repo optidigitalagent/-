@@ -38,22 +38,14 @@ async def _check_playwright() -> bool:
             logger.error("playwright package not installed — run: pip install playwright")
             return False
 
-        from pathlib import Path
         from playwright.async_api import async_playwright
         async with async_playwright() as pw:
             browser_path = pw.chromium.executable_path
-            logger.info("Playwright Chromium path: %s", browser_path)
-            if Path(browser_path).exists():
-                logger.info("Playwright Chromium binary: OK")
-                return True
-            else:
-                logger.error(
-                    "Playwright Chromium binary NOT FOUND at: %s — "
-                    "parsers will skip browser fallback. "
-                    "Fix: Railway build command → python -m playwright install chromium --with-deps",
-                    browser_path,
-                )
-                return False
+            logger.info("Playwright Chromium executable target: %s", browser_path)
+            browser = await pw.chromium.launch(headless=True)
+            await browser.close()
+            logger.info("Playwright Chromium headless launch: OK")
+            return True
     except Exception as exc:
         logger.error("Playwright startup check failed: %s", exc)
         return False
