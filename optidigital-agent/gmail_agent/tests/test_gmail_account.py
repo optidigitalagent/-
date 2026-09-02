@@ -14,7 +14,7 @@ class TestGmailAccountProfile(unittest.IsolatedAsyncioTestCase):
     async def test_profile_reads_identity_and_inbox_label_only(self):
         service = MagicMock()
         service.users.return_value.getProfile.return_value.execute.return_value = {
-            "emailAddress": "tijgadymg@gmail.com",
+            "emailAddress": "adult.operator@example.com",
             "messagesTotal": 613,
             "threadsTotal": 584,
         }
@@ -27,7 +27,7 @@ class TestGmailAccountProfile(unittest.IsolatedAsyncioTestCase):
 
         profile = await provider.get_account_profile()
 
-        self.assertEqual(profile["email_address"], "tijgadymg@gmail.com")
+        self.assertEqual(profile["email_address"], "adult.operator@example.com")
         self.assertEqual(profile["messages_total"], 613)
         self.assertEqual(profile["threads_total"], 584)
         self.assertEqual(profile["inbox_messages_count"], 432)
