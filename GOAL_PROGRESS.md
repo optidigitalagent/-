@@ -597,3 +597,32 @@ token.json: ✅ знайдено
   scans were 0.163s or faster.
 - Production remained unchanged. Status:
   `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY_V2`.
+
+## 2026-09-02 Stage 3 instant broad Freelancehunt discovery
+
+- The live-status hotfix V2 is now deployed: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
+  GitHub issue #7 is completed. The protected production baseline is `main`
+  `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5` on Railway deployment
+  `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS / RUNNING`).
+- Stage 3 is active and GitHub issue #9 is the current work item on isolated
+  branch `feature/freelancehunt-instant-discovery-v1`.
+- The implementation adds official public RSS discovery every 60 seconds,
+  shared canonical project identity across RSS/Gmail/legacy parser,
+  restart-safe PostgreSQL dedup, guarded broad AI analysis and
+  publication-to-Telegram telemetry.
+- Freelancehunt is removed from the old hourly automatic parser; Kabanchik and
+  FreelanceUA remain. Old Freelancehunt keyword and minimum-budget gates do not
+  control the new path.
+- No bid, client message, merge, deployment or production variable change is
+  part of the Stage 3 implementation branch.
+- QA: 200/200 canonical tests (181 baseline + 19 Stage 3), compileall and diff
+  check passed. PostgreSQL-like migration applied 79 additive statements twice
+  with no destructive operation; production-like Python 3.12 startup passed.
+- Current public RSS proof: HTTP 200, 50 parseable items, canonical ID present,
+  live status `ACTIVE_BIDDABLE`, `biddable=true`, no browser fallback.
+- Sanitized controlled card latency: 25.053 seconds; repeat and restart each
+  deduplicated the item and total send calls remained one.
+- Production remains unchanged on `main`
+  `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`, Railway deployment
+  `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS / RUNNING`).
+- Status: `READY_FOR_INSTANT_DISCOVERY_DEPLOY`.

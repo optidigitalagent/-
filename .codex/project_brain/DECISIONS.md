@@ -212,3 +212,30 @@
   non-biddable/UNKNOWN, while a current feed item was positively
   `ACTIVE_BIDDABLE`. Production remains on the unchanged known-good main
   deployment until separate authorization.
+
+## 2026-09-02 — Stage 3 instant discovery architecture
+
+- Issue #7 is completed and deployed as `DEPLOYED_LIVE_STATUS_HOTFIX_V2` on
+  production `main` `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`, Railway
+  deployment `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS / RUNNING`).
+- Issue #9 is the active Stage 3 work item. Its implementation remains isolated
+  on `feature/freelancehunt-instant-discovery-v1` until separate deployment
+  authorization.
+- Use the official anonymous `projects.rss` feed as the primary fresh-project
+  discovery source and poll it every 60 seconds with `max_instances=1` and
+  `coalesce=true`.
+- Derive one durable 64-hex stable key from the canonical numeric Freelancehunt
+  project ID for RSS, Gmail and the legacy parser. PostgreSQL remains the
+  restart-safe source of truth.
+- Reuse, never relax, the V2 live-status guard. Only `ACTIVE_BIDDABLE` can reach
+  price, timeline, proposal and the manual-owner Telegram action card.
+- Remove Freelancehunt from the old hourly automatic parser only after the new
+  scheduler path is present; retain other platforms and the manual read-only
+  Freelancehunt diagnostic path.
+- Apply no old keyword exclusion or minimum-budget rejection to Freelancehunt.
+  Let the commercial analyzer classify truthful broad online lanes and persist
+  executable state, service lane, fit, effort, risk and strategic mode.
+- Measure publication-to-first-seen and publication-to-Telegram latency. The
+  normal path target is at most 120 seconds.
+- Never automate a bid or client message. The adult owner performs the final
+  platform action manually.

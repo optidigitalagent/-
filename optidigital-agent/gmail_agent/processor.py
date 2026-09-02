@@ -23,6 +23,11 @@ from .live_status import (
     LiveStatusResult,
     retry_due,
 )
+from .project_identity import (
+    freelancehunt_project_id,
+    freelancehunt_project_stable_key,
+    source_family,
+)
 from .security import redact_security_event, redact_sensitive_content
 from .storage import (
     GmailRepository,
@@ -60,6 +65,10 @@ class ProcessorStats:
     live_status_non_actionable: int = 0
     live_status_unknown: int = 0
     live_status_diagnostics_sent: int = 0
+    live_status_active: int = 0
+    ai_calls_avoided: int = 0
+    duplicate_source_pairs: dict[str, int] = field(default_factory=dict)
+    max_publication_to_telegram_latency_seconds: float = 0.0
 
     @property
     def duplicates(self) -> int:
@@ -264,6 +273,18 @@ class GmailJobProcessor:
             live_status_retry_count=job.live_status_retry_count,
             live_status_last_error=job.live_status_last_error,
             qualified=job.qualified,
+            tags=job.tags,
+            budget_currency=job.budget_currency,
+            discovery_source=job.discovery_source,
+            discovery_sources=job.discovery_sources,
+            source_publication_at=job.source_publication_at,
+            source_feed_timestamp=job.source_feed_timestamp,
+            feed_fetched_at=job.feed_fetched_at,
+            first_seen_at=job.first_seen_at,
+            telegram_sent_at=job.telegram_sent_at,
+            publication_to_telegram_latency_seconds=(
+                job.publication_to_telegram_latency_seconds
+            ),
         )
 
     @staticmethod
@@ -309,6 +330,18 @@ class GmailJobProcessor:
             "live_status_retry_count": analysis.live_status_retry_count,
             "live_status_last_error": analysis.live_status_last_error,
             "qualified": analysis.qualified,
+            "tags": analysis.tags,
+            "budget_currency": analysis.budget_currency,
+            "discovery_source": analysis.discovery_source,
+            "discovery_sources": analysis.discovery_sources,
+            "source_publication_at": analysis.source_publication_at,
+            "source_feed_timestamp": analysis.source_feed_timestamp,
+            "feed_fetched_at": analysis.feed_fetched_at,
+            "first_seen_at": analysis.first_seen_at,
+            "telegram_sent_at": analysis.telegram_sent_at,
+            "publication_to_telegram_latency_seconds": (
+                analysis.publication_to_telegram_latency_seconds
+            ),
         }
 
     @staticmethod
@@ -342,7 +375,11 @@ class GmailJobProcessor:
             stable_key=candidate.stable_key,
             source_email_id=candidate.source_email_id,
             platform=candidate.platform,
-            item_type="digest_job",
+            item_type=(
+                "rss_project"
+                if candidate.event_type == EmailType.PROJECT_FEED.value
+                else "digest_job"
+            ),
             title=candidate.title,
             url=candidate.url,
             decision=decision,
@@ -360,8 +397,18 @@ class GmailJobProcessor:
             budget=job.budget or "",
             url=job.url or "",
             category="",
-            received_at=None,
+            received_at=job.received_at,
             stable_key=job.stable_key,
+            project_id=job.project_id,
+            tags=job.tags,
+            budget_currency=job.budget_currency,
+            source_publication_at=job.source_publication_at,
+            source_feed_timestamp=job.source_feed_timestamp,
+            feed_fetched_at=job.feed_fetched_at,
+            first_seen_at=job.first_seen_at,
+            discovery_source=job.discovery_source,
+            event_type=job.event_type,
+            description_completeness=job.description_completeness,
         )
 
     @staticmethod
@@ -378,6 +425,8 @@ class GmailJobProcessor:
                 if job.event_type == EmailType.PROJECT_SINGLE.value
                 else "digest_job"
                 if job.event_type == EmailType.PROJECT_DIGEST.value
+                else "rss_project"
+                if job.event_type == EmailType.PROJECT_FEED.value
                 else job.event_type
             ),
             title=job.title,
@@ -391,9 +440,11 @@ class GmailJobProcessor:
         email: EmailMessage,
         analysis: JobAnalysis,
         status: str = "queued",
+        *,
+        stable_key: str | None = None,
     ) -> StoredGmailJob:
         return StoredGmailJob(
-            stable_key=email.id,
+            stable_key=stable_key or email.id,
             source_email_id=email.id,
             platform=analysis.platform,
             title=analysis.title,
@@ -412,9 +463,11 @@ class GmailJobProcessor:
         email: EmailMessage,
         analysis: JobAnalysis,
         decision: str,
+        *,
+        stable_key: str | None = None,
     ) -> ProcessedItem:
         return ProcessedItem(
-            stable_key=email.id,
+            stable_key=stable_key or email.id,
             source_email_id=email.id,
             platform=analysis.platform,
             item_type=(
@@ -493,10 +546,79 @@ class GmailJobProcessor:
             )
 
     @staticmethod
+    def _merge_discovery_sources(*values: str) -> str:
+        sources: list[str] = []
+        for value in values:
+            for source in str(value or "").split(","):
+                normalized = source.strip()
+                if normalized and normalized not in sources:
+                    sources.append(normalized)
+        return ",".join(sources)
+
+    async def _record_duplicate(
+        self,
+        stable_key: str,
+        incoming_source: str,
+        stats: ProcessorStats,
+    ) -> None:
+        stats.duplicates_skipped += 1
+        stats.ai_calls_avoided += 1
+        if self._repository is None:
+            return
+        previous = await self._repository.get_processed(stable_key)
+        previous_source = source_family(previous.item_type if previous else "unknown")
+        incoming_family = source_family(incoming_source)
+        pair = f"{previous_source}->{incoming_family}"
+        stats.duplicate_source_pairs[pair] = (
+            stats.duplicate_source_pairs.get(pair, 0) + 1
+        )
+        job = await self._repository.get_job(stable_key)
+        if job is not None:
+            sources = self._merge_discovery_sources(
+                job.discovery_sources or job.discovery_source,
+                incoming_family,
+            )
+            await self._repository.update_job_fields(
+                stable_key, {"discovery_sources": sources}
+            )
+
+    async def _record_source_reuse(
+        self,
+        job: StoredGmailJob,
+        incoming_source: str,
+        stats: ProcessorStats,
+    ) -> StoredGmailJob:
+        previous_family = source_family(job.discovery_source)
+        incoming_family = source_family(incoming_source)
+        if previous_family == incoming_family:
+            return job
+        pair = f"{previous_family}->{incoming_family}"
+        stats.duplicate_source_pairs[pair] = (
+            stats.duplicate_source_pairs.get(pair, 0) + 1
+        )
+        stats.ai_calls_avoided += 1
+        sources = self._merge_discovery_sources(
+            job.discovery_sources or previous_family,
+            incoming_family,
+        )
+        if self._repository is None:
+            return job
+        return (
+            await self._repository.update_job_fields(
+                job.stable_key, {"discovery_sources": sources}
+            )
+            or job
+        )
+
+    @staticmethod
     def _is_guarded_project(event_type: str, platform: str, url: str) -> bool:
         return (
             event_type
-            in {EmailType.PROJECT_SINGLE.value, EmailType.PROJECT_DIGEST.value}
+            in {
+                EmailType.PROJECT_SINGLE.value,
+                EmailType.PROJECT_DIGEST.value,
+                EmailType.PROJECT_FEED.value,
+            }
             and "freelancehunt" in (platform or "").casefold()
             and bool(url)
         )
@@ -518,6 +640,7 @@ class GmailJobProcessor:
             analysis.qualified = False
             analysis.recommended_price = ""
             analysis.realistic_timeline = ""
+            analysis.proposal_draft = ""
             analysis.next_action = (
                 "Дочекатися автоматичної повторної перевірки або виконати read-only /recheck_live."
                 if (
@@ -545,6 +668,14 @@ class GmailJobProcessor:
         mailbox_alias: str,
         result: LiveStatusResult,
         retry_count: int,
+        tags: str = "",
+        budget_currency: str = "",
+        discovery_source: str = "",
+        source_publication_at: datetime | None = None,
+        source_feed_timestamp: datetime | None = None,
+        feed_fetched_at: datetime | None = None,
+        first_seen_at: datetime | None = None,
+        description_completeness: str = "PARTIAL",
     ) -> JobAnalysis:
         analysis = JobAnalysis(
             email_id=stable_key,
@@ -560,10 +691,18 @@ class GmailJobProcessor:
             event_type=event_type,
             source_email_id=source_email_id,
             full_description=description,
-            description_completeness="PARTIAL",
+            description_completeness=description_completeness,
             project_id=project_id,
             received_at=received_at,
             source_mailbox_alias=mailbox_alias,
+            tags=tags,
+            budget_currency=budget_currency,
+            discovery_source=discovery_source,
+            discovery_sources=discovery_source,
+            source_publication_at=source_publication_at,
+            source_feed_timestamp=source_feed_timestamp,
+            feed_fetched_at=feed_fetched_at,
+            first_seen_at=first_seen_at,
         )
         return GmailJobProcessor._apply_live_result(analysis, result, retry_count)
 
@@ -606,6 +745,17 @@ class GmailJobProcessor:
         ):
             return None
         result = await self._live_status_checker.check(url)
+        if (
+            result.status == LiveStatus.ACTIVE_BIDDABLE
+            and result.biddable is not True
+        ):
+            result = LiveStatusResult(
+                status=LiveStatus.LIVE_STATUS_UNKNOWN,
+                checked_at=result.checked_at,
+                evidence="LIVE STATUS NOT VERIFIED",
+                biddable=False,
+                last_error="inconsistent ACTIVE_BIDDABLE result without biddable=true",
+            )
         retry_count = (
             previous_count + 1
             if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
@@ -746,12 +896,16 @@ class GmailJobProcessor:
         candidate: DigestJobCandidate,
         job: StoredGmailJob,
         stats: ProcessorStats,
+        *,
+        live_status_already_checked: bool = False,
     ) -> bool:
         """Claim and send a queued job; return whether the child is handled."""
         assert self._repository is not None
         analysis = self._analysis_from_job(job)
-        if self._live_status_checker is not None and self._is_guarded_project(
-            job.event_type, job.platform, job.url or ""
+        if (
+            not live_status_already_checked
+            and self._live_status_checker is not None
+            and self._is_guarded_project(job.event_type, job.platform, job.url or "")
         ):
             if not self._active_check_is_fresh(job):
                 checked = await self._check_live_status(job.url or "", job)
@@ -763,6 +917,7 @@ class GmailJobProcessor:
                 if result.status == LiveStatus.ACTIVE_BIDDABLE:
                     analysis.is_relevant = True
                     analysis.qualified = True
+                    stats.live_status_active += 1
                     status = job.status
                 else:
                     status, settled = self._nonactive_state(result, retry_count)
@@ -796,10 +951,23 @@ class GmailJobProcessor:
         if not claimed:
             # Another worker owns it, or it became terminal after our read.
             if await self._repository.is_processed(candidate.stable_key):
-                stats.duplicates_skipped += 1
+                await self._record_duplicate(
+                    candidate.stable_key,
+                    candidate.discovery_source or job.discovery_source,
+                    stats,
+                )
             return False
 
         analysis = self._analysis_from_job(job)
+        send_started_at = datetime.now(timezone.utc)
+        analysis.telegram_sent_at = send_started_at
+        if analysis.source_publication_at is not None:
+            published = analysis.source_publication_at
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+            analysis.publication_to_telegram_latency_seconds = max(
+                0.0, (send_started_at - published).total_seconds()
+            )
         try:
             sent_ok = await send_job_card(self._bot, self._chat_id, analysis)
         except Exception as exc:
@@ -817,12 +985,31 @@ class GmailJobProcessor:
             )
             return True
 
-        await self._repository.update_job_status(candidate.stable_key, "sent")
+        telegram_sent_at = datetime.now(timezone.utc)
+        latency = analysis.publication_to_telegram_latency_seconds
+        if analysis.source_publication_at is not None:
+            published = analysis.source_publication_at
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+            latency = max(0.0, (telegram_sent_at - published).total_seconds())
+        await self._repository.update_job_fields(
+            candidate.stable_key,
+            {
+                "status": "sent",
+                "telegram_sent_at": telegram_sent_at,
+                "publication_to_telegram_latency_seconds": latency,
+            },
+        )
         await self._repository.upsert_processed(
             self._processed_job_item(job, "sent")
         )
         stats.sent += 1
         stats.sent_analyses.append(analysis)
+        if latency is not None:
+            stats.max_publication_to_telegram_latency_seconds = max(
+                stats.max_publication_to_telegram_latency_seconds,
+                latency,
+            )
         return True
 
     async def _drain_retry_queue(
@@ -888,22 +1075,28 @@ class GmailJobProcessor:
 
     async def _process_digest(
         self,
-        email: EmailMessage,
+        email: EmailMessage | None,
         stats: ProcessorStats,
         cards_sent_this_scan: int,
+        *,
+        candidates_override: list[DigestJobCandidate] | None = None,
     ) -> int:
         """Process one digest and return the updated per-scan card count."""
         assert self._repository is not None
-        try:
-            candidates = parse_freelancehunt_digest(email)
-            if not candidates:
-                raise ValueError("digest parser found no job candidates")
-        except Exception as exc:
-            stats.errors += 1
-            stats.parser_failures += 1
-            stats.error_details.append(f"{email.id}: digest parser failed: {exc}")
-            logger.exception("Digest parser failed for email_id=%s", email.id)
-            return cards_sent_this_scan
+        if candidates_override is None:
+            assert email is not None
+            try:
+                candidates = parse_freelancehunt_digest(email)
+                if not candidates:
+                    raise ValueError("digest parser found no job candidates")
+            except Exception as exc:
+                stats.errors += 1
+                stats.parser_failures += 1
+                stats.error_details.append(f"{email.id}: digest parser failed: {exc}")
+                logger.exception("Digest parser failed for email_id=%s", email.id)
+                return cards_sent_this_scan
+        else:
+            candidates = candidates_override
 
         stats.candidates_found += len(candidates)
         all_children_handled = True
@@ -932,11 +1125,20 @@ class GmailJobProcessor:
 
         for candidate in candidates:
             try:
+                active_checked_this_call = False
                 if await self._repository.is_processed(candidate.stable_key):
-                    stats.duplicates_skipped += 1
+                    await self._record_duplicate(
+                        candidate.stable_key,
+                        candidate.discovery_source,
+                        stats,
+                    )
                     continue
 
                 job = await self._repository.get_job(candidate.stable_key)
+                if job is not None:
+                    job = await self._record_source_reuse(
+                        job, candidate.discovery_source, stats
+                    )
                 if job is None or job.status == "live_status_pending":
                     live_result: LiveStatusResult | None = None
                     live_retry_count = 0
@@ -953,17 +1155,32 @@ class GmailJobProcessor:
                                 title=candidate.title,
                                 description=candidate.description,
                                 url=candidate.url,
-                                event_type=EmailType.PROJECT_DIGEST.value,
+                                event_type=candidate.event_type,
                                 platform=candidate.platform,
                                 project_id=candidate.project_id,
                                 received_at=candidate.received_at,
                                 mailbox_alias=stats.mailbox_alias,
                                 result=live_result,
                                 retry_count=live_retry_count,
+                                tags=candidate.tags,
+                                budget_currency=candidate.budget_currency,
+                                discovery_source=candidate.discovery_source,
+                                source_publication_at=candidate.source_publication_at,
+                                source_feed_timestamp=candidate.source_feed_timestamp,
+                                feed_fetched_at=candidate.feed_fetched_at,
+                                first_seen_at=candidate.first_seen_at,
+                                description_completeness=(
+                                    candidate.description_completeness
+                                ),
                             )
+                            stats.ai_calls_avoided += 1
                             status, settled = self._nonactive_state(
                                 live_result, live_retry_count
                             )
+                            if live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                                stats.live_status_unknown += 1
+                            else:
+                                stats.live_status_non_actionable += 1
                             job = await self._repository.save_job(
                                 self._stored_job(
                                     candidate,
@@ -979,8 +1196,6 @@ class GmailJobProcessor:
                                     job.stable_key, "live_status_notice_pending"
                                 )
                             if settled:
-                                if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
-                                    stats.live_status_non_actionable += 1
                                 await self._repository.upsert_processed(
                                     self._processed_item(
                                         candidate,
@@ -996,9 +1211,11 @@ class GmailJobProcessor:
                                     )
                                 )
                             else:
-                                stats.live_status_unknown += 1
                                 all_children_handled = False
                             continue
+
+                        stats.live_status_active += 1
+                        active_checked_this_call = True
 
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
@@ -1053,7 +1270,11 @@ class GmailJobProcessor:
                     "live_status_unknown_exhausted",
                     "live_status_active_manual",
                 }:
-                    stats.duplicates_skipped += 1
+                    await self._record_duplicate(
+                        candidate.stable_key,
+                        candidate.discovery_source,
+                        stats,
+                    )
                     continue
                 elif job.status == "live_status_notice_pending":
                     # The dedicated delivery queue owns this row. A terminal or
@@ -1069,7 +1290,12 @@ class GmailJobProcessor:
                     # Existing send_failed rows stay retryable; fresh rows stay queued.
                     continue
 
-                attempted = await self._send_stored_job(candidate, job, stats)
+                attempted = await self._send_stored_job(
+                    candidate,
+                    job,
+                    stats,
+                    live_status_already_checked=active_checked_this_call,
+                )
                 if attempted:
                     cards_sent_this_scan += 1
             except Exception as exc:
@@ -1082,7 +1308,7 @@ class GmailJobProcessor:
 
         # Parent IDs are only a fetch optimization. Child stable keys remain the
         # authoritative dedup keys, so already-marked parents are still parsed.
-        if all_children_handled:
+        if all_children_handled and email is not None:
             await self._repository.upsert_processed(
                 self._processed_digest_parent(email)
             )
@@ -1164,14 +1390,28 @@ class GmailJobProcessor:
         assert self._repository is not None
 
         email_type = self._email_type(email)
+        source_url = self._source_url(email, email_type)
+        stable_key = email.id
+        if (
+            email_type == EmailType.PROJECT_SINGLE
+            and "freelancehunt" in email.sender.casefold()
+        ):
+            stable_key = (
+                freelancehunt_project_stable_key(source_url) or email.id
+            )
 
-        if await self._repository.is_processed(email.id):
-            stats.duplicates_skipped += 1
+        if await self._repository.is_processed(stable_key):
+            await self._record_duplicate(stable_key, "gmail_single", stats)
             return False
 
-        job = await self._repository.get_job(email.id)
+        job = await self._repository.get_job(stable_key)
+        if job is not None:
+            job = await self._record_source_reuse(
+                job, "gmail_single", stats
+            )
         pending_live_result: LiveStatusResult | None = None
         pending_live_retry_count = 0
+        active_checked_this_call = False
         if job is not None and job.status in {
             "sent",
             "skipped",
@@ -1179,7 +1419,7 @@ class GmailJobProcessor:
             "live_status_unknown_exhausted",
             "live_status_active_manual",
         }:
-            stats.duplicates_skipped += 1
+            await self._record_duplicate(stable_key, "gmail_single", stats)
             return False
         if job is not None and job.status == "live_status_notice_pending":
             return False
@@ -1197,6 +1437,10 @@ class GmailJobProcessor:
                 status, settled = self._nonactive_state(
                     pending_live_result, pending_live_retry_count
                 )
+                if pending_live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                    stats.live_status_unknown += 1
+                else:
+                    stats.live_status_non_actionable += 1
                 job = await self._repository.save_job(
                     replace(
                         job,
@@ -1210,8 +1454,6 @@ class GmailJobProcessor:
                         job.stable_key, "live_status_notice_pending"
                     )
                 if settled:
-                    if pending_live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
-                        stats.live_status_non_actionable += 1
                     await self._repository.upsert_processed(
                         self._processed_single_item(
                             email,
@@ -1224,12 +1466,12 @@ class GmailJobProcessor:
                                     pending_live_result.status
                                 )
                             ),
+                            stable_key=stable_key,
                         )
                     )
-                else:
-                    stats.live_status_unknown += 1
                 return False
             # A recovered ACTIVE page must be analyzed for the first time.
+            active_checked_this_call = True
             job = None
 
         if job is not None:
@@ -1240,8 +1482,6 @@ class GmailJobProcessor:
                 safe_body, redacted = redact_security_event(email.body)
             else:
                 safe_body, redacted = redact_sensitive_content(email.body)
-            source_url = self._source_url(email, email_type)
-
             live_result = pending_live_result
             live_retry_count = pending_live_retry_count
             if (
@@ -1255,29 +1495,37 @@ class GmailJobProcessor:
                     return False
                 live_result, live_retry_count = checked
                 if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
-                    project_match = re.search(r"/(\d+)\.html$", source_url)
                     analysis = self._status_only_analysis(
-                        stable_key=email.id,
+                        stable_key=stable_key,
                         source_email_id=email.id,
                         title=email.subject,
                         description=safe_body,
                         url=source_url,
                         event_type=email_type.value,
                         platform="Freelancehunt",
-                        project_id=project_match.group(1) if project_match else "",
+                        project_id=freelancehunt_project_id(source_url),
                         received_at=email.received_at,
                         mailbox_alias=stats.mailbox_alias,
                         result=live_result,
                         retry_count=live_retry_count,
+                        discovery_source="gmail_single",
+                        source_publication_at=email.received_at,
+                        first_seen_at=datetime.now(timezone.utc),
                     )
+                    stats.ai_calls_avoided += 1
                     status, settled = self._nonactive_state(
                         live_result, live_retry_count
                     )
+                    if live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                        stats.live_status_unknown += 1
+                    else:
+                        stats.live_status_non_actionable += 1
                     job = await self._repository.save_job(
                         self._stored_single_job(
                             email,
                             analysis,
                             status=status,
+                            stable_key=stable_key,
                         )
                     )
                     notice_sent = await self._send_live_status_notice_once(analysis, stats)
@@ -1286,8 +1534,6 @@ class GmailJobProcessor:
                             job.stable_key, "live_status_notice_pending"
                         )
                     if settled:
-                        if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
-                            stats.live_status_non_actionable += 1
                         await self._repository.upsert_processed(
                             self._processed_single_item(
                                 email,
@@ -1300,10 +1546,9 @@ class GmailJobProcessor:
                                         live_result.status
                                     )
                                 ),
+                                stable_key=stable_key,
                             )
                         )
-                    else:
-                        stats.live_status_unknown += 1
                     return False
 
             if security_event:
@@ -1335,7 +1580,7 @@ class GmailJobProcessor:
                 )
             else:
                 analysis = await analyze_email(
-                    email_id=email.id,
+                    email_id=stable_key,
                     subject=email.subject,
                     sender=email.sender,
                     body=safe_body,
@@ -1350,9 +1595,16 @@ class GmailJobProcessor:
 
             if live_result is not None:
                 self._apply_live_result(analysis, live_result, live_retry_count)
+                stats.live_status_active += 1
+                active_checked_this_call = True
 
             analysis.event_type = email_type.value
             analysis.source_mailbox_alias = stats.mailbox_alias
+            if email_type == EmailType.PROJECT_SINGLE and stable_key != email.id:
+                analysis.discovery_source = "gmail_single"
+                analysis.discovery_sources = "gmail"
+                analysis.first_seen_at = datetime.now(timezone.utc)
+                analysis.source_publication_at = email.received_at
             if security_event:
                 analysis.url = ""
             elif "freelancehunt" in email.sender.casefold():
@@ -1364,9 +1616,7 @@ class GmailJobProcessor:
             else:
                 analysis.url = source_url or analysis.url
             if source_url and not analysis.project_id:
-                project_match = re.search(r"/(\d+)\.html$", source_url)
-                if project_match:
-                    analysis.project_id = project_match.group(1)
+                analysis.project_id = freelancehunt_project_id(source_url)
             if source_url and not analysis.thread_id and email_type == EmailType.CLIENT_PRIVATE_MESSAGE:
                 thread_match = re.search(r"/(?:thread|dialog)/(\d+)$", source_url)
                 if thread_match:
@@ -1416,7 +1666,12 @@ class GmailJobProcessor:
 
             if not analysis.is_relevant:
                 await self._repository.upsert_processed(
-                    self._processed_single_item(email, analysis, "not_relevant")
+                    self._processed_single_item(
+                        email,
+                        analysis,
+                        "not_relevant",
+                        stable_key=stable_key,
+                    )
                 )
                 if analysis.analysis_succeeded:
                     stats.not_relevant += 1
@@ -1432,7 +1687,12 @@ class GmailJobProcessor:
             }
             if score_filtered and analysis.score < self._min_score:
                 await self._repository.upsert_processed(
-                    self._processed_single_item(email, analysis, "below_threshold")
+                    self._processed_single_item(
+                        email,
+                        analysis,
+                        "below_threshold",
+                        stable_key=stable_key,
+                    )
                 )
                 stats.below_threshold += 1
                 self._record_below_sample(stats, email.subject, analysis)
@@ -1442,7 +1702,7 @@ class GmailJobProcessor:
             analysis.qualified = True
 
             job = await self._repository.save_job(
-                self._stored_single_job(email, analysis)
+                self._stored_single_job(email, analysis, stable_key=stable_key)
             )
             # Send the persisted representation so the Telegram command key
             # and repository lookup key are guaranteed to be identical.
@@ -1450,35 +1710,12 @@ class GmailJobProcessor:
 
         if not allow_send:
             return False
-
-        claimed = await self._repository.claim_job(job.stable_key)
-        if not claimed:
-            if await self._repository.is_processed(job.stable_key):
-                stats.duplicates_skipped += 1
-            return False
-
-        try:
-            sent_ok = await send_job_card(self._bot, self._chat_id, analysis)
-        except Exception as exc:
-            await self._repository.update_job_status(job.stable_key, "send_failed")
-            stats.errors += 1
-            stats.error_details.append(f"{job.stable_key}: {exc}")
-            logger.exception("Single-job Telegram send raised for %s", job.stable_key)
-            return True
-
-        if not sent_ok:
-            await self._repository.update_job_status(job.stable_key, "send_failed")
-            stats.errors += 1
-            stats.error_details.append(f"{job.stable_key}: Telegram send failed")
-            return True
-
-        await self._repository.update_job_status(job.stable_key, "sent")
-        await self._repository.upsert_processed(
-            self._processed_single_item(email, analysis, "sent")
+        return await self._send_stored_job(
+            self._candidate_from_job(job),
+            job,
+            stats,
+            live_status_already_checked=active_checked_this_call,
         )
-        stats.sent += 1
-        stats.sent_analyses.append(analysis)
-        return True
 
     async def _append_scan_run(
         self, trigger: str, started_at: datetime, stats: ProcessorStats
@@ -1506,6 +1743,16 @@ class GmailJobProcessor:
                     mailbox_alias=stats.mailbox_alias or None,
                     max_detection_latency_seconds=(
                         stats.max_detection_latency_seconds or None
+                    ),
+                    duplicate_source_pairs=json.dumps(
+                        stats.duplicate_source_pairs, sort_keys=True
+                    ),
+                    live_status_active=stats.live_status_active,
+                    live_status_non_actionable=stats.live_status_non_actionable,
+                    live_status_unknown=stats.live_status_unknown,
+                    ai_calls_avoided=stats.ai_calls_avoided,
+                    max_publication_to_telegram_latency_seconds=(
+                        stats.max_publication_to_telegram_latency_seconds or None
                     ),
                 )
             )
@@ -1611,6 +1858,61 @@ class GmailJobProcessor:
                     return await execute()
             return await execute()
         finally:
+            await self._append_scan_run(trigger, started_at, stats)
+
+    async def run_candidates(
+        self,
+        candidates: list[DigestJobCandidate],
+        *,
+        trigger: str,
+        source_alias: str,
+        source_candidates_found: int | None = None,
+    ) -> ProcessorStats:
+        """Process normalized external candidates through the shared safe path."""
+
+        if self._repository is None:
+            raise RuntimeError("external candidate processing requires PostgreSQL repository")
+        stats = ProcessorStats(mailbox_alias=source_alias)
+        started_at = datetime.now(timezone.utc)
+        stats.event_counts[EmailType.PROJECT_FEED.value] = len(candidates)
+        for candidate in candidates:
+            if candidate.source_publication_at is None:
+                continue
+            first_seen = candidate.first_seen_at or started_at
+            published = candidate.source_publication_at
+            if published.tzinfo is None:
+                published = published.replace(tzinfo=timezone.utc)
+            if first_seen.tzinfo is None:
+                first_seen = first_seen.replace(tzinfo=timezone.utc)
+            stats.max_detection_latency_seconds = max(
+                stats.max_detection_latency_seconds,
+                max(0.0, (first_seen - published).total_seconds()),
+            )
+        try:
+            if (
+                self._live_status_checker is not None
+                and hasattr(self._live_status_checker, "scan")
+            ):
+                async with self._live_status_checker.scan():
+                    await self._process_digest(
+                        None,
+                        stats,
+                        0,
+                        candidates_override=candidates,
+                    )
+            else:
+                await self._process_digest(
+                    None,
+                    stats,
+                    0,
+                    candidates_override=candidates,
+                )
+            return stats
+        finally:
+            if source_candidates_found is not None:
+                stats.candidates_found = max(
+                    stats.candidates_found, int(source_candidates_found)
+                )
             await self._append_scan_run(trigger, started_at, stats)
 
     async def run_digest_preview(self, days: int) -> DigestPreviewResult:

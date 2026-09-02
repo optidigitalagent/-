@@ -12,6 +12,10 @@ from typing import Any
 import httpx
 
 from parser.base import BasePlatformParser
+from gmail_agent.project_identity import (
+    freelancehunt_project_id,
+    freelancehunt_project_stable_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +424,13 @@ class FreelancehuntParser(BasePlatformParser):
                 _state.freelancehunt_zero_streak = 0
 
         projects = await self._enrich_descriptions(projects)
+        for project in projects:
+            project_id = freelancehunt_project_id(str(project.get("url") or ""))
+            project["project_id"] = project_id
+            project["stable_key"] = freelancehunt_project_stable_key(
+                str(project.get("url") or ""), project_id=project_id
+            )
+            project["discovery_source"] = "legacy_parser"
         matching = [p for p in projects if self._matches_filter(p)]
         self.logger.info(
             "FreelanceHunt: total=%d matching=%d", len(projects), len(matching)

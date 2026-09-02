@@ -149,6 +149,11 @@ class BasePlatformParser:
         return None, None
 
     def _matches_filter(self, project: dict[str, Any]) -> bool:
+        if "freelancehunt" in str(project.get("platform") or "").casefold():
+            # Dedicated Stage 3 analysis records yes/maybe/no capability after
+            # the live guard. The legacy global keyword gate must not silently
+            # discard truthful video/audio/content/SEO/SMM or research lanes.
+            return True
         text = " ".join([
             project.get("category", "") or "",
             project.get("title", "") or "",
@@ -161,6 +166,8 @@ class BasePlatformParser:
         return any(pat.search(text) for pat in _ALLOWED_PATTERNS)
 
     def _matches_filter_verbose(self, project: dict[str, Any]) -> tuple[bool, str]:
+        if "freelancehunt" in str(project.get("platform") or "").casefold():
+            return True, "BROAD_CAPABILITY: deferred to guarded commercial analysis"
         text = " ".join([
             project.get("category", "") or "",
             project.get("title", "") or "",

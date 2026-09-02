@@ -71,9 +71,25 @@ async def on_startup() -> None:
     else:
         logger.info("Gmail agent disabled (GMAIL_ENABLED=false)")
 
+    if settings.FREELANCEHUNT_DISCOVERY_ENABLED:
+        from gmail_agent.freelancehunt_discovery import (
+            register_freelancehunt_discovery_job,
+        )
+
+        register_freelancehunt_discovery_job(
+            _scheduler,
+            bot,
+            interval_seconds=settings.FREELANCEHUNT_DISCOVERY_INTERVAL_SECONDS,
+        )
+    else:
+        logger.info("Freelancehunt instant discovery disabled")
+
     _scheduler.start()
     state.scheduler = _scheduler
-    logger.info("Scheduler running (Gmail every configured minute interval; reports 09:00 Kyiv).")
+    logger.info(
+        "Scheduler running (Freelancehunt discovery every 60 seconds; "
+        "Gmail at configured interval; reports 09:00 Kyiv)."
+    )
 
 
 async def on_shutdown() -> None:

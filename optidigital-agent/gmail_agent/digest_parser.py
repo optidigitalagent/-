@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
-from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 from bs4 import BeautifulSoup, Tag
 
+from .project_identity import (
+    canonical_freelancehunt_project_url,
+    freelancehunt_project_id,
+    freelancehunt_project_stable_key,
+)
+
 
 _PLATFORM = "Freelancehunt"
-_DIRECT_JOB_PATH = re.compile(
-    r"/(?:ua/job|project|ua/project)/[^/]+/\d+\.html",
-    re.IGNORECASE,
-)
-_ALLOWED_HOSTS = frozenset({"freelancehunt.com", "www.freelancehunt.com"})
-
-
 @dataclass(frozen=True, slots=True)
 class DigestJobCandidate:
     source_email_id: str
@@ -36,6 +33,15 @@ class DigestJobCandidate:
     client_name: str = ""
     client_profile_url: str = ""
     project_id: str = ""
+    tags: str = ""
+    budget_currency: str = ""
+    source_publication_at: datetime | None = None
+    source_feed_timestamp: datetime | None = None
+    feed_fetched_at: datetime | None = None
+    first_seen_at: datetime | None = None
+    discovery_source: str = "gmail_digest"
+    event_type: str = "PROJECT_DIGEST"
+    description_completeness: str = "PARTIAL"
 
 
 def _clean_text(value: str) -> str:
@@ -54,40 +60,8 @@ def _normalize_direct_job_url(href: str) -> str | None:
     profile, tracking and asset links without having to enumerate them.
     """
 
-    try:
-        parsed = urlsplit((href or "").strip())
-        port = parsed.port
-    except (TypeError, ValueError):
-        return None
-
-    hostname = (parsed.hostname or "").lower().rstrip(".")
-    if (
-        parsed.scheme.lower() not in {"http", "https"}
-        or hostname not in _ALLOWED_HOSTS
-        or parsed.username is not None
-        or parsed.password is not None
-        or port not in {None, 80, 443}
-    ):
-        return None
-
-    # Classification intentionally precedes query/fragment stripping.
-    if _DIRECT_JOB_PATH.fullmatch(parsed.path) is None:
-        return None
-
-    canonical_host = "freelancehunt.com"
-    if port is not None and not (
-        (parsed.scheme.lower() == "http" and port == 80)
-        or (parsed.scheme.lower() == "https" and port == 443)
-    ):
-        canonical_host = f"{canonical_host}:{port}"
-    normalized = SplitResult(
-        scheme=parsed.scheme.lower(),
-        netloc=canonical_host,
-        path=parsed.path,
-        query="",
-        fragment="",
-    )
-    return urlunsplit(normalized)
+    normalized = canonical_freelancehunt_project_url(href)
+    return normalized or None
 
 
 def _stable_key(
@@ -97,12 +71,16 @@ def _stable_key(
     description: str,
 ) -> str:
     if normalized_url:
-        identity = f"{platform}{normalized_url}"
-    else:
-        identity = (
-            f"{platform}{_normalized_identity_text(title)}"
-            f"{_normalized_identity_text(description)}"
-        )
+        canonical_key = freelancehunt_project_stable_key(normalized_url)
+        if canonical_key:
+            return canonical_key
+    # Non-project fallback remains deterministic for legacy synthetic callers.
+    import hashlib
+
+    identity = (
+        f"{platform}{_normalized_identity_text(title)}"
+        f"{_normalized_identity_text(description)}"
+    )
     return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
@@ -207,11 +185,8 @@ def parse_freelancehunt_digest(
                 deadline=deadline,
                 bid_count=bid_count,
                 client_name=client_name,
-                project_id=(
-                    re.search(r"/(\d+)\.html$", normalized_url).group(1)
-                    if re.search(r"/(\d+)\.html$", normalized_url)
-                    else ""
-                ),
+                project_id=freelancehunt_project_id(normalized_url),
+                first_seen_at=getattr(email, "received_at", None),
             )
         )
         if len(candidates) >= max_candidates:

@@ -79,6 +79,15 @@ def _received(value: Any) -> str:
         return str(value)
 
 
+def _latency(value: float | None) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{max(0.0, float(value)):.1f} s"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _split_text(value: str, max_escaped: int = 3000) -> list[str]:
     """Split source text before escaping so no HTML entity is cut."""
 
@@ -117,6 +126,29 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         f"<b>Event:</b> {escape_html(_short(analysis.event_type))}",
         f"<b>Отримано:</b> {escape_html(_received(analysis.received_at))}",
         *(
+            [f"<b>Опубліковано:</b> {escape_html(_received(analysis.source_publication_at))}"]
+            if analysis.source_publication_at is not None
+            else []
+        ),
+        *(
+            [f"<b>Feed fetched:</b> {escape_html(_received(analysis.feed_fetched_at))}"]
+            if analysis.feed_fetched_at is not None
+            else []
+        ),
+        *(
+            [f"<b>First seen:</b> {escape_html(_received(analysis.first_seen_at))}"]
+            if analysis.first_seen_at is not None
+            else []
+        ),
+        *(
+            [
+                "<b>Publication → Telegram:</b> "
+                f"{escape_html(_latency(analysis.publication_to_telegram_latency_seconds))}"
+            ]
+            if analysis.publication_to_telegram_latency_seconds is not None
+            else []
+        ),
+        *(
             [
                 "<b>Live status:</b> ACTIVE — bid available",
                 f"<b>Checked:</b> {escape_html(_received(analysis.live_status_checked_at))}",
@@ -130,15 +162,25 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
         f"<b>Score:</b> {escape_html(analysis.score_display)}",
         f"<b>Бюджет:</b> {escape_html(_short(analysis.budget))}",
+        *(
+            [f"<b>Валюта:</b> {escape_html(_short(analysis.budget_currency))}"]
+            if analysis.budget_currency
+            else []
+        ),
         f"<b>Мова клієнта:</b> {escape_html(_short(analysis.language))}",
         f"<b>Повнота ТЗ:</b> {escape_html(_short(analysis.description_completeness))}",
         f"<b>Строк:</b> {escape_html(_short(analysis.deadline))}",
         f"<b>Категорія:</b> {escape_html(_short(analysis.category))}",
+        *(
+            [f"<b>Теги:</b> {escape_html(_short(analysis.tags))}"]
+            if analysis.tags
+            else []
+        ),
         f"<b>Ставок:</b> {escape_html(analysis.bid_count if analysis.bid_count is not None else '—')}",
         f"<b>Клієнт:</b> {escape_html(_short(analysis.client_name))}",
         "",
         f"<b>Service lane:</b> {escape_html(_short(analysis.service_lane))}",
-        f"<b>Можемо виконати:</b> {escape_html(_short(analysis.executable or 'uncertain'))}",
+        f"<b>Можемо виконати:</b> {escape_html(_short(analysis.executable or 'maybe'))}",
         f"<b>Fit:</b> {escape_html(analysis.score_display)}",
         f"<b>Win signal:</b> {escape_html(_short(analysis.win_probability_signal))}",
         f"<b>Scope clarity:</b> {escape_html(_short(analysis.scope_clarity))}",
@@ -154,6 +196,9 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         lines += [f"<b>Оцінка:</b> {escape_html(_short(analysis.reason))}"]
     if analysis.why_relevant:
         lines += [f"<b>Чому підходить:</b> {escape_html(_short(analysis.why_relevant))}"]
+    public_evidence = analysis.evidence or analysis.client_context
+    if public_evidence:
+        lines += [f"<b>Публічні докази:</b> {escape_html(_short(public_evidence))}"]
     if analysis.red_flags:
         bounded_flags = [_short(flag, 160) for flag in analysis.red_flags[:8]]
         if len(analysis.red_flags) > len(bounded_flags):
@@ -211,7 +256,11 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
 
     if (
         analysis.event_type
-        in {EmailType.PROJECT_SINGLE.value, EmailType.PROJECT_DIGEST.value}
+        in {
+            EmailType.PROJECT_SINGLE.value,
+            EmailType.PROJECT_DIGEST.value,
+            EmailType.PROJECT_FEED.value,
+        }
         and analysis.live_status
         and analysis.live_status != LiveStatus.ACTIVE_BIDDABLE.value
     ):
@@ -224,6 +273,7 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
     elif analysis.event_type in {
         EmailType.PROJECT_SINGLE.value,
         EmailType.PROJECT_DIGEST.value,
+        EmailType.PROJECT_FEED.value,
     }:
         summary = _project_summary_lines(analysis)
         body_label = "Повне доступне ТЗ"

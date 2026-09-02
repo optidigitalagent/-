@@ -29,7 +29,6 @@ from gmail_agent.live_status import (
     retry_due,
 )
 from gmail_agent.telegram_notifier import send_live_status_card
-from parser.freelancehunt import get_new_projects as _fh_projects
 from parser.freelancehunt import get_debug_info as _fh_debug
 from parser.kabanchik import get_new_projects as _kb_projects
 from parser.kabanchik import get_debug_info as _kb_debug
@@ -39,7 +38,6 @@ from parser.freelance_ua import get_debug_info as _flua_debug
 logger = logging.getLogger(__name__)
 
 _PARSERS = [
-    _fh_projects,   # Freelancehunt
     _kb_projects,   # Kabanchik
     _flua_projects, # FreelanceUA / free-lance.ru
 ]

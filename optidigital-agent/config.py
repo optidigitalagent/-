@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     GMAIL_LOOKBACK_DAYS: int = 7
     GMAIL_DIGEST_ENABLED: bool = True
 
+    # Dedicated official-feed discovery. Defaults are deploy-safe and require
+    # no credential, cookie, OAuth, or platform-session variable.
+    FREELANCEHUNT_DISCOVERY_ENABLED: bool = True
+    FREELANCEHUNT_DISCOVERY_INTERVAL_SECONDS: int = 60
+    FREELANCEHUNT_DISCOVERY_MAX_NEW_PER_SCAN: int = 10
+
     @property
     def admin_chat_id(self) -> int:
         return self.ADMIN_CHAT_ID if self.ADMIN_CHAT_ID is not None else self.TELEGRAM_CHAT_ID
