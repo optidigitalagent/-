@@ -2,107 +2,103 @@
 
 ## Immediate objective
 
-Complete the adult owner's Freelancehunt verification now that the new `AntonovDigital` profile has passed the final readiness audit, then immediately activate the Gmail → Railway → Telegram → proposal-draft revenue flow.
+Activate the verified adult-owned Freelancehunt account as a revenue channel by adapting the existing Gmail/Railway/Telegram agent to the new operational mailbox and producing complete proposal-ready Telegram cards.
 
-## Current completed state
+## Completed state
 
-The new adult-owned profile is commercially configured and publicly checked:
+- Adult-owned profile: `https://freelancehunt.com/freelancer/AntonovDigital.html`
+- Commercial profile core: complete
+- Adult phone: confirmed
+- Дія.Підпис verification: completed, reported by the user
+- Operational Gmail connection to ChatGPT: confirmed
+- Freelancehunt support/private-message delivery to the operational mailbox: confirmed
+- Portfolio remains deferred without blocking launch
 
-- public profile: `https://freelancehunt.com/freelancer/AntonovDigital.html`
-- adult-owner name and current photo visible
-- adult-owned phone confirmed
-- four language descriptions and slogans
-- status `Вільний для роботи`
-- main specializations `AI та машинне навчання`, `Веб-програмування`
-- twenty-six additional specializations
-- twenty skills
-- no invented hourly rate
-- transparent Antonov Digital team roles
-- relevant email, push and sound notifications
-- public desktop/mobile QA
-- portfolio deferred without blocking launch
-- final read-only audit passed
-- status `READY_FOR_DIIA_SIGNATURE`
-
-Do not regenerate or overwrite the profile unless a real live defect appears.
+Do not return to profile copy, owner-source repair or profile regeneration unless a real live defect is discovered.
 
 ## Single next action
 
-The genuine adult account owner personally opens `Підтвердіть профіль` in the new account and completes one available verification method.
+Run a Codex implementation cycle against the canonical repository using:
 
-Recommended sequence:
+`docs/STAGE_2_GMAIL_TELEGRAM_ACTIVATION.md`
 
-1. Select `Дія.Підпис` when available and convenient.
-2. On desktop, scan the displayed QR code in the Дія application; on mobile, use the offered `Відкрити у Дія` action.
-3. Review the Freelancehunt data request in Дія.
-4. Confirm the request using Дія.Підпис.
-5. Complete any CAPTCHA, OTP/2FA, live check, document/legal confirmation or displayed payment personally.
-6. Wait for the Freelancehunt page to update; refresh it manually if needed after a short wait.
-7. Open the public profile and confirm the verified badge/status appears.
+Codex must inspect and extend the existing implementation under `optidigital-agent/`; it must not rewrite the system from scratch.
 
-The adult owner must not send passwords, OTP codes, identity documents, banking details, recovery codes or QR screenshots to ChatGPT, Codex or repository files.
+## Required Codex sequence
 
-## Verification result to record
-
-After the flow, report exactly one:
-
-```text
-VERIFICATION_COMPLETED
-```
-
-```text
-VERIFICATION_PENDING_REVIEW
-```
-
-or:
-
-```text
-VERIFICATION_FAILED
-Exact platform message: ...
-```
-
-Do not return to profile-copy work after verification unless the platform exposes a real defect.
-
-## Immediately after verification
-
-Proceed directly to the revenue-flow activation:
-
-1. Trigger or wait for one fresh Freelancehunt project or message notification on the adult-owned operational Gmail mailbox.
-2. Inspect its sender, subject, labels, body structure, links and stable identifiers.
-3. Confirm the connected Gmail account can read the new adult-account notification.
-4. Configure or update the Railway monitor for near-real-time ingestion and deduplication.
-5. Produce a Telegram opportunity card containing:
-   - title
-   - source link
-   - full available description
-   - language
-   - budget and deadline
-   - service lane
-   - fit and delivery risk
-   - proposed project/milestone price
-   - realistic delivery time
-   - best matching evidence
-   - one tailored proposal
-   - one adult-owner action
-6. Run the controlled end-to-end test:
+1. Read, in order:
+   - `AGENTS.md`
+   - `.codex/project_brain/PROJECT_BRAIN.md`
+   - `.codex/project_brain/BUSINESS_RULES.md`
+   - `.codex/project_brain/PLATFORM_RULES.md`
+   - `.codex/project_brain/DECISIONS.md`
+   - `.codex/project_brain/GOAL_PROGRESS.md`
+   - `.codex/project_brain/NEXT_ACTION.md`
+   - `docs/CODEX_EXECUTION_REPORTING_STANDARD.md`
+   - `docs/STAGE_2_GMAIL_TELEGRAM_ACTIVATION.md`
+   - `docs/LEGACY_AGENT_ARCHITECTURE.md`
+2. Record the current production branch, HEAD, Railway service linkage and existing runtime variable names before changing code.
+3. Create a new isolated feature branch from the confirmed production baseline. Recommended name:
+   `feature/freelancehunt-gmail-telegram-v1`.
+4. Audit the full `optidigital-agent/` Gmail, classifier, parser, analyzer, storage, Telegram, command, scheduler and test paths.
+5. Preserve working behavior outside the Stage 2 scope.
+6. Implement the smallest complete solution in `docs/STAGE_2_GMAIL_TELEGRAM_ACTIVATION.md`.
+7. Keep Gmail OAuth read-only and keep every Freelancehunt platform action manual for the adult owner.
+8. Generate the new adult-owned Gmail OAuth token locally. Confirm the OAuth profile identity without exposing the address in public logs or committing token material.
+9. Run unit/integration tests, a read-only real-mail dry run and one controlled Telegram delivery.
+10. Do not deploy or change Railway variables yet.
+11. Stop at:
 
 ```text
-Freelancehunt → Gmail → Railway → Telegram → proposal draft → adult-owner submission
+READY_FOR_RAILWAY_DEPLOY
 ```
 
-## Portfolio policy
+## Minimum implementation requirements
 
-Do not delay verification or notification automation for portfolio media. Publish a deferred case later only when its current link/status, permission, evidence and images are ready.
+- normal detection latency at most 2 minutes
+- explicit multilingual classification for project digests, single projects, private messages, project/status events, account/security events, marketing and unknown mail
+- private/client messages bypass project-score filtering and arrive as high priority
+- complete durable task/message context
+- Telegram project card with budget, deadline, category, fit, risk, estimated effort, recommended price/time, evidence and a copy-paste proposal
+- Telegram private-message card with the message context, thread link and reply draft or `NEEDS_CONTEXT`
+- `/reply_job` uses the full persisted task description or saved proposal, not analysis summaries
+- all active Gmail-path branding changed from `OptiDigital` to `Antonov Digital`
+- client language matched across Ukrainian, Russian, English and Polish
+- no fixed minimum budget and no pre-prioritization of service lanes
+- no invented experience, clients, reviews, metrics or results
+- durable deduplication and retry after restart
+- safe redaction of OTPs, reset tokens and sensitive security links
+
+## Required deployment-gate report
+
+The `READY_FOR_RAILWAY_DEPLOY` response must include:
+
+- objective and commercial impact
+- branch and exact HEAD
+- production baseline branch and HEAD
+- exact files changed
+- database/schema migration details
+- tests run with exact results
+- OAuth mailbox-identity check result without secrets
+- real-mail dry-run statistics by event type
+- controlled Telegram test result
+- sample sanitized project card
+- sample sanitized private-message card
+- exact Railway variables to add/change with placeholder values only
+- expected polling latency
+- rollback plan
+- unresolved risks
+- exactly one next action
 
 ## Constraints
 
-- AI must not scan the QR code, enter OTP, transfer documents, perform live identity checks or make payment.
-- Do not use or reactivate the minor-owned profile.
-- Do not submit bids or send platform messages automatically.
-- Do not buy Plus as part of this step.
-- Do not alter identity, date of birth, phone, photo, payment or legal fields automatically.
-- Do not regenerate completed profile materials.
+- Do not use or reactivate the minor-owned account.
+- Do not submit bids or send Freelancehunt messages automatically.
+- Do not alter profile, identity, documents, verification, contracts or payments.
+- Do not commit Gmail credentials, token JSON, passwords, cookies, OTPs or recovery data.
+- Do not deploy, merge or modify Railway before explicit authorization.
+- Do not regenerate the completed profile or portfolio strategy.
 
 ## Stop condition
 
-This action is complete when Freelancehunt returns a verified status or a precise pending/failure result. The next system action is Gmail/Railway/Telegram revenue-flow activation.
+This action is complete only when the implementation has been tested and Codex returns `READY_FOR_RAILWAY_DEPLOY` with the required evidence. The following action will be explicit Railway variable configuration, deployment and a live end-to-end test.
