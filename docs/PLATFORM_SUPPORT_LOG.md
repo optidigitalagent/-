@@ -123,6 +123,37 @@ Support confirmed:
   1. a separately created and genuinely adult-owned Freelancehunt profile under the previously approved support model; or
   2. direct sales and other age-eligible channels.
 
+## 2026-09-02 — Phone-number release for the new adult-owned profile
+
+### Context
+
+The new adult-owned profile `AntonovDigital.html` was commercially configured, but phone confirmation was blocked because the adult owner's number remained attached to the old profile.
+
+### Support response observed in the new operational mailbox
+
+Freelancehunt support stated that it could deactivate the old profile and detach the phone number so the adult owner could use it on the new profile. Support asked whether that solution was acceptable.
+
+A later message in the same platform-support conversation said that they were glad to help and wished the owner a good day. That later message suggests the support action may have been completed, but it does not explicitly state in the email body that the number was detached.
+
+### Operational status
+
+- `PHONE_RELEASE_OFFER_CONFIRMED`
+- `PHONE_RELEASE_LIKELY_COMPLETED_BUT_NOT_YET_TESTED`
+- `NEW_PROFILE_PHONE_CONFIRMATION_REQUIRED`
+
+### Required validation
+
+The adult owner must now try to add and confirm the number in the new `AntonovDigital` account.
+
+- If the number is accepted and the SMS/OTP confirmation succeeds, record `ADULT_PHONE_CONFIRMED_NEW_ACCOUNT` and proceed to the final pre-verification audit.
+- If Freelancehunt still reports that the number is occupied, reply in the existing support thread with the exact platform error and request confirmation that the old profile was deactivated and the number detached.
+
+Do not expose the phone number in repository files or reports.
+
 ### Evidence
 
-Primary evidence is the support-chat transcript retained outside the public repository. No identity documents, private screenshots, mailbox addresses or account identifiers are committed here.
+Primary evidence is the Freelancehunt notification email in the connected adult-owned Gmail mailbox. No phone number, private account identifiers, OTP codes or screenshots are committed here.
+
+### Evidence policy
+
+Primary evidence for all support decisions is the support-chat transcript and connected mailbox messages retained outside the public repository. No identity documents, private screenshots, mailbox addresses, phone numbers or account identifiers are committed here.
