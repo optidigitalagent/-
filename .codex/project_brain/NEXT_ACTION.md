@@ -2,12 +2,15 @@
 
 ## Immediate objective
 
-Confirm the adult owner's phone number in the new `AntonovDigital` account, then pass the final `Дія.Підпис` readiness gate and activate Gmail → Telegram proposal automation.
+Complete the adult owner's Freelancehunt verification now that the new `AntonovDigital` profile has passed the final readiness audit, then immediately activate the Gmail → Railway → Telegram → proposal-draft revenue flow.
 
 ## Current completed state
 
-The new adult-owned profile is already commercially configured and publicly checked:
+The new adult-owned profile is commercially configured and publicly checked:
 
+- public profile: `https://freelancehunt.com/freelancer/AntonovDigital.html`
+- adult-owner name and current photo visible
+- adult-owned phone confirmed
 - four language descriptions and slogans
 - status `Вільний для роботи`
 - main specializations `AI та машинне навчання`, `Веб-програмування`
@@ -18,91 +21,88 @@ The new adult-owned profile is already commercially configured and publicly chec
 - relevant email, push and sound notifications
 - public desktop/mobile QA
 - portfolio deferred without blocking launch
+- final read-only audit passed
+- status `READY_FOR_DIIA_SIGNATURE`
 
-Do not regenerate or overwrite this work unless a live defect is found.
-
-## Support status
-
-Freelancehunt support stated that it could deactivate the old profile and detach the adult owner's number for use on the new profile.
-
-A later support message suggests the action may already be complete, but the email does not explicitly confirm the detachment. Therefore the correct next step is a live phone-entry test, not passive waiting.
+Do not regenerate or overwrite the profile unless a real live defect appears.
 
 ## Single next action
 
-The genuine adult owner opens the new account:
+The genuine adult account owner personally opens `Підтвердіть профіль` in the new account and completes one available verification method.
 
-`https://freelancehunt.com/freelancer/AntonovDigital.html`
+Recommended sequence:
 
-Then personally:
+1. Select `Дія.Підпис` when available and convenient.
+2. On desktop, scan the displayed QR code in the Дія application; on mobile, use the offered `Відкрити у Дія` action.
+3. Review the Freelancehunt data request in Дія.
+4. Confirm the request using Дія.Підпис.
+5. Complete any CAPTCHA, OTP/2FA, live check, document/legal confirmation or displayed payment personally.
+6. Wait for the Freelancehunt page to update; refresh it manually if needed after a short wait.
+7. Open the public profile and confirm the verified badge/status appears.
 
-1. opens `Особисті дані → Мої дані` or the phone-confirmation prompt;
-2. enters the adult-owned phone number;
-3. requests the SMS/OTP code;
-4. enters the code directly on Freelancehunt;
-5. saves the confirmed phone.
+The adult owner must not send passwords, OTP codes, identity documents, banking details, recovery codes or QR screenshots to ChatGPT, Codex or repository files.
 
-Do not send the phone number or OTP code to ChatGPT, Codex or repository files.
+## Verification result to record
 
-## Success result
-
-If the number is accepted and confirmed, record:
-
-```text
-ADULT_PHONE_CONFIRMED_NEW_ACCOUNT
-```
-
-Then Codex performs one final read-only audit and returns:
+After the flow, report exactly one:
 
 ```text
-READY_FOR_DIIA_SIGNATURE
+VERIFICATION_COMPLETED
 ```
 
-only if the live adult identity, photo, phone, public profile core and notification settings are all correct.
+```text
+VERIFICATION_PENDING_REVIEW
+```
 
-## Failure result
+or:
 
-If Freelancehunt still reports that the phone is occupied, copy only the exact non-sensitive error text and reply in the existing support conversation:
+```text
+VERIFICATION_FAILED
+Exact platform message: ...
+```
 
-> Добрий день! Дякуємо. Ми погодилися на деактивацію старого профілю та відв'язування номера. У новому профілі AntonovDigital під час додавання номера система все ще показує: «[ТОЧНИЙ ТЕКСТ ПОМИЛКИ]». Будь ласка, підтвердьте, що старий профіль деактивовано, а номер повністю відв'язано, або завершіть відв'язування. Дякуємо.
-
-Do not create another account or use another person's number as a workaround.
-
-## Verification after phone confirmation
-
-After `READY_FOR_DIIA_SIGNATURE`, the adult owner personally:
-
-1. clicks `Підтвердіть профіль`;
-2. selects `Дія.Підпис` when available and convenient;
-3. scans/confirms the request in Дія;
-4. completes CAPTCHA, OTP, live check, document/legal confirmation and any displayed payment;
-5. confirms the verified badge/status appears.
-
-AI must not scan the QR code, enter OTP, transfer documents or make payment.
+Do not return to profile-copy work after verification unless the platform exposes a real defect.
 
 ## Immediately after verification
 
-Proceed without returning to profile-copy work:
+Proceed directly to the revenue-flow activation:
 
-1. receive or trigger one fresh Freelancehunt opportunity email on the adult-owned Gmail mailbox;
-2. inspect sender, subject, structure, links and identifiers;
-3. configure the Railway monitor for near-real-time ingestion;
-4. generate a complete Telegram opportunity card;
-5. generate one tailored proposal draft;
-6. run:
+1. Trigger or wait for one fresh Freelancehunt project or message notification on the adult-owned operational Gmail mailbox.
+2. Inspect its sender, subject, labels, body structure, links and stable identifiers.
+3. Confirm the connected Gmail account can read the new adult-account notification.
+4. Configure or update the Railway monitor for near-real-time ingestion and deduplication.
+5. Produce a Telegram opportunity card containing:
+   - title
+   - source link
+   - full available description
+   - language
+   - budget and deadline
+   - service lane
+   - fit and delivery risk
+   - proposed project/milestone price
+   - realistic delivery time
+   - best matching evidence
+   - one tailored proposal
+   - one adult-owner action
+6. Run the controlled end-to-end test:
 
 ```text
 Freelancehunt → Gmail → Railway → Telegram → proposal draft → adult-owner submission
 ```
 
+## Portfolio policy
+
+Do not delay verification or notification automation for portfolio media. Publish a deferred case later only when its current link/status, permission, evidence and images are ready.
+
 ## Constraints
 
+- AI must not scan the QR code, enter OTP, transfer documents, perform live identity checks or make payment.
 - Do not use or reactivate the minor-owned profile.
-- Do not submit bids or send client messages automatically.
-- Do not alter identity, documents, verification, payments or legal fields automatically.
+- Do not submit bids or send platform messages automatically.
 - Do not buy Plus as part of this step.
+- Do not alter identity, date of birth, phone, photo, payment or legal fields automatically.
 - Do not regenerate completed profile materials.
-- Do not let deferred portfolio assets block verification or notification automation.
 
 ## Stop condition
 
-This action is complete when the adult-owned phone is confirmed in the new account or Freelancehunt returns a precise error that support can resolve.
+This action is complete when Freelancehunt returns a verified status or a precise pending/failure result. The next system action is Gmail/Railway/Telegram revenue-flow activation.
