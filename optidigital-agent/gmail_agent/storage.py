@@ -17,7 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-TERMINAL_JOB_STATUSES = frozenset({"sent", "skipped"})
+TERMINAL_JOB_STATUSES = frozenset({"sent", "skipped", "live_status_terminal"})
 DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed")
 DEFAULT_SENDING_LEASE = timedelta(minutes=15)
 
@@ -87,6 +87,13 @@ class StoredGmailJob:
     source_mailbox_alias: str = ""
     received_at: datetime | None = None
     sensitive_redacted: bool = False
+    live_status: str = ""
+    live_status_checked_at: datetime | None = None
+    live_status_evidence: str = ""
+    biddable: bool | None = None
+    live_status_retry_count: int = 0
+    live_status_last_error: str = ""
+    qualified: bool = False
 
 
 # Short public name for callers; the longer name makes its persistence role

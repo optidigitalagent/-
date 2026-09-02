@@ -33,6 +33,33 @@ admin_router.message.filter(F.chat.id == settings.admin_chat_id)
 DEFAULT_MIN_SCORE = 6
 
 
+def _order_allows_proposal(order: Order) -> bool:
+    """Fail closed for every direct-parser Freelancehunt proposal action."""
+
+    if "freelancehunt" not in str(getattr(order, "platform", "") or "").casefold():
+        return True
+    return (
+        getattr(order, "live_status", None) == "ACTIVE_BIDDABLE"
+        and getattr(order, "biddable", None) is True
+    )
+
+
+def _order_live_status_refusal(order: Order) -> str:
+    status = str(getattr(order, "live_status", None) or "LIVE_STATUS_UNKNOWN")
+    reason = str(
+        getattr(order, "live_status_evidence", None)
+        or getattr(order, "live_status_last_error", None)
+        or "LIVE STATUS NOT VERIFIED"
+    )
+    return (
+        "⚠️ <b>Відгук не створено</b>\n\n"
+        f"Live status: <b>{escape_html(status)}</b>\n"
+        "Bid available: <b>no</b>\n"
+        f"Reason: {escape_html(reason)}\n"
+        "Наступна дія: <b>Нічого не надсилати.</b>"
+    )
+
+
 # ─── /stats ──────────────────────────────────────────────────────────────────
 
 @router.message(Command("stats"))
@@ -103,7 +130,6 @@ async def cb_set_score(callback: CallbackQuery) -> None:
 @router.callback_query(OrderCb.filter(F.action == "view"))
 async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> None:
     await callback.answer()
-    await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
 
     async with AsyncSessionLocal() as session:
         order = await session.get(Order, callback_data.order_id)
@@ -111,6 +137,14 @@ async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> N
     if not order:
         await callback.message.edit_text("❌ Замовлення не знайдено")
         return
+
+    if not _order_allows_proposal(order):
+        await callback.message.edit_text(
+            _order_live_status_refusal(order), reply_markup=None
+        )
+        return
+
+    await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
 
     order_dict = {
         "title": order.title,
@@ -155,6 +189,11 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
     async with AsyncSessionLocal() as session:
         draft = await session.get(Response, callback_data.response_id)
         order = await session.get(Order, callback_data.order_id)
+        if order is not None and not _order_allows_proposal(order):
+            await callback.message.edit_text(
+                _order_live_status_refusal(order), reply_markup=None
+            )
+            return
         if draft:
             draft.result = "sent"
             await session.commit()
@@ -178,7 +217,6 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
 @router.callback_query(ResponseCb.filter(F.action == "rewrite"))
 async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None:
     await callback.answer()
-    await callback.message.edit_text("⏳ Переписую відгук...", reply_markup=None)
 
     async with AsyncSessionLocal() as session:
         order = await session.get(Order, callback_data.order_id)
@@ -186,6 +224,14 @@ async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None
     if not order:
         await callback.message.edit_text("❌ Замовлення не знайдено")
         return
+
+    if not _order_allows_proposal(order):
+        await callback.message.edit_text(
+            _order_live_status_refusal(order), reply_markup=None
+        )
+        return
+
+    await callback.message.edit_text("⏳ Переписую відгук...", reply_markup=None)
 
     order_dict = {
         "title": order.title,
@@ -235,6 +281,10 @@ async def cmd_reply(message: Message) -> None:
 
     if not order:
         await message.answer(f"❌ Проєкт <code>#{project_id}</code> не знайдено в базі")
+        return
+
+    if not _order_allows_proposal(order):
+        await message.answer(_order_live_status_refusal(order))
         return
 
     await message.answer(f"⏳ Генерую відгук для <b>{order.title}</b>…")
@@ -320,6 +370,25 @@ async def cmd_reply_job(message: Message) -> None:
         await message.answer(
             f"❌ Замовлення <code>{escape_html(job_id)}</code> не знайдено.\n"
             "Можливо, воно вже застаріло або бот перезапускався."
+        )
+        return
+
+    project_event = str(job.get("event_type") or "") in {
+        "PROJECT_SINGLE",
+        "PROJECT_DIGEST",
+    }
+    is_freelancehunt = "freelancehunt" in str(job.get("platform") or "").casefold()
+    live_status = str(job.get("live_status") or "LIVE_STATUS_UNKNOWN")
+    if project_event and is_freelancehunt and (
+        live_status != "ACTIVE_BIDDABLE" or job.get("biddable") is not True
+    ):
+        reason = job.get("live_status_evidence") or job.get("live_status_last_error") or "LIVE STATUS NOT VERIFIED"
+        await message.answer(
+            "⚠️ <b>Відгук не створено</b>\n\n"
+            f"Live status: <b>{escape_html(live_status)}</b>\n"
+            "Bid available: <b>no</b>\n"
+            f"Reason: {escape_html(reason)}\n"
+            "Наступна дія: <b>Нічого не надсилати.</b>"
         )
         return
 
@@ -1111,6 +1180,7 @@ async def cmd_gmail_scan(message: Message) -> None:
 
     try:
         from gmail_agent.gmail_provider import build_provider
+        from gmail_agent.live_status import FreelancehuntLiveStatusChecker
         from gmail_agent.processor import GmailJobProcessor
         from gmail_agent.storage import PostgresGmailRepository
 
@@ -1139,6 +1209,7 @@ async def cmd_gmail_scan(message: Message) -> None:
             repository=repository,
             max_cards_per_scan=10,
             digest_enabled=getattr(settings, "GMAIL_DIGEST_ENABLED", False),
+            live_status_checker=FreelancehuntLiveStatusChecker(),
         )
 
         stats = await processor.run(trigger="manual")
@@ -1288,6 +1359,7 @@ def _gmail_digest_days(message: Message) -> int | None:
 
 def _gmail_digest_processor(message: Message):
     from gmail_agent.gmail_provider import build_provider
+    from gmail_agent.live_status import FreelancehuntLiveStatusChecker
     from gmail_agent.processor import GmailJobProcessor
     from gmail_agent.storage import PostgresGmailRepository
 
@@ -1307,6 +1379,7 @@ def _gmail_digest_processor(message: Message):
         repository=repository,
         max_cards_per_scan=10,
         digest_enabled=True,
+        live_status_checker=FreelancehuntLiveStatusChecker(),
     )
 
 

@@ -21,6 +21,18 @@ async def save_order(session: AsyncSession, data: dict) -> Order | None:
     return order
 
 
+async def get_order_by_url(session: AsyncSession, url: str) -> Order | None:
+    return await session.scalar(select(Order).where(Order.url == url))
+
+
+async def update_order_fields(
+    session: AsyncSession, order_id: int, data: dict
+) -> Order | None:
+    await session.execute(update(Order).where(Order.id == order_id).values(**data))
+    await session.commit()
+    return await session.get(Order, order_id)
+
+
 async def get_unseen_orders(session: AsyncSession) -> list[Order]:
     result = await session.scalars(select(Order).where(Order.status == "new").order_by(Order.created_at.desc()))
     return list(result.all())

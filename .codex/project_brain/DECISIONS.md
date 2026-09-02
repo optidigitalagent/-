@@ -156,3 +156,32 @@
   deploy or merge was performed.
 - Draft PR #2 is the deployment candidate. Production activation requires a
   new explicit authorization.
+
+## 2026-09-02 — Freelancehunt live-status hotfix gate
+
+- A Freelancehunt project is a qualified revenue opportunity only when its
+  public live page positively proves that bidding is available.
+- The canonical statuses are `ACTIVE_BIDDABLE`, `BLOCKED_RULE_VIOLATION`,
+  `CLOSED`, `EXECUTOR_SELECTED`, `DELETED_OR_UNAVAILABLE` and
+  `LIVE_STATUS_UNKNOWN`. Negative evidence takes precedence over bid-CTA
+  evidence.
+- Use an ordinary anonymous HTTP read first and a fresh cookie-free Playwright
+  context only as fallback. Never log in, solve CAPTCHA or perform a platform
+  action during this check.
+- Absence of a known closure banner is not active proof. Only an enabled bid
+  form/action or explicit enabled multilingual bid CTA may yield
+  `ACTIVE_BIDDABLE`; ambiguous or failed checks fail closed as
+  `LIVE_STATUS_UNKNOWN`.
+- `LIVE_STATUS_UNKNOWN` remains non-qualified and uses at most three retries
+  with bounded exponential backoff. Non-active diagnostics are deduplicated
+  independently from status transitions so a project produces at most one.
+- Apply the same checker before AI/scoring and Telegram delivery in both Gmail
+  single/digest ingestion and the legacy direct Freelancehunt parser. Direct
+  proposal/rewrite/send commands also require stored `ACTIVE_BIDDABLE` plus
+  `biddable=true`.
+- Persist live evidence through additive columns only. Existing rows and any
+  historical proposal text are retained, but a non-biddable row cannot display
+  or use that proposal.
+- The hotfix remains isolated on `fix/freelancehunt-live-status-guard` until a
+  separate merge/deploy authorization; production variables and the running
+  deployment remain unchanged.

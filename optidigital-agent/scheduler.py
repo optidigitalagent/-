@@ -13,8 +13,21 @@ from sqlalchemy import func, select
 from ai.scorer import score_order
 from config import settings
 from db import AsyncSessionLocal
-from db.crud import get_setting, save_order, update_order_status
+from db.crud import (
+    get_order_by_url,
+    get_setting,
+    save_order,
+    update_order_fields,
+    update_order_status,
+)
 from db.models import Order
+from gmail_agent.email_analyzer import JobAnalysis
+from gmail_agent.live_status import (
+    FreelancehuntLiveStatusChecker,
+    LiveStatus,
+    retry_due,
+)
+from gmail_agent.telegram_notifier import send_live_status_card
 from parser.freelancehunt import get_new_projects as _fh_projects
 from parser.freelancehunt import get_debug_info as _fh_debug
 from parser.kabanchik import get_new_projects as _kb_projects
@@ -95,9 +108,13 @@ async def _send_order_card(bot: Bot, order: Order, project: dict) -> None:
         f"👥 <b>Конкурентів:</b> {bid_count}",
         f"🏷 <b>Категорія:</b> {category}",
         f"🖥 <b>Платформа:</b> {order.platform}",
-        "",
-        f'🔗 <a href="{order.url}">Відкрити проєкт</a>',
     ]
+    if order.live_status == LiveStatus.ACTIVE_BIDDABLE.value and order.biddable:
+        lines += [
+            "✅ <b>Live status:</b> ACTIVE — bid available",
+            f"🕓 <b>Checked:</b> {_fmt_dt(order.live_status_checked_at)}",
+        ]
+    lines += ["", f'<a href="{order.url}">🔗 Відкрити проєкт</a>']
 
     if order.employer_url:
         name = order.employer_name or "Профіль замовника"
@@ -126,7 +143,36 @@ async def _send_order_card(bot: Bot, order: Order, project: dict) -> None:
     )
 
 
-async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int]:
+async def _send_direct_live_status_card(bot: Bot, order: Order) -> bool:
+    analysis = JobAnalysis(
+        email_id=f"direct:{order.id}",
+        is_relevant=False,
+        title=order.title,
+        platform=order.platform,
+        score=0.0,
+        reason=order.live_status_evidence or "",
+        budget="",
+        url=order.url,
+        urgency="low",
+        why_relevant="",
+        event_type="PROJECT_SINGLE",
+        live_status=order.live_status or LiveStatus.LIVE_STATUS_UNKNOWN.value,
+        live_status_checked_at=order.live_status_checked_at,
+        live_status_evidence=order.live_status_evidence or "",
+        biddable=False,
+        live_status_retry_count=order.live_status_retry_count,
+        live_status_last_error=order.live_status_last_error or "",
+        qualified=False,
+    )
+    return await send_live_status_card(bot, settings.TELEGRAM_CHAT_ID, analysis)
+
+
+async def check_new_orders(
+    bot: Bot,
+    *,
+    is_auto: bool = False,
+    live_status_checker: FreelancehuntLiveStatusChecker | None = None,
+) -> tuple[int, int]:
     """Returns (new_saved, notified) — safe to ignore from scheduler."""
     mode = "AUTO" if is_auto else "MANUAL"
     logger.info("=== %s SCAN STARTED ===", mode)
@@ -140,12 +186,105 @@ async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int
     logger.info("Fetched %d projects total across all platforms", found_total)
 
     new_saved = scored = notified = duplicates_skipped = below_min_score = errors = 0
+    checker = live_status_checker or FreelancehuntLiveStatusChecker()
 
     for project in projects:
         try:
+            existing = None
+            is_freelancehunt = (
+                "freelancehunt" in str(project.get("platform") or "").casefold()
+            )
+            if is_freelancehunt:
+                async with AsyncSessionLocal() as session:
+                    existing = await get_order_by_url(session, project["url"])
+                if existing is not None and (
+                    existing.status
+                    in {"notified", "sent", "skipped", "live_status_terminal"}
+                    or existing.live_status
+                    in {
+                        LiveStatus.BLOCKED_RULE_VIOLATION.value,
+                        LiveStatus.CLOSED.value,
+                        LiveStatus.EXECUTOR_SELECTED.value,
+                        LiveStatus.DELETED_OR_UNAVAILABLE.value,
+                    }
+                ):
+                    duplicates_skipped += 1
+                    continue
+                previous_retry_count = (
+                    int(existing.live_status_retry_count or 0) if existing else 0
+                )
+                if (
+                    existing is not None
+                    and existing.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+                    and not retry_due(
+                        existing.live_status_checked_at,
+                        previous_retry_count,
+                    )
+                ):
+                    duplicates_skipped += 1
+                    continue
+
+                live_result = await checker.check(project["url"])
+                retry_count = (
+                    previous_retry_count + 1
+                    if live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                    else previous_retry_count
+                )
+                live_fields = {
+                    "live_status": live_result.status.value,
+                    "live_status_checked_at": live_result.checked_at,
+                    "live_status_evidence": live_result.evidence,
+                    "biddable": live_result.biddable,
+                    "live_status_retry_count": retry_count,
+                    "live_status_last_error": live_result.last_error,
+                    "qualified": False,
+                }
+                project.update(live_fields)
+
+                if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+                    terminal = live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN
+                    status = "live_status_terminal" if terminal else "live_status_pending"
+                    order_data = {
+                        "platform": project.get("platform", "Freelancehunt"),
+                        "title": project["title"],
+                        "description": project.get("description", ""),
+                        "budget": None,
+                        "url": project["url"],
+                        "score": None,
+                        "status": status,
+                        "employer_name": project.get("employer_name") or "",
+                        "employer_url": project.get("employer_url") or "",
+                        "category": project.get("category") or "",
+                        "deadline": project.get("deadline") or "",
+                        "bid_count": int(project.get("bid_count") or 0),
+                        "employer_phone": None,
+                        "employer_telegram": None,
+                        "employer_email": None,
+                        **live_fields,
+                    }
+                    if existing is None:
+                        async with AsyncSessionLocal() as session:
+                            order = await save_order(session, order_data)
+                        if order is not None:
+                            new_saved += 1
+                            await _send_direct_live_status_card(bot, order)
+                    else:
+                        async with AsyncSessionLocal() as session:
+                            await update_order_fields(
+                                session,
+                                existing.id,
+                                {**live_fields, "status": status, "score": None},
+                            )
+                    continue
+
             score_data = await score_order(project)
             score = float(score_data.get("score", 0))
             scored += 1
+            already_notified = existing is not None and existing.status in {
+                "notified",
+                "sent",
+                "skipped",
+            }
 
             budget_raw = project.get("budget_to") or project.get("budget_from")
             order_data = {
@@ -155,7 +294,7 @@ async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int
                 "budget":            float(budget_raw) if budget_raw else None,
                 "url":               project["url"],
                 "score":             score,
-                "status":            "new",
+                "status":            existing.status if already_notified else "new",
                 "employer_name":     project.get("employer_name") or "",
                 "employer_url":      project.get("employer_url") or "",
                 "category":          project.get("category") or "",
@@ -164,17 +303,35 @@ async def check_new_orders(bot: Bot, *, is_auto: bool = False) -> tuple[int, int
                 "employer_phone":    project.get("employer_phone"),
                 "employer_telegram": project.get("employer_telegram"),
                 "employer_email":    project.get("employer_email"),
+                "live_status":       project.get("live_status"),
+                "live_status_checked_at": project.get("live_status_checked_at"),
+                "live_status_evidence": project.get("live_status_evidence"),
+                "biddable":          project.get("biddable"),
+                "live_status_retry_count": int(project.get("live_status_retry_count") or 0),
+                "live_status_last_error": project.get("live_status_last_error"),
+                "qualified":         bool(is_freelancehunt and score >= min_score),
             }
 
-            async with AsyncSessionLocal() as session:
-                order = await save_order(session, order_data)
+            if existing is None:
+                async with AsyncSessionLocal() as session:
+                    order = await save_order(session, order_data)
+            else:
+                # A previously UNKNOWN project can become actionable. Update
+                # that same durable row instead of creating a duplicate.
+                async with AsyncSessionLocal() as session:
+                    order = await update_order_fields(session, existing.id, order_data)
 
             if order is None:
                 logger.debug("Duplicate skipped: %s", project.get("url"))
                 duplicates_skipped += 1
                 continue
 
-            new_saved += 1
+            if existing is None:
+                new_saved += 1
+
+            if already_notified:
+                duplicates_skipped += 1
+                continue
 
             if score >= min_score:
                 await _send_order_card(bot, order, project)

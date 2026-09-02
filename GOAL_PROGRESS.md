@@ -552,3 +552,27 @@ token.json: ✅ знайдено
 - Local `bot.handlers` import is blocked only because the host Python 3.14 environment lacks the repository-pinned `aiogram`; syntax is covered by compileall and handler behavior by AST-isolated tests. The import remains required in the dependency-complete Railway runtime.
 - `git diff --check` → clean apart from line-ending notices.
 - Existing user-owned debug PNG deletions remain untouched and outside the intended commit scope.
+
+---
+
+## 2026-09-02 Freelancehunt live-status safety hotfix
+
+- Issue #7 root cause: the ingestion timestamp was treated as sufficient
+  project freshness, allowing a project that later became blocked to reach AI
+  scoring and a proposal-ready Telegram card.
+- Added one shared fail-closed live-page classifier for Gmail single/digest and
+  direct Freelancehunt parser paths. It uses HTTP first, anonymous Playwright as
+  fallback, multilingual terminal markers, and enabled bid controls as the only
+  positive active proof.
+- Persisted additive live-status, checked-time, evidence, biddability, retry,
+  error and qualified fields in both order storage paths.
+- Non-active projects bypass AI/proposal generation and qualified metrics.
+  UNKNOWN projects use bounded backoff; diagnostic cards and terminal outcomes
+  remain restart-safe and deduplicated.
+- Direct `/reply`, view, rewrite and send actions also fail closed unless the
+  saved Freelancehunt order is `ACTIVE_BIDDABLE` and `biddable=true`.
+- Sanitized fixture 1650987 classifies as `BLOCKED_RULE_VIOLATION` with
+  `biddable=false`, `qualified=false` and no usable proposal.
+- Local gate: 164/164 tests, compileall and production-like import passed.
+  Production main, Railway variables and the running deployment were not
+  changed. Status: `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY`.

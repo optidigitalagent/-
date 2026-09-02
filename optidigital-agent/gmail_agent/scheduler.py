@@ -23,6 +23,7 @@ async def check_gmail_jobs(bot: Any) -> None:
     logger.info("=== GMAIL AUTO SCAN STARTED ===")
 
     from .gmail_provider import build_provider
+    from .live_status import FreelancehuntLiveStatusChecker
     from .processor import GmailJobProcessor
     from .storage import PostgresGmailRepository
 
@@ -57,6 +58,7 @@ async def check_gmail_jobs(bot: Any) -> None:
             repository=repository,
             max_cards_per_scan=10,
             digest_enabled=getattr(settings, "GMAIL_DIGEST_ENABLED", False),
+            live_status_checker=FreelancehuntLiveStatusChecker(),
         )
 
         stats = await processor.run(trigger="scheduler")

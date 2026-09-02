@@ -150,6 +150,13 @@ class JobAnalysis:
     received_at: datetime | None = None
     sensitive_redacted: bool = False
     source_mailbox_alias: str = ""
+    live_status: str = ""
+    live_status_checked_at: datetime | None = None
+    live_status_evidence: str = ""
+    biddable: bool | None = None
+    live_status_retry_count: int = 0
+    live_status_last_error: str = ""
+    qualified: bool = False
 
     @property
     def score_display(self) -> str:
