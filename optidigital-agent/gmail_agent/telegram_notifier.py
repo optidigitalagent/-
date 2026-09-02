@@ -10,6 +10,7 @@ from bot.html_utils import escape_html, safe_http_url
 
 from .email_analyzer import JobAnalysis
 from .email_classifier import EmailType
+from .live_status import LiveStatus
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,15 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         f"{_score_emoji(analysis.score)} <b>New Job Match</b> {_urgency_emoji(analysis.urgency)}",
         f"<b>Event:</b> {escape_html(_short(analysis.event_type))}",
         f"<b>Отримано:</b> {escape_html(_received(analysis.received_at))}",
+        *(
+            [
+                "<b>Live status:</b> ACTIVE — bid available",
+                f"<b>Checked:</b> {escape_html(_received(analysis.live_status_checked_at))}",
+            ]
+            if analysis.live_status == LiveStatus.ACTIVE_BIDDABLE.value
+            and analysis.biddable is True
+            else []
+        ),
         "",
         f"<b>Платформа:</b> {escape_html(_short(analysis.platform))}",
         f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
@@ -199,6 +209,14 @@ def _other_summary_lines(analysis: JobAnalysis) -> list[str]:
 def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
     """Return a complete action card as one or more valid Telegram messages."""
 
+    if (
+        analysis.event_type
+        in {EmailType.PROJECT_SINGLE.value, EmailType.PROJECT_DIGEST.value}
+        and analysis.live_status
+        and analysis.live_status != LiveStatus.ACTIVE_BIDDABLE.value
+    ):
+        return [format_live_status_card(analysis)]
+
     if analysis.event_type == EmailType.CLIENT_PRIVATE_MESSAGE.value:
         summary = _private_summary_lines(analysis)
         body_label = "Повний безпечний текст повідомлення"
@@ -252,6 +270,49 @@ def format_job_card(analysis: JobAnalysis) -> str:
     """Backward-compatible single-message formatter used by existing callers."""
 
     return format_job_card_parts(analysis)[0]
+
+
+def format_live_status_card(analysis: JobAnalysis) -> str:
+    """Format a non-proposal diagnostic card for a non-biddable project."""
+
+    unknown = analysis.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+    heading = "LIVE STATUS NOT VERIFIED" if unknown else "Проект недоступен для ставки"
+    safe_url = safe_http_url(analysis.url)
+    lines = [
+        f"⚠️ <b>{heading}</b>",
+        f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
+        f"<b>Live status:</b> {escape_html(_short(analysis.live_status or LiveStatus.LIVE_STATUS_UNKNOWN.value))}",
+        "<b>Bid available:</b> no",
+        f"<b>Reason:</b> {escape_html(_short(analysis.live_status_evidence or analysis.live_status_last_error))}",
+        f"<b>Checked:</b> {escape_html(_received(analysis.live_status_checked_at))}",
+    ]
+    if safe_url:
+        lines.append(f'🔗 <a href="{escape_html(safe_url)}">Відкрити проєкт</a>')
+    action = (
+        "Дочекатися автоматичної повторної перевірки."
+        if unknown
+        else "Нічого не надсилати."
+    )
+    lines.append(f"<b>Наступна дія власниці:</b> {action}")
+    return "\n".join(lines)
+
+
+async def send_live_status_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:
+    """Send at most the caller-controlled diagnostic card, never a proposal."""
+
+    try:
+        text = format_live_status_card(analysis)
+        if len(text) > TELEGRAM_TEXT_LIMIT:
+            raise ValueError("Telegram live-status card exceeds 4096 characters")
+        await bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send live-status card: key=%s", analysis.email_id)
+        return False
 
 
 async def send_job_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:

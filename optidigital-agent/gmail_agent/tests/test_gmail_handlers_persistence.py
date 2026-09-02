@@ -91,10 +91,15 @@ def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmai
         score=8.5,
         reason="Strong Python match",
         budget="500 USD",
-        url="https://freelancehunt.com/project/123.html",
+        url="https://freelancehunt.com/project/sanitized/123.html",
         urgency="medium",
         why_relevant="Automation and APIs",
         status=status,
+        live_status="ACTIVE_BIDDABLE",
+        live_status_checked_at=datetime.now(timezone.utc),
+        live_status_evidence="submit a bid",
+        biddable=True,
+        qualified=True,
     )
 
 
@@ -433,6 +438,72 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
         output = "\n".join(call.args[0] for call in message.answer.await_args_list)
         self.assertIn("Python automation", output)
         self.assertIn("Draft reply", output)
+
+    async def test_reply_refuses_blocked_project_even_with_saved_proposal(self):
+        blocked = {
+            "email_id": "blocked-1650987",
+            "event_type": "PROJECT_SINGLE",
+            "platform": "Freelancehunt",
+            "title": "Blocked fixture",
+            "proposal_draft": "Must never be displayed",
+            "live_status": "BLOCKED_RULE_VIOLATION",
+            "live_status_evidence": "safe blocked evidence",
+            "biddable": False,
+        }
+        message = _message("/reply_job blocked-1650987")
+        handler = _load_handler(
+            "cmd_reply_job",
+            {
+                "_gmail_job_store": {"blocked-1650987": blocked},
+                "settings": _settings(),
+                "AsyncSessionLocal": MagicMock(),
+            },
+        )
+        generate = AsyncMock(return_value="Must not run")
+        with patch("gmail_agent.reply_generator.generate_reply", generate):
+            await handler(message)
+
+        generate.assert_not_awaited()
+        output = "\n".join(call.args[0] for call in message.answer.await_args_list)
+        self.assertIn("BLOCKED_RULE_VIOLATION", output)
+        self.assertIn("Bid available: <b>no</b>", output)
+        self.assertNotIn("Must never be displayed", output)
+
+    async def test_direct_reply_refuses_blocked_order_before_ai(self):
+        order = SimpleNamespace(
+            id=1650987,
+            title="Sanitized blocked project",
+            platform="Freelancehunt",
+            live_status="BLOCKED_RULE_VIOLATION",
+            live_status_evidence="safe blocked evidence",
+            live_status_last_error=None,
+            biddable=False,
+        )
+        session = MagicMock()
+        session.get = AsyncMock(return_value=order)
+        context = MagicMock()
+        context.__aenter__ = AsyncMock(return_value=session)
+        context.__aexit__ = AsyncMock(return_value=False)
+        generate = AsyncMock(return_value="must not be generated")
+        handler = _load_handler(
+            "cmd_reply",
+            {
+                "AsyncSessionLocal": MagicMock(return_value=context),
+                "Order": object(),
+                "generate_response": generate,
+                "save_response": AsyncMock(),
+                "response_keyboard": MagicMock(),
+            },
+        )
+        message = _message("/reply 1650987")
+
+        await handler(message)
+
+        generate.assert_not_awaited()
+        self.assertEqual(message.answer.await_count, 1)
+        response = message.answer.await_args.args[0]
+        self.assertIn("BLOCKED_RULE_VIOLATION", response)
+        self.assertIn("Bid available: <b>no</b>", response)
 
     async def test_skip_updates_persistent_status_without_deleting_job(self):
         repository = MagicMock()

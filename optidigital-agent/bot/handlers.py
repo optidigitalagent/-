@@ -9,7 +9,13 @@ from sqlalchemy import func, select
 from ai.writer import generate_response
 from config import settings
 from db import AsyncSessionLocal
-from db.crud import get_setting, save_response, set_setting, update_order_status
+from db.crud import (
+    get_setting,
+    save_response,
+    set_setting,
+    update_order_fields,
+    update_order_status,
+)
 from db.models import Order, Response
 
 from .html_utils import escape_html, safe_http_url
@@ -31,6 +37,128 @@ admin_router = Router()
 admin_router.message.filter(F.chat.id == settings.admin_chat_id)
 
 DEFAULT_MIN_SCORE = 6
+
+
+def _value(record: object, field: str, default: object = None) -> object:
+    return record.get(field, default) if isinstance(record, dict) else getattr(record, field, default)
+
+
+def _live_status_refusal(record: object, recheck_id: str = "") -> str:
+    status = str(_value(record, "live_status") or "LIVE_STATUS_UNKNOWN")
+    reason = str(
+        _value(record, "live_status_evidence")
+        or _value(record, "live_status_last_error")
+        or "LIVE STATUS NOT VERIFIED"
+    )
+    retry = (
+        f"\nНаступна дія: лише read-only <code>/recheck_live {escape_html(recheck_id)}</code>."
+        if status == "LIVE_STATUS_UNKNOWN" and recheck_id
+        else "\nНаступна дія: <b>Нічого не надсилати.</b>"
+    )
+    return (
+        "⚠️ <b>Відгук не створено</b>\n\n"
+        f"Live status: <b>{escape_html(status)}</b>\n"
+        "Bid available: <b>no</b>\n"
+        f"Reason: {escape_html(reason)}"
+        f"{retry}"
+    )
+
+
+async def _ensure_order_current_biddable(
+    order: Order, *, force: bool = False, manual: bool = False
+):
+    """Detach, read live page, then persist in a separate short transaction."""
+
+    from gmail_agent.live_status import (
+        FreelancehuntLiveStatusChecker,
+        LiveStatus,
+        ensure_current_biddable_status,
+    )
+
+    async def persist(result) -> None:
+        previous_count = int(getattr(order, "live_status_retry_count", 0) or 0)
+        retry_count = previous_count + int(result.status == LiveStatus.LIVE_STATUS_UNKNOWN)
+        if result.status == LiveStatus.ACTIVE_BIDDABLE:
+            next_status = "live_status_active_manual" if manual else order.status
+        elif result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+            next_status = (
+                "live_status_unknown_exhausted"
+                if retry_count >= 3
+                else "live_status_pending"
+            )
+        else:
+            next_status = "live_status_terminal"
+        fields = {
+            "live_status": result.status.value,
+            "live_status_checked_at": result.checked_at,
+            "live_status_evidence": result.evidence,
+            "biddable": result.biddable,
+            "live_status_retry_count": retry_count,
+            "live_status_last_error": result.last_error,
+            "qualified": bool(getattr(order, "qualified", False)) if result.biddable else False,
+            "status": next_status,
+        }
+        async with AsyncSessionLocal() as session:
+            await update_order_fields(session, order.id, fields)
+        for key, value in fields.items():
+            setattr(order, key, value)
+
+    checker = FreelancehuntLiveStatusChecker(cache_ttl_seconds=0)
+    return await ensure_current_biddable_status(
+        order, checker, persist, force=force
+    )
+
+
+async def _ensure_gmail_job_current_biddable(
+    job_id: str,
+    job: dict,
+    repository: object | None,
+    *,
+    force: bool = False,
+    manual: bool = False,
+):
+    from gmail_agent.live_status import (
+        FreelancehuntLiveStatusChecker,
+        LiveStatus,
+        ensure_current_biddable_status,
+    )
+
+    async def persist(result) -> None:
+        previous_count = int(job.get("live_status_retry_count") or 0)
+        retry_count = previous_count + int(result.status == LiveStatus.LIVE_STATUS_UNKNOWN)
+        if result.status == LiveStatus.ACTIVE_BIDDABLE:
+            next_status = "live_status_active_manual" if manual else str(job.get("status") or "sent")
+        elif result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+            next_status = (
+                "live_status_unknown_exhausted"
+                if retry_count >= 3
+                else "live_status_pending"
+            )
+        else:
+            next_status = "live_status_terminal"
+        fields = {
+            "live_status": result.status.value,
+            "live_status_checked_at": result.checked_at,
+            "live_status_evidence": result.evidence,
+            "biddable": result.biddable,
+            "live_status_retry_count": retry_count,
+            "live_status_last_error": result.last_error,
+            "qualified": bool(job.get("qualified")) if result.biddable else False,
+            "status": next_status,
+        }
+        job.update(fields)
+        if repository is not None:
+            import inspect
+
+            update_result = repository.update_job_fields(job_id, fields)
+            if inspect.isawaitable(update_result):
+                await update_result
+        _gmail_job_store[job_id] = job
+
+    checker = FreelancehuntLiveStatusChecker(cache_ttl_seconds=0)
+    return await ensure_current_biddable_status(
+        job, checker, persist, force=force
+    )
 
 
 # ─── /stats ──────────────────────────────────────────────────────────────────
@@ -103,7 +231,6 @@ async def cb_set_score(callback: CallbackQuery) -> None:
 @router.callback_query(OrderCb.filter(F.action == "view"))
 async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> None:
     await callback.answer()
-    await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
 
     async with AsyncSessionLocal() as session:
         order = await session.get(Order, callback_data.order_id)
@@ -111,6 +238,15 @@ async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> N
     if not order:
         await callback.message.edit_text("❌ Замовлення не знайдено")
         return
+
+    guard = await _ensure_order_current_biddable(order)
+    if not guard.allowed:
+        await callback.message.edit_text(
+            _live_status_refusal(order, str(order.id)), reply_markup=None
+        )
+        return
+
+    await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
 
     order_dict = {
         "title": order.title,
@@ -155,6 +291,18 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
     async with AsyncSessionLocal() as session:
         draft = await session.get(Response, callback_data.response_id)
         order = await session.get(Order, callback_data.order_id)
+
+    if order is not None:
+        guard = await _ensure_order_current_biddable(order)
+        if not guard.allowed:
+            await callback.message.edit_text(
+                _live_status_refusal(order, str(order.id)), reply_markup=None
+            )
+            return
+
+    async with AsyncSessionLocal() as session:
+        draft = await session.get(Response, callback_data.response_id)
+        order = await session.get(Order, callback_data.order_id)
         if draft:
             draft.result = "sent"
             await session.commit()
@@ -178,7 +326,6 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
 @router.callback_query(ResponseCb.filter(F.action == "rewrite"))
 async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None:
     await callback.answer()
-    await callback.message.edit_text("⏳ Переписую відгук...", reply_markup=None)
 
     async with AsyncSessionLocal() as session:
         order = await session.get(Order, callback_data.order_id)
@@ -186,6 +333,15 @@ async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None
     if not order:
         await callback.message.edit_text("❌ Замовлення не знайдено")
         return
+
+    guard = await _ensure_order_current_biddable(order)
+    if not guard.allowed:
+        await callback.message.edit_text(
+            _live_status_refusal(order, str(order.id)), reply_markup=None
+        )
+        return
+
+    await callback.message.edit_text("⏳ Переписую відгук...", reply_markup=None)
 
     order_dict = {
         "title": order.title,
@@ -235,6 +391,11 @@ async def cmd_reply(message: Message) -> None:
 
     if not order:
         await message.answer(f"❌ Проєкт <code>#{project_id}</code> не знайдено в базі")
+        return
+
+    guard = await _ensure_order_current_biddable(order)
+    if not guard.allowed:
+        await message.answer(_live_status_refusal(order, str(order.id)))
         return
 
     await message.answer(f"⏳ Генерую відгук для <b>{order.title}</b>…")
@@ -289,32 +450,34 @@ async def cmd_reply_job(message: Message) -> None:
 
     job_id = raw[1].strip()
     rewrite = len(raw) >= 3 and raw[2].casefold() == "rewrite"
-    job = _gmail_job_store.get(job_id)
-    if not job:
-        repository_unavailable = False
-        try:
-            from dataclasses import asdict, is_dataclass
-            from gmail_agent.storage import PostgresGmailRepository
+    job = None
+    repository = None
+    repository_unavailable = False
+    try:
+        from dataclasses import asdict, is_dataclass
+        from gmail_agent.storage import PostgresGmailRepository
 
-            repository = PostgresGmailRepository(AsyncSessionLocal)
-            stored_job = await repository.get_job(job_id)
-            if stored_job is not None:
-                job = asdict(stored_job) if is_dataclass(stored_job) else dict(stored_job)
-                job.setdefault("email_id", job_id)
+        repository = PostgresGmailRepository(AsyncSessionLocal)
+        stored_job = await repository.get_job(job_id)
+        if stored_job is not None:
+            job = asdict(stored_job) if is_dataclass(stored_job) else dict(stored_job)
+            job.setdefault("email_id", job_id)
+            _gmail_job_store[job_id] = job
+    except Exception:
+        repository_unavailable = True
+        logger.exception("Failed to load Gmail job from PostgreSQL")
+
+    if not job:
+        job = _gmail_job_store.get(job_id)
+    if not job and repository_unavailable:
+        try:
+            from gmail_agent.job_store import get_job
+
+            job = get_job(job_id)
+            if job:
                 _gmail_job_store[job_id] = job
         except Exception:
-            repository_unavailable = True
-            logger.exception("Failed to load Gmail job from PostgreSQL")
-
-        if not job and repository_unavailable:
-            try:
-                from gmail_agent.job_store import get_job
-
-                job = get_job(job_id)
-                if job:
-                    _gmail_job_store[job_id] = job
-            except Exception:
-                logger.exception("Failed to load legacy Gmail job analysis")
+            logger.exception("Failed to load legacy Gmail job analysis")
 
     if not job:
         await message.answer(
@@ -322,6 +485,17 @@ async def cmd_reply_job(message: Message) -> None:
             "Можливо, воно вже застаріло або бот перезапускався."
         )
         return
+
+    project_event = str(job.get("event_type") or "") in {
+        "PROJECT_SINGLE",
+        "PROJECT_DIGEST",
+    }
+    is_freelancehunt = "freelancehunt" in str(job.get("platform") or "").casefold()
+    if project_event and is_freelancehunt:
+        guard = await _ensure_gmail_job_current_biddable(job_id, job, repository)
+        if not guard.allowed:
+            await message.answer(_live_status_refusal(job, job_id))
+            return
 
     saved_proposal = str(job.get("proposal_draft") or "").strip()
     if saved_proposal and not rewrite:
@@ -425,6 +599,65 @@ async def cmd_skip_job(message: Message) -> None:
 
 
 # ─── Admin commands ───────────────────────────────────────────────────────────
+
+@admin_router.message(Command("recheck_live"))
+async def cmd_recheck_live(message: Message) -> None:
+    """Force one anonymous read-only status refresh; never create a proposal."""
+
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2 or not raw[1].strip():
+        await message.answer(
+            "❌ Використання: <code>/recheck_live &lt;order_or_event_id&gt;</code>"
+        )
+        return
+    target = raw[1].strip()
+
+    order = None
+    if target.isdigit():
+        async with AsyncSessionLocal() as session:
+            order = await session.get(Order, int(target))
+    if order is not None:
+        guard = await _ensure_order_current_biddable(order, force=True, manual=True)
+        record: object = order
+    else:
+        repository = None
+        job = None
+        try:
+            from dataclasses import asdict
+            from gmail_agent.storage import PostgresGmailRepository
+
+            repository = PostgresGmailRepository(AsyncSessionLocal)
+            stored = await repository.get_job(target)
+            if stored is not None:
+                job = asdict(stored)
+                job.setdefault("email_id", target)
+        except Exception:
+            logger.exception("Failed to load Gmail job for read-only live recheck")
+        if job is None:
+            job = _gmail_job_store.get(target)
+        if job is None:
+            await message.answer("❌ Запис для read-only перевірки не знайдено.")
+            return
+        guard = await _ensure_gmail_job_current_biddable(
+            target, job, repository, force=True, manual=True
+        )
+        record = job
+
+    checked_at = guard.result.checked_at.isoformat(timespec="seconds")
+    if guard.allowed:
+        next_action = "Окремою наступною командою можна запросити відгук."
+    elif guard.result.status.value == "LIVE_STATUS_UNKNOWN":
+        next_action = "Статус не підтверджено; можна повторити лише read-only перевірку."
+    else:
+        next_action = "Відгук заблоковано; нічого не надсилати."
+    await message.answer(
+        "🔎 <b>Read-only live recheck</b>\n\n"
+        f"Live status: <b>{escape_html(guard.result.status.value)}</b>\n"
+        f"Bid available: <b>{'yes' if guard.allowed else 'no'}</b>\n"
+        f"Checked: <code>{escape_html(checked_at)}</code>\n"
+        f"Reason: {escape_html(str(_value(record, 'live_status_evidence') or guard.result.evidence))}\n"
+        f"Наступна дія: {escape_html(next_action)}"
+    )
 
 def _fmt_dt(dt: datetime | None) -> str:
     if dt is None:
@@ -1111,6 +1344,7 @@ async def cmd_gmail_scan(message: Message) -> None:
 
     try:
         from gmail_agent.gmail_provider import build_provider
+        from gmail_agent.live_status import FreelancehuntLiveStatusChecker
         from gmail_agent.processor import GmailJobProcessor
         from gmail_agent.storage import PostgresGmailRepository
 
@@ -1139,6 +1373,7 @@ async def cmd_gmail_scan(message: Message) -> None:
             repository=repository,
             max_cards_per_scan=10,
             digest_enabled=getattr(settings, "GMAIL_DIGEST_ENABLED", False),
+            live_status_checker=FreelancehuntLiveStatusChecker(),
         )
 
         stats = await processor.run(trigger="manual")
@@ -1288,6 +1523,7 @@ def _gmail_digest_days(message: Message) -> int | None:
 
 def _gmail_digest_processor(message: Message):
     from gmail_agent.gmail_provider import build_provider
+    from gmail_agent.live_status import FreelancehuntLiveStatusChecker
     from gmail_agent.processor import GmailJobProcessor
     from gmail_agent.storage import PostgresGmailRepository
 
@@ -1307,6 +1543,7 @@ def _gmail_digest_processor(message: Message):
         repository=repository,
         max_cards_per_scan=10,
         digest_enabled=True,
+        live_status_checker=FreelancehuntLiveStatusChecker(),
     )
 
 

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass, field, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -16,6 +17,12 @@ from .digest_parser import DigestJobCandidate, parse_freelancehunt_digest
 from .email_analyzer import JobAnalysis, analyze_candidate, analyze_email, detect_language
 from .email_classifier import EmailType, classify_email
 from .gmail_provider import EmailMessage, GmailProvider
+from .live_status import (
+    FreelancehuntLiveStatusChecker,
+    LiveStatus,
+    LiveStatusResult,
+    retry_due,
+)
 from .security import redact_security_event, redact_sensitive_content
 from .storage import (
     GmailRepository,
@@ -23,7 +30,7 @@ from .storage import (
     ScanRun,
     StoredGmailJob,
 )
-from .telegram_notifier import send_job_card
+from .telegram_notifier import send_job_card, send_live_status_card
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,9 @@ class ProcessorStats:
     event_counts: dict[str, int] = field(default_factory=dict)
     mailbox_alias: str = ""
     max_detection_latency_seconds: float = 0.0
+    live_status_non_actionable: int = 0
+    live_status_unknown: int = 0
+    live_status_diagnostics_sent: int = 0
 
     @property
     def duplicates(self) -> int:
@@ -69,6 +79,8 @@ class DigestPreviewItem:
     url: str
     urgency: str
     why_relevant: str
+    live_status: str = ""
+    biddable: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -91,6 +103,9 @@ class GmailJobProcessor:
         repository: GmailRepository | None = None,
         max_cards_per_scan: int = 10,
         digest_enabled: bool = True,
+        live_status_checker: FreelancehuntLiveStatusChecker | None = None,
+        live_status_retry_base_seconds: int = 60,
+        live_status_max_retries: int = 3,
     ):
         self._provider = provider
         self._bot = bot
@@ -104,6 +119,11 @@ class GmailJobProcessor:
         self._repository = repository
         self._max_cards_per_scan = max(0, max_cards_per_scan)
         self._digest_enabled = digest_enabled
+        # Production entry points pass the shared checker explicitly. Keeping
+        # this injection optional preserves isolated legacy/unit callers.
+        self._live_status_checker = live_status_checker
+        self._live_status_retry_base_seconds = max(1, live_status_retry_base_seconds)
+        self._live_status_max_retries = max(1, live_status_max_retries)
 
     async def _mark_processed(self, email_id: str) -> None:
         self._dedup.mark_processed(email_id)
@@ -237,6 +257,13 @@ class GmailJobProcessor:
             received_at=job.received_at,
             sensitive_redacted=job.sensitive_redacted,
             source_mailbox_alias=job.source_mailbox_alias,
+            live_status=job.live_status,
+            live_status_checked_at=job.live_status_checked_at,
+            live_status_evidence=job.live_status_evidence,
+            biddable=job.biddable,
+            live_status_retry_count=job.live_status_retry_count,
+            live_status_last_error=job.live_status_last_error,
+            qualified=job.qualified,
         )
 
     @staticmethod
@@ -275,6 +302,13 @@ class GmailJobProcessor:
             "received_at": analysis.received_at,
             "sensitive_redacted": analysis.sensitive_redacted,
             "source_mailbox_alias": analysis.source_mailbox_alias,
+            "live_status": analysis.live_status,
+            "live_status_checked_at": analysis.live_status_checked_at,
+            "live_status_evidence": analysis.live_status_evidence,
+            "biddable": analysis.biddable,
+            "live_status_retry_count": analysis.live_status_retry_count,
+            "live_status_last_error": analysis.live_status_last_error,
+            "qualified": analysis.qualified,
         }
 
     @staticmethod
@@ -458,6 +492,206 @@ class GmailJobProcessor:
                 }
             )
 
+    @staticmethod
+    def _is_guarded_project(event_type: str, platform: str, url: str) -> bool:
+        return (
+            event_type
+            in {EmailType.PROJECT_SINGLE.value, EmailType.PROJECT_DIGEST.value}
+            and "freelancehunt" in (platform or "").casefold()
+            and bool(url)
+        )
+
+    @staticmethod
+    def _apply_live_result(
+        analysis: JobAnalysis,
+        result: LiveStatusResult,
+        retry_count: int,
+    ) -> JobAnalysis:
+        analysis.live_status = result.status.value
+        analysis.live_status_checked_at = result.checked_at
+        analysis.live_status_evidence = result.evidence
+        analysis.biddable = result.biddable
+        analysis.live_status_retry_count = retry_count
+        analysis.live_status_last_error = result.last_error
+        if result.status != LiveStatus.ACTIVE_BIDDABLE:
+            analysis.is_relevant = False
+            analysis.qualified = False
+            analysis.recommended_price = ""
+            analysis.realistic_timeline = ""
+            analysis.next_action = (
+                "Дочекатися автоматичної повторної перевірки або виконати read-only /recheck_live."
+                if (
+                    result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                    and retry_count < 3
+                )
+                else "Виконати лише read-only /recheck_live; нічого не надсилати."
+                if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                else "Нічого не надсилати."
+            )
+        return analysis
+
+    @staticmethod
+    def _status_only_analysis(
+        *,
+        stable_key: str,
+        source_email_id: str,
+        title: str,
+        description: str,
+        url: str,
+        event_type: str,
+        platform: str,
+        project_id: str,
+        received_at: datetime | None,
+        mailbox_alias: str,
+        result: LiveStatusResult,
+        retry_count: int,
+    ) -> JobAnalysis:
+        analysis = JobAnalysis(
+            email_id=stable_key,
+            is_relevant=False,
+            title=title,
+            platform=platform or "Freelancehunt",
+            score=0.0,
+            reason=result.evidence,
+            budget="",
+            url=url,
+            urgency="low",
+            why_relevant="",
+            event_type=event_type,
+            source_email_id=source_email_id,
+            full_description=description,
+            description_completeness="PARTIAL",
+            project_id=project_id,
+            received_at=received_at,
+            source_mailbox_alias=mailbox_alias,
+        )
+        return GmailJobProcessor._apply_live_result(analysis, result, retry_count)
+
+    async def _check_live_status(
+        self,
+        url: str,
+        previous: StoredGmailJob | None = None,
+        *,
+        force: bool = False,
+    ) -> tuple[LiveStatusResult, int] | None:
+        if self._live_status_checker is None:
+            return None
+        previous_count = previous.live_status_retry_count if previous else 0
+        if (
+            not force
+            and previous is not None
+            and previous.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+            and previous_count >= self._live_status_max_retries
+        ):
+            return (
+                LiveStatusResult(
+                    status=LiveStatus.LIVE_STATUS_UNKNOWN,
+                    checked_at=previous.live_status_checked_at or datetime.now(timezone.utc),
+                    evidence=previous.live_status_evidence or "LIVE STATUS NOT VERIFIED",
+                    biddable=False,
+                    last_error=previous.live_status_last_error or "retry limit exhausted",
+                ),
+                previous_count,
+            )
+        if (
+            not force
+            and previous is not None
+            and previous.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+            and not retry_due(
+                previous.live_status_checked_at,
+                previous_count,
+                base_seconds=self._live_status_retry_base_seconds,
+                max_retries=self._live_status_max_retries,
+            )
+        ):
+            return None
+        result = await self._live_status_checker.check(url)
+        retry_count = (
+            previous_count + 1
+            if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+            else previous_count
+        )
+        return result, retry_count
+
+    def _nonactive_state(
+        self, result: LiveStatusResult, retry_count: int
+    ) -> tuple[str, bool]:
+        """Return durable internal state and whether automatic work is settled."""
+
+        if result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+            return "live_status_terminal", True
+        if retry_count >= self._live_status_max_retries:
+            return "live_status_unknown_exhausted", True
+        return "live_status_pending", False
+
+    @staticmethod
+    def _active_check_is_fresh(job: StoredGmailJob, seconds: int = 60) -> bool:
+        checked_at = job.live_status_checked_at
+        if (
+            job.live_status != LiveStatus.ACTIVE_BIDDABLE.value
+            or job.biddable is not True
+            or checked_at is None
+        ):
+            return False
+        value = checked_at
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) - value <= timedelta(seconds=seconds)
+
+    async def _send_live_status_notice_once(
+        self,
+        analysis: JobAnalysis,
+        stats: ProcessorStats,
+    ) -> bool:
+        if self._repository is None:
+            return False
+        digest = hashlib.sha256(analysis.email_id.encode("utf-8")).hexdigest()
+        notice_key = f"live-status-notice:{digest}"
+        if await self._repository.is_processed(notice_key):
+            return True
+        sent = await send_live_status_card(self._bot, self._chat_id, analysis)
+        if sent:
+            await self._repository.upsert_processed(
+                ProcessedItem(
+                    stable_key=notice_key,
+                    source_email_id=analysis.source_email_id or analysis.email_id,
+                    platform=analysis.platform,
+                    item_type="live_status_diagnostic",
+                    title=analysis.title,
+                    url=analysis.url,
+                    decision=analysis.live_status,
+                    score=None,
+                )
+            )
+            stats.live_status_diagnostics_sent += 1
+        return sent
+
+    async def _drain_live_status_notices(self, stats: ProcessorStats) -> None:
+        """Retry diagnostics independently from processed email/project keys."""
+
+        if self._repository is None:
+            return
+        jobs = await self._repository.list_jobs_by_status(
+            ["live_status_notice_pending"], limit=100
+        )
+        for job in jobs:
+            analysis = self._analysis_from_job(job)
+            if not await self._send_live_status_notice_once(analysis, stats):
+                continue
+            if job.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value:
+                logical_status = (
+                    "live_status_unknown_exhausted"
+                    if job.live_status_retry_count >= self._live_status_max_retries
+                    else "live_status_pending"
+                )
+            else:
+                logical_status = "live_status_terminal"
+            await self._repository.update_job_status(job.stable_key, logical_status)
+
+    @staticmethod
+    def _live_status_decision(status: LiveStatus) -> str:
+        return f"live_status_{status.value.casefold()}"
+
     def _persist_legacy_job(self, analysis: JobAnalysis, stats: ProcessorStats) -> None:
         """Keep /reply_job's JSON lookup behavior for both pipeline paths."""
         try:
@@ -486,6 +720,17 @@ class GmailJobProcessor:
                     "proposal_draft": analysis.proposal_draft,
                     "needs_context": analysis.needs_context,
                     "next_action": analysis.next_action,
+                    "live_status": analysis.live_status,
+                    "live_status_checked_at": (
+                        analysis.live_status_checked_at.isoformat()
+                        if analysis.live_status_checked_at
+                        else None
+                    ),
+                    "live_status_evidence": analysis.live_status_evidence,
+                    "biddable": analysis.biddable,
+                    "live_status_retry_count": analysis.live_status_retry_count,
+                    "live_status_last_error": analysis.live_status_last_error,
+                    "qualified": analysis.qualified,
                 },
                 path=self._job_store_path,
             )
@@ -504,6 +749,49 @@ class GmailJobProcessor:
     ) -> bool:
         """Claim and send a queued job; return whether the child is handled."""
         assert self._repository is not None
+        analysis = self._analysis_from_job(job)
+        if self._live_status_checker is not None and self._is_guarded_project(
+            job.event_type, job.platform, job.url or ""
+        ):
+            if not self._active_check_is_fresh(job):
+                checked = await self._check_live_status(job.url or "", job)
+                if checked is None:
+                    return False
+                result, retry_count = checked
+                analysis = self._apply_live_result(analysis, result, retry_count)
+                settled = False
+                if result.status == LiveStatus.ACTIVE_BIDDABLE:
+                    analysis.is_relevant = True
+                    analysis.qualified = True
+                    status = job.status
+                else:
+                    status, settled = self._nonactive_state(result, retry_count)
+                    if result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                        stats.live_status_unknown += 1
+                    else:
+                        stats.live_status_non_actionable += 1
+                job = await self._repository.save_job(
+                    replace(job, status=status, **self._analysis_fields(analysis))
+                )
+                if result.status != LiveStatus.ACTIVE_BIDDABLE:
+                    notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                    if not notice_sent:
+                        await self._repository.update_job_status(
+                            job.stable_key, "live_status_notice_pending"
+                        )
+                    if settled:
+                        await self._repository.upsert_processed(
+                            self._processed_job_item(
+                                job,
+                                (
+                                    "live_status_unknown_exhausted"
+                                    if result.status == LiveStatus.LIVE_STATUS_UNKNOWN
+                                    else self._live_status_decision(result.status)
+                                ),
+                            )
+                        )
+                    return settled
+
         claimed = await self._repository.claim_job(candidate.stable_key)
         if not claimed:
             # Another worker owns it, or it became terminal after our read.
@@ -620,6 +908,28 @@ class GmailJobProcessor:
         stats.candidates_found += len(candidates)
         all_children_handled = True
 
+        # Resolve every due public URL as one controlled concurrent batch. The
+        # later per-child logic consumes the checker's per-scan cache, so no
+        # database transaction is held while HTTP/Chromium is running.
+        if self._live_status_checker is not None:
+            due_urls: list[str] = []
+            for candidate in candidates:
+                if await self._repository.is_processed(candidate.stable_key):
+                    continue
+                previous = await self._repository.get_job(candidate.stable_key)
+                if previous is None:
+                    due_urls.append(candidate.url)
+                elif previous.status == "live_status_pending" and retry_due(
+                    previous.live_status_checked_at,
+                    previous.live_status_retry_count,
+                    base_seconds=self._live_status_retry_base_seconds,
+                    max_retries=self._live_status_max_retries,
+                ):
+                    due_urls.append(candidate.url)
+            if due_urls:
+                if hasattr(self._live_status_checker, "batch_check"):
+                    await self._live_status_checker.batch_check(due_urls)
+
         for candidate in candidates:
             try:
                 if await self._repository.is_processed(candidate.stable_key):
@@ -627,11 +937,77 @@ class GmailJobProcessor:
                     continue
 
                 job = await self._repository.get_job(candidate.stable_key)
-                if job is None:
+                if job is None or job.status == "live_status_pending":
+                    live_result: LiveStatusResult | None = None
+                    live_retry_count = 0
+                    if self._live_status_checker is not None:
+                        checked = await self._check_live_status(candidate.url, job)
+                        if checked is None:
+                            all_children_handled = False
+                            continue
+                        live_result, live_retry_count = checked
+                        if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+                            analysis = self._status_only_analysis(
+                                stable_key=candidate.stable_key,
+                                source_email_id=candidate.source_email_id,
+                                title=candidate.title,
+                                description=candidate.description,
+                                url=candidate.url,
+                                event_type=EmailType.PROJECT_DIGEST.value,
+                                platform=candidate.platform,
+                                project_id=candidate.project_id,
+                                received_at=candidate.received_at,
+                                mailbox_alias=stats.mailbox_alias,
+                                result=live_result,
+                                retry_count=live_retry_count,
+                            )
+                            status, settled = self._nonactive_state(
+                                live_result, live_retry_count
+                            )
+                            job = await self._repository.save_job(
+                                self._stored_job(
+                                    candidate,
+                                    analysis,
+                                    status=status,
+                                )
+                            )
+                            notice_sent = await self._send_live_status_notice_once(
+                                analysis, stats
+                            )
+                            if not notice_sent:
+                                await self._repository.update_job_status(
+                                    job.stable_key, "live_status_notice_pending"
+                                )
+                            if settled:
+                                if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                                    stats.live_status_non_actionable += 1
+                                await self._repository.upsert_processed(
+                                    self._processed_item(
+                                        candidate,
+                                        (
+                                            "live_status_unknown_exhausted"
+                                            if live_result.status
+                                            == LiveStatus.LIVE_STATUS_UNKNOWN
+                                            else self._live_status_decision(
+                                                live_result.status
+                                            )
+                                        ),
+                                        None,
+                                    )
+                                )
+                            else:
+                                stats.live_status_unknown += 1
+                                all_children_handled = False
+                            continue
+
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
                     )
                     analysis.source_mailbox_alias = stats.mailbox_alias
+                    if live_result is not None:
+                        self._apply_live_result(
+                            analysis, live_result, live_retry_count
+                        )
                     if analysis.analysis_succeeded:
                         stats.ai_analyzed += 1
                     else:
@@ -665,12 +1041,28 @@ class GmailJobProcessor:
                         continue
 
                     stats.qualified += 1
+                    analysis.qualified = True
 
                     job = await self._repository.save_job(
                         self._stored_job(candidate, analysis)
                     )
-                elif job.status in {"sent", "skipped"}:
+                elif job.status in {
+                    "sent",
+                    "skipped",
+                    "live_status_terminal",
+                    "live_status_unknown_exhausted",
+                    "live_status_active_manual",
+                }:
                     stats.duplicates_skipped += 1
+                    continue
+                elif job.status == "live_status_notice_pending":
+                    # The dedicated delivery queue owns this row. A terminal or
+                    # exhausted decision is settled even while its notice retries.
+                    if (
+                        job.live_status == LiveStatus.LIVE_STATUS_UNKNOWN.value
+                        and job.live_status_retry_count < self._live_status_max_retries
+                    ):
+                        all_children_handled = False
                     continue
 
                 if cards_sent_this_scan >= self._max_cards_per_scan:
@@ -778,10 +1170,69 @@ class GmailJobProcessor:
             return False
 
         job = await self._repository.get_job(email.id)
-        if job is not None:
-            if job.status in {"sent", "skipped"}:
-                stats.duplicates_skipped += 1
+        pending_live_result: LiveStatusResult | None = None
+        pending_live_retry_count = 0
+        if job is not None and job.status in {
+            "sent",
+            "skipped",
+            "live_status_terminal",
+            "live_status_unknown_exhausted",
+            "live_status_active_manual",
+        }:
+            stats.duplicates_skipped += 1
+            return False
+        if job is not None and job.status == "live_status_notice_pending":
+            return False
+        if job is not None and job.status == "live_status_pending":
+            checked = await self._check_live_status(job.url or "", job)
+            if checked is None:
                 return False
+            pending_live_result, pending_live_retry_count = checked
+            if pending_live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+                analysis = self._apply_live_result(
+                    self._analysis_from_job(job),
+                    pending_live_result,
+                    pending_live_retry_count,
+                )
+                status, settled = self._nonactive_state(
+                    pending_live_result, pending_live_retry_count
+                )
+                job = await self._repository.save_job(
+                    replace(
+                        job,
+                        status=status,
+                        **self._analysis_fields(analysis),
+                    )
+                )
+                notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                if not notice_sent:
+                    await self._repository.update_job_status(
+                        job.stable_key, "live_status_notice_pending"
+                    )
+                if settled:
+                    if pending_live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                        stats.live_status_non_actionable += 1
+                    await self._repository.upsert_processed(
+                        self._processed_single_item(
+                            email,
+                            analysis,
+                            (
+                                "live_status_unknown_exhausted"
+                                if pending_live_result.status
+                                == LiveStatus.LIVE_STATUS_UNKNOWN
+                                else self._live_status_decision(
+                                    pending_live_result.status
+                                )
+                            ),
+                        )
+                    )
+                else:
+                    stats.live_status_unknown += 1
+                return False
+            # A recovered ACTIVE page must be analyzed for the first time.
+            job = None
+
+        if job is not None:
             analysis = self._analysis_from_job(job)
         else:
             security_event = email_type == EmailType.ACCOUNT_OR_SECURITY_EVENT
@@ -790,6 +1241,70 @@ class GmailJobProcessor:
             else:
                 safe_body, redacted = redact_sensitive_content(email.body)
             source_url = self._source_url(email, email_type)
+
+            live_result = pending_live_result
+            live_retry_count = pending_live_retry_count
+            if (
+                live_result is None
+                and self._live_status_checker is not None
+                and email_type == EmailType.PROJECT_SINGLE
+                and "freelancehunt" in email.sender.casefold()
+            ):
+                checked = await self._check_live_status(source_url)
+                if checked is None:
+                    return False
+                live_result, live_retry_count = checked
+                if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+                    project_match = re.search(r"/(\d+)\.html$", source_url)
+                    analysis = self._status_only_analysis(
+                        stable_key=email.id,
+                        source_email_id=email.id,
+                        title=email.subject,
+                        description=safe_body,
+                        url=source_url,
+                        event_type=email_type.value,
+                        platform="Freelancehunt",
+                        project_id=project_match.group(1) if project_match else "",
+                        received_at=email.received_at,
+                        mailbox_alias=stats.mailbox_alias,
+                        result=live_result,
+                        retry_count=live_retry_count,
+                    )
+                    status, settled = self._nonactive_state(
+                        live_result, live_retry_count
+                    )
+                    job = await self._repository.save_job(
+                        self._stored_single_job(
+                            email,
+                            analysis,
+                            status=status,
+                        )
+                    )
+                    notice_sent = await self._send_live_status_notice_once(analysis, stats)
+                    if not notice_sent:
+                        await self._repository.update_job_status(
+                            job.stable_key, "live_status_notice_pending"
+                        )
+                    if settled:
+                        if live_result.status != LiveStatus.LIVE_STATUS_UNKNOWN:
+                            stats.live_status_non_actionable += 1
+                        await self._repository.upsert_processed(
+                            self._processed_single_item(
+                                email,
+                                analysis,
+                                (
+                                    "live_status_unknown_exhausted"
+                                    if live_result.status
+                                    == LiveStatus.LIVE_STATUS_UNKNOWN
+                                    else self._live_status_decision(
+                                        live_result.status
+                                    )
+                                ),
+                            )
+                        )
+                    else:
+                        stats.live_status_unknown += 1
+                    return False
 
             if security_event:
                 # Security alerts do not need AI and must never let a model
@@ -832,6 +1347,9 @@ class GmailJobProcessor:
                 analysis.source_email_id = email.id
                 analysis.full_description = safe_body
                 analysis.sensitive_redacted = redacted
+
+            if live_result is not None:
+                self._apply_live_result(analysis, live_result, live_retry_count)
 
             analysis.event_type = email_type.value
             analysis.source_mailbox_alias = stats.mailbox_alias
@@ -921,6 +1439,7 @@ class GmailJobProcessor:
                 return False
 
             stats.qualified += 1
+            analysis.qualified = True
 
             job = await self._repository.save_job(
                 self._stored_single_job(email, analysis)
@@ -1064,7 +1583,9 @@ class GmailJobProcessor:
     async def run(self, trigger: str = "manual") -> ProcessorStats:
         stats = ProcessorStats()
         started_at = datetime.now(timezone.utc)
-        try:
+
+        async def execute() -> ProcessorStats:
+            await self._drain_live_status_notices(stats)
             cards_sent_this_scan = await self._drain_retry_queue(stats)
             try:
                 emails = await self._provider.get_new_emails()
@@ -1080,6 +1601,15 @@ class GmailJobProcessor:
             )
             logger.info("GmailJobProcessor: fetched %d emails", stats.emails_fetched)
             return await self._run_emails(emails, stats, cards_sent_this_scan)
+
+        try:
+            if (
+                self._live_status_checker is not None
+                and hasattr(self._live_status_checker, "scan")
+            ):
+                async with self._live_status_checker.scan():
+                    return await execute()
+            return await execute()
         finally:
             await self._append_scan_run(trigger, started_at, stats)
 
@@ -1109,9 +1639,41 @@ class GmailJobProcessor:
             stats.candidates_found += len(candidates)
             for candidate in candidates:
                 try:
+                    live_result: LiveStatusResult | None = None
+                    if self._live_status_checker is not None:
+                        checked = await self._check_live_status(candidate.url)
+                        if checked is None:
+                            continue
+                        live_result, live_retry_count = checked
+                        if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+                            if live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                                stats.live_status_unknown += 1
+                            else:
+                                stats.live_status_non_actionable += 1
+                            items.append(
+                                DigestPreviewItem(
+                                    stable_key=candidate.stable_key,
+                                    title=candidate.title,
+                                    is_relevant=False,
+                                    score=0.0,
+                                    reason=live_result.evidence,
+                                    platform=candidate.platform,
+                                    budget=candidate.budget,
+                                    url=candidate.url,
+                                    urgency="low",
+                                    why_relevant="",
+                                    live_status=live_result.status.value,
+                                    biddable=False,
+                                )
+                            )
+                            continue
                     analysis = await analyze_candidate(
                         candidate, client=self._openai_client
                     )
+                    if live_result is not None:
+                        self._apply_live_result(
+                            analysis, live_result, live_retry_count
+                        )
                     if analysis.analysis_succeeded:
                         stats.ai_analyzed += 1
                     else:
@@ -1139,6 +1701,8 @@ class GmailJobProcessor:
                             url=candidate.url,
                             urgency=analysis.urgency,
                             why_relevant=analysis.why_relevant,
+                            live_status=analysis.live_status,
+                            biddable=analysis.biddable,
                         )
                     )
                 except Exception as exc:

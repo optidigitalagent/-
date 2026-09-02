@@ -17,7 +17,15 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-TERMINAL_JOB_STATUSES = frozenset({"sent", "skipped"})
+TERMINAL_JOB_STATUSES = frozenset(
+    {
+        "sent",
+        "skipped",
+        "live_status_terminal",
+        "live_status_unknown_exhausted",
+        "live_status_active_manual",
+    }
+)
 DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed")
 DEFAULT_SENDING_LEASE = timedelta(minutes=15)
 
@@ -87,6 +95,13 @@ class StoredGmailJob:
     source_mailbox_alias: str = ""
     received_at: datetime | None = None
     sensitive_redacted: bool = False
+    live_status: str = ""
+    live_status_checked_at: datetime | None = None
+    live_status_evidence: str = ""
+    biddable: bool | None = None
+    live_status_retry_count: int = 0
+    live_status_last_error: str = ""
+    qualified: bool = False
 
 
 # Short public name for callers; the longer name makes its persistence role
@@ -131,6 +146,14 @@ class GmailRepository(Protocol):
     async def update_job_status(
         self, stable_key: str, status: str
     ) -> StoredGmailJob | None: ...
+
+    async def update_job_fields(
+        self, stable_key: str, fields: Mapping[str, Any]
+    ) -> StoredGmailJob | None: ...
+
+    async def list_jobs_by_status(
+        self, statuses: Sequence[str], limit: int = 100
+    ) -> list[StoredGmailJob]: ...
 
     async def claim_job(
         self,
@@ -227,6 +250,35 @@ class InMemoryGmailRepository:
             updated = replace(job, status=status, status_updated_at=utc_now())
             self._jobs[stable_key] = updated
             return replace(updated)
+
+    async def update_job_fields(
+        self, stable_key: str, fields: Mapping[str, Any]
+    ) -> StoredGmailJob | None:
+        async with self._lock:
+            job = self._jobs.get(stable_key)
+            if job is None:
+                return None
+            allowed = set(StoredGmailJob.__dataclass_fields__) - {
+                "stable_key",
+                "created_at",
+            }
+            values = {key: value for key, value in fields.items() if key in allowed}
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            updated = replace(job, **values)
+            self._jobs[stable_key] = updated
+            return replace(updated)
+
+    async def list_jobs_by_status(
+        self, statuses: Sequence[str], limit: int = 100
+    ) -> list[StoredGmailJob]:
+        if limit <= 0 or not statuses:
+            return []
+        wanted = set(statuses)
+        async with self._lock:
+            rows = [job for job in self._jobs.values() if job.status in wanted]
+            rows.sort(key=lambda job: (job.status_updated_at, job.created_at, job.stable_key))
+            return [replace(job) for job in rows[:limit]]
 
     async def claim_job(
         self,
@@ -398,6 +450,50 @@ class PostgresGmailRepository:
             stored = _job_from_row(row) if row is not None else None
             await session.commit()
             return stored
+
+    async def update_job_fields(
+        self, stable_key: str, fields: Mapping[str, Any]
+    ) -> StoredGmailJob | None:
+        allowed = set(StoredGmailJob.__dataclass_fields__) - {
+            "stable_key",
+            "created_at",
+        }
+        values = {key: value for key, value in fields.items() if key in allowed}
+        if not values:
+            return await self.get_job(stable_key)
+        if "status" in values and "status_updated_at" not in values:
+            values["status_updated_at"] = utc_now()
+        statement = (
+            update(self._job_model)
+            .where(self._job_model.stable_key == stable_key)
+            .values(**values)
+            .returning(*self._job_model.__table__.c)
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(statement)
+            row = result.mappings().one_or_none()
+            stored = _job_from_row(row) if row is not None else None
+            await session.commit()
+            return stored
+
+    async def list_jobs_by_status(
+        self, statuses: Sequence[str], limit: int = 100
+    ) -> list[StoredGmailJob]:
+        if limit <= 0 or not statuses:
+            return []
+        statement = (
+            select(self._job_model)
+            .where(self._job_model.status.in_(tuple(statuses)))
+            .order_by(
+                self._job_model.status_updated_at.asc(),
+                self._job_model.created_at.asc(),
+                self._job_model.stable_key.asc(),
+            )
+            .limit(limit)
+        )
+        async with self._session_factory() as session:
+            result = await session.scalars(statement)
+            return [_job_from_row(model) for model in result.all()]
 
     async def claim_job(
         self,

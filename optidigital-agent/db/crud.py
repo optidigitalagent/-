@@ -21,8 +21,34 @@ async def save_order(session: AsyncSession, data: dict) -> Order | None:
     return order
 
 
+async def get_order_by_url(session: AsyncSession, url: str) -> Order | None:
+    return await session.scalar(select(Order).where(Order.url == url))
+
+
+async def update_order_fields(
+    session: AsyncSession, order_id: int, data: dict
+) -> Order | None:
+    await session.execute(update(Order).where(Order.id == order_id).values(**data))
+    await session.commit()
+    return await session.get(Order, order_id)
+
+
 async def get_unseen_orders(session: AsyncSession) -> list[Order]:
     result = await session.scalars(select(Order).where(Order.status == "new").order_by(Order.created_at.desc()))
+    return list(result.all())
+
+
+async def get_orders_by_status(
+    session: AsyncSession, statuses: list[str], limit: int = 100
+) -> list[Order]:
+    if not statuses or limit <= 0:
+        return []
+    result = await session.scalars(
+        select(Order)
+        .where(Order.status.in_(statuses))
+        .order_by(Order.created_at.asc(), Order.id.asc())
+        .limit(limit)
+    )
     return list(result.all())
 
 

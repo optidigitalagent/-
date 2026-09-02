@@ -156,3 +156,59 @@
   deploy or merge was performed.
 - Draft PR #2 is the deployment candidate. Production activation requires a
   new explicit authorization.
+
+## 2026-09-02 — Freelancehunt live-status hotfix gate
+
+- A Freelancehunt project is a qualified revenue opportunity only when its
+  public live page positively proves that bidding is available.
+- The canonical statuses are `ACTIVE_BIDDABLE`, `BLOCKED_RULE_VIOLATION`,
+  `CLOSED`, `EXECUTOR_SELECTED`, `DELETED_OR_UNAVAILABLE` and
+  `LIVE_STATUS_UNKNOWN`. Negative evidence takes precedence over bid-CTA
+  evidence.
+- Use an ordinary anonymous HTTP read first and a fresh cookie-free Playwright
+  context only as fallback. Never log in, solve CAPTCHA or perform a platform
+  action during this check.
+- Absence of a known closure banner is not active proof. Only an enabled bid
+  form/action or explicit enabled multilingual bid CTA may yield
+  `ACTIVE_BIDDABLE`; ambiguous or failed checks fail closed as
+  `LIVE_STATUS_UNKNOWN`.
+- `LIVE_STATUS_UNKNOWN` remains non-qualified and uses at most three retries
+  with bounded exponential backoff. Non-active diagnostics are deduplicated
+  independently from status transitions so a project produces at most one.
+- Apply the same checker before AI/scoring and Telegram delivery in both Gmail
+  single/digest ingestion and the legacy direct Freelancehunt parser. Direct
+  proposal/rewrite/send commands also require stored `ACTIVE_BIDDABLE` plus
+  `biddable=true`.
+- Persist live evidence through additive columns only. Existing rows and any
+  historical proposal text are retained, but a non-biddable row cannot display
+  or use that proposal.
+- The hotfix remains isolated on `fix/freelancehunt-live-status-guard` until a
+  separate merge/deploy authorization; production variables and the running
+  deployment remain unchanged.
+
+## 2026-09-02 — Live-status deployment review V2
+
+- Every direct and Gmail proposal display, generation, rewrite or manual-copy
+  action uses the same asynchronous guard. A saved `ACTIVE_BIDDABLE` result is
+  reusable for at most 60 seconds; otherwise it is refreshed and persisted in a
+  separate short transaction after network work.
+- `LIVE_STATUS_UNKNOWN` keeps its canonical external value. After three
+  automatic attempts, the durable processing state becomes
+  `live_status_unknown_exhausted`; automatic reads stop, the item can settle,
+  and `/recheck_live` remains an explicit read-only recovery path.
+- One scan shares an anonymous HTTP client and one cookie-free Chromium
+  browser/context, limits concurrency to four (bounded to 3–5), caps HTTP at
+  five seconds and browser work at eight seconds, deduplicates URLs, and has an
+  80-second overall budget (hard-clamped to 90 seconds).
+- When public HTML is protected, membership in Freelancehunt's official
+  anonymous `projects.rss` open-project feed is sufficient positive active
+  evidence. Absence from that feed is not terminal and never proves closed.
+  Page-level terminal evidence still takes precedence.
+- A live-status diagnostic is marked delivered only after Telegram confirms a
+  successful send. Failed delivery remains `live_status_notice_pending` and is
+  retried independently with processed-key dedup after success.
+- Railway/Linux read-only proof used no login, cookies, CAPTCHA, bid, message,
+  secret or variable change: the exact public control project 1650987 remained
+  non-biddable/UNKNOWN, while a current feed item was positively
+  `ACTIVE_BIDDABLE`. Production remains on the unchanged known-good main
+  deployment until separate authorization.

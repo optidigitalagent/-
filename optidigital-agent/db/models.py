@@ -29,6 +29,13 @@ class Order(Base):
     employer_phone: Mapped[str | None] = mapped_column(String(100), nullable=True)
     employer_telegram: Mapped[str | None] = mapped_column(String(200), nullable=True)
     employer_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    live_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    live_status_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    live_status_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    biddable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    live_status_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    live_status_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    qualified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     responses: Mapped[list["Response"]] = relationship("Response", back_populates="order")
 
@@ -156,6 +163,13 @@ class GmailJob(Base):
     source_mailbox_alias: Mapped[str | None] = mapped_column(String(255), nullable=True)
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sensitive_redacted: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    live_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    live_status_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    live_status_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    biddable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    live_status_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    live_status_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    qualified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
 
 _MIGRATIONS = [
@@ -167,6 +181,13 @@ _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_phone TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_telegram TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_email TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_checked_at TIMESTAMPTZ",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_evidence TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS biddable BOOLEAN",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_retry_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_last_error TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS qualified BOOLEAN NOT NULL DEFAULT FALSE",
     # create_all does not add columns to an already existing table. This is an
     # additive, data-preserving migration for early gmail_scan_runs deployments.
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS relevant INTEGER NOT NULL DEFAULT 0",
@@ -209,6 +230,13 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS source_mailbox_alias TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS sensitive_redacted BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS live_status TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS live_status_checked_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS live_status_evidence TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS biddable BOOLEAN",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS live_status_retry_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS live_status_last_error TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS qualified BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS event_counts TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS mailbox_alias TEXT",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS max_detection_latency_seconds DOUBLE PRECISION",

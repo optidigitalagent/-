@@ -552,3 +552,48 @@ token.json: ✅ знайдено
 - Local `bot.handlers` import is blocked only because the host Python 3.14 environment lacks the repository-pinned `aiogram`; syntax is covered by compileall and handler behavior by AST-isolated tests. The import remains required in the dependency-complete Railway runtime.
 - `git diff --check` → clean apart from line-ending notices.
 - Existing user-owned debug PNG deletions remain untouched and outside the intended commit scope.
+
+---
+
+## 2026-09-02 Freelancehunt live-status safety hotfix
+
+- Issue #7 root cause: the ingestion timestamp was treated as sufficient
+  project freshness, allowing a project that later became blocked to reach AI
+  scoring and a proposal-ready Telegram card.
+- Added one shared fail-closed live-page classifier for Gmail single/digest and
+  direct Freelancehunt parser paths. It uses HTTP first, anonymous Playwright as
+  fallback, multilingual terminal markers, and enabled bid controls as the only
+  positive active proof.
+- Persisted additive live-status, checked-time, evidence, biddability, retry,
+  error and qualified fields in both order storage paths.
+- Non-active projects bypass AI/proposal generation and qualified metrics.
+  UNKNOWN projects use bounded backoff; diagnostic cards and terminal outcomes
+  remain restart-safe and deduplicated.
+- Direct `/reply`, view, rewrite and send actions also fail closed unless the
+  saved Freelancehunt order is `ACTIVE_BIDDABLE` and `biddable=true`.
+- Sanitized fixture 1650987 classifies as `BLOCKED_RULE_VIOLATION` with
+  `biddable=false`, `qualified=false` and no usable proposal.
+- Local gate: 164/164 tests, compileall and production-like import passed.
+  Production main, Railway variables and the running deployment were not
+  changed. Status: `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY`.
+
+## 2026-09-02 Freelancehunt live-status deployment review V2
+
+- Added a unified 60-second action freshness guard to all direct and Gmail
+  proposal display/generation/rewrite/manual-copy paths.
+- Added durable `live_status_unknown_exhausted` state after three attempts and
+  admin-only `/recheck_live` for a forced read-only recovery check.
+- Batched live checks now share HTTP and anonymous Chromium resources, use
+  concurrency four, deduplicate URLs, apply 5s/8s per-stage timeouts and stop at
+  an 80s overall scan budget.
+- Telegram live-status notices persist a delivered dedup key only after a
+  successful send; failed sends remain retryable.
+- The official anonymous Freelancehunt open-project RSS is a positive-only
+  fallback when HTML is protected. Railway/Linux proof classified a current
+  feed item `ACTIVE_BIDDABLE`; the exact public control project 1650987 stayed
+  fail-closed with zero proposal calls.
+- QA: 181/181 tests, compileall, additive migration contracts, diff check and
+  production-like Python 3.12 startup import passed. Three cold ten-project
+  scans were 0.163s or faster.
+- Production remained unchanged. Status:
+  `READY_FOR_LIVE_STATUS_HOTFIX_DEPLOY_V2`.
