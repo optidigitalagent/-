@@ -1,7 +1,6 @@
 {
   "build": {
-    "builder": "RAILPACK",
-    "buildCommand": "PLAYWRIGHT_BROWSERS_PATH=0 python -m playwright install chromium --with-deps"
+    "builder": "RAILPACK"
   },
   "deploy": {
     "startCommand": "python bot/main.py"
