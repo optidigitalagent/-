@@ -20,9 +20,11 @@ class Settings(BaseSettings):
     GMAIL_TOKEN_FILE: str = "gmail_token.json"
     GMAIL_CREDENTIALS_JSON: Optional[str] = None  # Railway-safe: JSON content
     GMAIL_TOKEN_JSON: Optional[str] = None        # Railway-safe: JSON content
+    GMAIL_EXPECTED_ACCOUNT: Optional[str] = None  # exact mailbox; secret runtime value
     GMAIL_MIN_SCORE: float = 6.0
-    GMAIL_CHECK_INTERVAL_MINUTES: int = 60
-    GMAIL_DIGEST_ENABLED: bool = False
+    GMAIL_CHECK_INTERVAL_MINUTES: int = 1
+    GMAIL_LOOKBACK_DAYS: int = 7
+    GMAIL_DIGEST_ENABLED: bool = True
 
     @property
     def admin_chat_id(self) -> int:
