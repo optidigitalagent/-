@@ -6,16 +6,18 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 1 — Adult-owned Freelancehunt verification and revenue-channel activation**
+**Stage 2 — Gmail → Railway → Telegram revenue-flow activation**
 
-Readiness by workstream:
+## Readiness by workstream
 
-- **Commercial profile core: 100% complete**
+- **Adult-owned Freelancehunt profile core: 100% complete**
 - **Adult phone confirmation: complete**
-- **Pre-verification audit: complete**
-- **Дія.Підпис readiness: ready**
-- **Gmail connection: confirmed**
-- **Railway → Telegram opportunity flow: not yet activated**
+- **Дія.Підпис verification: completed, reported by the user**
+- **Operational Gmail connection to ChatGPT: confirmed**
+- **Gmail support/private-message delivery from Freelancehunt: confirmed**
+- **Fresh project digest on the new adult mailbox: not yet observed**
+- **Railway → Telegram opportunity flow: not yet activated on the new mailbox**
+- **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
 ## Current live status
@@ -29,15 +31,18 @@ Readiness by workstream:
 - `TWENTY_SKILLS_SAVED`
 - `NOTIFICATIONS_CONFIGURED`
 - `PUBLIC_QA_PASSED`
+- `ADULT_DIIA_VERIFICATION_COMPLETED`
+- `OPERATIONAL_GMAIL_CONNECTED`
+- `FREELANCEHUNT_PRIVATE_MESSAGE_EMAIL_CONFIRMED`
 - `PORTFOLIO_DEFERRED`
-- `READY_FOR_DIIA_SIGNATURE`
+- `REVENUE_FLOW_IMPLEMENTATION_REQUIRED`
 
-## Completed profile work
+## Completed account and profile work
 
-- [x] New adult-owned profile created
-- [x] Public URL confirmed: `https://freelancehunt.com/freelancer/AntonovDigital.html`
-- [x] Adult-owner name and current photo visible
-- [x] Adult-owned phone confirmed without storing or exposing the number
+- [x] New genuine adult-owned Freelancehunt account created
+- [x] Public profile URL confirmed: `https://freelancehunt.com/freelancer/AntonovDigital.html`
+- [x] Adult-owner name, photo and phone confirmed
+- [x] Adult owner completed Дія.Підпис verification personally
 - [x] Ukrainian, English, Russian and Polish descriptions and slogans published
 - [x] Status saved as `Вільний для роботи`
 - [x] Main specializations saved: `AI та машинне навчання`, `Веб-програмування`
@@ -52,10 +57,68 @@ Readiness by workstream:
 - [x] Sound notifications enabled
 - [x] Promotional, news and blog mail disabled
 - [x] Desktop/mobile public QA passed
-- [x] Final read-only pre-verification audit passed
-- [x] Codex returned `READY_FOR_DIIA_SIGNATURE`
-- [x] New operational Gmail mailbox connected to ChatGPT
-- [x] Freelancehunt support communication is arriving on the new mailbox
+- [x] Operational adult-owned Gmail mailbox connected to ChatGPT
+- [x] Freelancehunt support/private-message emails confirmed on the operational mailbox
+
+## Existing implementation baseline
+
+The current code under `optidigital-agent/` already contains:
+
+- Gmail OAuth read-only access
+- email MIME parsing and sanitization
+- digest parsing
+- AI scoring
+- PostgreSQL deduplication and retry queue
+- Telegram cards
+- `/reply_job` and `/skip_job`
+- Railway-oriented environment configuration
+
+Do not rewrite it from scratch.
+
+## Confirmed implementation gaps
+
+- [ ] Gmail production mode is disabled by default and mock mode is enabled by default
+- [ ] Current production polling is too slow for competitive freelance work
+- [ ] Freelancehunt private-message patterns are not explicit event types
+- [ ] Current Telegram cards lack the complete commercial decision package
+- [ ] Stored Gmail jobs do not preserve enough full task/context data
+- [ ] `/reply_job` uses analysis summaries instead of the full task description
+- [ ] Active Gmail prompts/messages still contain the old `OptiDigital` brand
+- [ ] Current scoring does not implement the approved no-priority, revenue-oriented service policy
+- [ ] The new adult-owned OAuth identity is not yet installed and proven in Railway
+- [ ] No end-to-end adult-mailbox test has been completed
+
+## Stage 2 implementation plan
+
+Follow `docs/STAGE_2_GMAIL_TELEGRAM_ACTIVATION.md`.
+
+Required result:
+
+```text
+fresh Freelancehunt project/private-message email
+→ detected within 2 minutes
+→ classified correctly
+→ persisted once
+→ complete Telegram action card delivered
+→ tailored proposal/reply draft available
+→ adult owner performs the final platform action
+```
+
+## Immediate implementation work
+
+- [ ] Create an isolated feature branch from the confirmed current production baseline
+- [ ] Add explicit multilingual project/private-message/account event classification
+- [ ] Switch all active Gmail-path branding to Antonov Digital
+- [ ] Preserve full task/message context in durable storage
+- [ ] Fix proposal generation to use the full task description
+- [ ] Add revenue-oriented price/time/risk/evidence fields
+- [ ] Reduce normal Gmail detection latency to at most 2 minutes
+- [ ] Add high-priority private-message cards and safe security-event handling
+- [ ] Add tests for classification, deduplication, migration, proposals and Telegram formatting
+- [ ] Generate a local read-only OAuth token for the adult-owned operational mailbox
+- [ ] Verify the OAuth account identity without exposing token material
+- [ ] Run a real-mail dry run and one controlled Telegram delivery
+- [ ] Stop at `READY_FOR_RAILWAY_DEPLOY` with proof, variables and rollback plan
 
 ## Deferred portfolio
 
@@ -71,37 +134,14 @@ The following prepared cards remain deferred until each has current links/status
 - Mentium
 - NFC Review Cards
 
-This does not block verification or opportunity automation.
-
-## Immediate remaining owner action
-
-- [ ] Genuine adult owner personally completes an available Freelancehunt verification method, preferably `Дія.Підпис` when convenient
-- [ ] Owner handles QR/application confirmation, CAPTCHA, OTP/2FA, document transfer/live check, any displayed payment and legal confirmation
-- [ ] Confirm verified badge/status appears on the public profile
-- [ ] Record one result: `VERIFICATION_COMPLETED`, `VERIFICATION_PENDING_REVIEW`, or `VERIFICATION_FAILED` with the exact platform message
-
-## Revenue automation after verification
-
-- [ ] Receive one fresh project digest or project notification on the adult-owned mailbox
-- [ ] Inspect exact sender, subject, body, links and identifiers
-- [ ] Confirm minimum-permission Gmail ingestion
-- [ ] Configure Railway near-real-time monitoring
-- [ ] Send a complete Telegram opportunity card
-- [ ] Generate one tailored proposal draft
-- [ ] Run:
-
-```text
-Freelancehunt → Gmail → Railway → Telegram → proposal draft → adult-owner submission
-```
-
-- [ ] Track proposals, replies, qualified leads, wins and funded revenue
+Portfolio does not block Stage 2.
 
 ## Minor-owned account final state
 
 - [x] Successful identity verification did not grant work access
 - [x] Support confirmed ineligibility until `2029-01-28`
 - [x] No bids, agreements or payments occurred after verification
-- [ ] Preserve deactivation confirmation
+- [ ] Preserve deactivation confirmation if not already stored outside the repository
 - [ ] Keep the account and its notifications excluded from all ingestion
 
 ## Repository administration still pending
@@ -112,12 +152,13 @@ Freelancehunt → Gmail → Railway → Telegram → proposal draft → adult-ow
 - [ ] Confirm Railway/GitHub linkage after rename
 - [ ] Finish the ChatGPT Project and chat structure
 
-## Stage 1 acceptance condition
+## Stage 2 acceptance condition
 
-Stage 1 is operational when:
+Stage 2 is operational when:
 
-1. the adult-owned profile is verified and conversion-ready;
-2. relevant opportunity emails reach the adult-owned mailbox;
-3. Telegram receives a complete opportunity card quickly;
-4. a tailored proposal draft is generated without invented claims; and
-5. the adult owner can perform the final platform action with minimal editing.
+1. the adult-owned verified profile remains conversion-ready;
+2. a fresh project or private-message email reaches the approved mailbox;
+3. Railway detects it within 2 minutes without duplicates;
+4. Telegram receives a complete action card;
+5. a tailored proposal/reply draft is generated from full available context; and
+6. the adult owner can perform the final platform action with minimal editing.
