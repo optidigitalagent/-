@@ -25,9 +25,10 @@ Validation evidence:
 - 239/239 tests pass, including 39 focused Stage 4 quality-gate tests;
 - all 33 Stage 4 additive columns were present after two consecutive
   migrations against an isolated PostgreSQL 17 database;
-- the read-only production audit found 52 ACTIVE_BIDDABLE legacy rows with
-  Score `<= 0`, null/zero Fit and no controlled evidence registry ID;
-- price, timeline and proposal were non-empty in those 52 rows, demonstrating
+- the read-only production audit at `2026-09-03T08:03:00Z` found 55
+  ACTIVE_BIDDABLE legacy rows with Score `<= 0`, null/zero Fit and no
+  controlled evidence registry ID;
+- price, timeline and proposal were non-empty in those 55 rows, demonstrating
   why field presence alone is insufficient;
 - production remains unchanged on the protected baseline above.
 

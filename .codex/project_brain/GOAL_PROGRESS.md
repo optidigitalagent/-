@@ -309,10 +309,10 @@ Stage 2 is operational when:
 - Controlled backfill is preview-first, bounded to 100, preserves source and
   old analysis snapshots, refreshes live status, and deduplicates proposal
   versions before any explicitly enabled replacement.
-- Read-only production preview: 52 ACTIVE_BIDDABLE legacy rows; 52 with Score
-  `<= 0`, 52 with null/zero Fit, 0 empty prices, 0 empty timelines, 0 empty
-  proposals, and 52 without the new approved evidence registry ID. No row was
-  changed.
+- Read-only production preview at `2026-09-03T08:03:00Z`: 55
+  ACTIVE_BIDDABLE legacy rows; 55 with Score `<= 0`, 55 with null/zero Fit, 0
+  empty prices, 0 empty timelines, 0 empty proposals, and 55 without the new
+  approved evidence registry ID. No row was changed.
 - Validation: 239/239 tests pass (200 protected baseline plus 39 Stage 4
   tests); compileall and production-like Python 3.12 import pass. The additive
   migration ran twice against isolated PostgreSQL 17 and all 33 Stage 4
