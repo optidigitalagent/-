@@ -10,6 +10,7 @@ from bot.html_utils import escape_html, safe_http_url
 
 from .email_analyzer import JobAnalysis
 from .email_classifier import EmailType
+from .freelancehunt_private_message import FreelancehuntPrivateMessageNotification
 from .live_status import LiveStatus
 from .quality_gate import (
     PROPOSAL_READY_QUALITY_STATUSES,
@@ -559,10 +560,12 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
         f"<b>Project:</b> {escape_html(_short(opportunity.title, 500))}",
         f"<b>State:</b> {escape_html(opportunity.state)}",
         f"<b>Resolved by:</b> {escape_html(result.resolution_basis)}",
+        f"<b>Parse confidence:</b> {escape_html(incoming.parse_confidence or '—')}",
+        f"<b>Wrapper language:</b> {escape_html(incoming.wrapper_language or '—')}",
         f"<b>Client language:</b> {escape_html(incoming.language)}",
         f"<b>Intent:</b> {escape_html(incoming.intent)}",
         f"<b>Простое резюме:</b> {escape_html(_short(incoming.russian_summary, 700))}",
-        f"<b>Что клиент хочет:</b> {escape_html(_short(incoming.actual_ask or incoming.content, 700))}",
+        f"<b>Что клиент хочет:</b> {escape_html(_short(incoming.actual_ask or incoming.content or result.safe_excerpt, 700))}",
         f"<b>Previous promises:</b> proposal {escape_html(opportunity.proposal_version or '—')}; "
         f"price {escape_html(_short(opportunity.actual_submitted_price))}; "
         f"timeline {escape_html(_short(opportunity.actual_submitted_timeline))}",
@@ -581,8 +584,15 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
     if link:
         lines.append(f'🔗 <a href="{escape_html(link)}">Open safe Freelancehunt thread</a>')
     parts = _pack_html_lines(lines)
-    for chunk in _split_text(incoming.content):
-        _append_html_section(parts, f"<b>Client message:</b>\n{escape_html(chunk)}")
+    if incoming.content:
+        for chunk in _split_text(incoming.content):
+            _append_html_section(parts, f"<b>Client message:</b>\n{escape_html(chunk)}")
+    elif result.safe_excerpt:
+        for chunk in _split_text(result.safe_excerpt):
+            _append_html_section(
+                parts,
+                f"<b>Sanitized notification excerpt:</b>\n{escape_html(chunk)}",
+            )
     if reply is not None:
         for chunk in _split_text(reply.content):
             _append_html_section(
@@ -590,7 +600,13 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
                 f"<b>Copy-ready answer · {escape_html(reply.reply_version)}:</b>\n{escape_html(chunk)}",
             )
     else:
-        status = "NEEDS_CONTEXT" if result.missing_context else "NEEDS_HUMAN_INPUT"
+        status = (
+            "NOT_REQUIRED_EXPLICIT_REJECTION"
+            if opportunity.state == "LOST" and incoming.intent == "REJECTION"
+            else "NEEDS_CONTEXT"
+            if result.missing_context
+            else "NEEDS_HUMAN_INPUT"
+        )
         _append_html_section(parts, f"<b>Copy-ready answer:</b> {status}")
     _append_html_section(
         parts,
@@ -693,6 +709,44 @@ async def send_sales_fallback_card(
         return True
     except Exception:
         logger.exception("Failed to send sales fallback: email_id=%s", email_id)
+        return False
+
+
+def format_platform_support_card(
+    notification: FreelancehuntPrivateMessageNotification,
+) -> str:
+    """Render a non-sales card for platform support/onboarding notifications."""
+
+    lines = [
+        "ℹ️ <b>FREELANCEHUNT PLATFORM MESSAGE</b>",
+        f"<b>Sender:</b> {escape_html(_short(notification.sender_display_name, 300))}",
+        f"<b>Subject:</b> {escape_html(_short(notification.conversation_subject, 500))}",
+        f"<b>Wrapper language:</b> {escape_html(notification.wrapper_language or '—')}",
+        f"<b>Message language:</b> {escape_html(notification.client_message_language or '—')}",
+        f"<b>Message:</b> {escape_html(_short(notification.actual_message_text or notification.safe_excerpt, 900))}",
+        "<b>Sales pipeline:</b> not created or changed.",
+        "<b>Next action (one):</b> Review this platform message manually if it requires account-owner attention.",
+    ]
+    link = safe_http_url(notification.safe_thread_url)
+    if link:
+        lines.insert(6, f'🔗 <a href="{escape_html(link)}">Open safe Freelancehunt thread</a>')
+    return "\n".join(lines)
+
+
+async def send_platform_support_card(
+    bot: Any,
+    chat_id: int,
+    notification: FreelancehuntPrivateMessageNotification,
+) -> bool:
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=format_platform_support_card(notification),
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send Freelancehunt platform support card")
         return False
 
 

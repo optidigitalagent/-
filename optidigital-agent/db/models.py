@@ -259,6 +259,7 @@ class SalesOpportunity(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     identity_key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    normalized_title: Mapped[str | None] = mapped_column(String(1000), nullable=True, index=True)
     state: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     gmail_job_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -317,6 +318,7 @@ class SalesOpportunity(Base):
     follow_up_status: Mapped[str] = mapped_column(
         String(50), nullable=False, default="DISABLED_5A", server_default="DISABLED_5A"
     )
+    loss_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -373,6 +375,9 @@ class ConversationTurn(Base):
         String(50), nullable=False, default="GMAIL", server_default="GMAIL"
     )
     language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    wrapper_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    parse_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    resolution_basis: Mapped[str | None] = mapped_column(String(100), nullable=True)
     intent: Mapped[str] = mapped_column(String(50), nullable=False, default="UNKNOWN", server_default="UNKNOWN")
     russian_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     actual_ask: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -637,6 +642,8 @@ _MIGRATIONS = [
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMPTZ",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS do_not_follow_up BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_status TEXT NOT NULL DEFAULT 'DISABLED_5A'",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS normalized_title TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS loss_reason TEXT",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_price_raw TEXT",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_timeline_raw TEXT",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_money_json TEXT",
@@ -647,6 +654,9 @@ _MIGRATIONS = [
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS incoming_gmail_message_id TEXT",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS incoming_canonical_identity TEXT",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'GMAIL'",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS wrapper_language TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS parse_confidence TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS resolution_basis TEXT",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS imported_at TIMESTAMPTZ",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS imported_by_role TEXT",
@@ -678,6 +688,7 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_project_id ON sales_opportunities (project_id)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_thread_id ON sales_opportunities (thread_id)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_state ON sales_opportunities (state)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_normalized_title ON sales_opportunities (normalized_title)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_project_id ON sales_opportunities (project_id) WHERE project_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_thread_id ON sales_opportunities (thread_id) WHERE thread_id IS NOT NULL",
 ]

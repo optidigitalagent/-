@@ -359,3 +359,31 @@
   both opportunity persistence and sanitized dialogue handling retryable.
 - Release 5B client follow-ups and Release 5C delivery handoff remain deferred;
   production changes require separate explicit authorization.
+
+## 2026-09-03 — Stage 5A correction cycle V3 contract
+
+- Parse real Freelancehunt private-message notifications through one dedicated,
+  fail-closed contract. Store only the isolated client-authored message as the
+  incoming turn; wrapper, profile, CTA, footer, tracking and sensitive links
+  are routing metadata rather than client content.
+- Detect wrapper language from the notification marker and client language only
+  from the isolated message. Platform support/onboarding messages never create
+  sales opportunities, drafts or funnel transitions.
+- Resolve by exact authoritative identifiers first. When project ID is absent,
+  permit one exact normalized conversation-title match among active states and
+  atomically bind its thread ID/URL. No fuzzy title match is permitted; zero,
+  multiple or conflicting matches require context.
+- Classify intent only from client-authored text. Price evidence has precedence;
+  rejection requires an explicit terminal phrase; access requires explicit
+  grant/share/use semantics plus a resource, credential, role or permission.
+- An explicit terminal rejection records the incoming turn and safe loss reason,
+  disables follow-up, moves to `LOST`, and creates neither a reply draft nor a
+  send-confirmation instruction.
+- Copy-ready text must not expose bots, AI agents, internal automation or owner-
+  review narration. Selection and contract responses use neutral client-facing
+  Freelancehunt Workspace wording without accepting terms or payment.
+- Multi-role Telegram commands require any actually configured permitted role,
+  not every possible role setting. Owner-only confirmations remain owner-only;
+  unknown actors and duplicate numeric role IDs fail closed.
+- Schema changes remain additive and restart-safe. Release 5B, Release 5C and all
+  production/platform mutations remain outside this correction cycle.

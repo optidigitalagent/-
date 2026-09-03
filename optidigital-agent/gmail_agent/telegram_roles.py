@@ -69,6 +69,7 @@ def authorize_telegram_actor(
     allowed_roles: Iterable[TelegramRole],
     required_settings: Iterable[str],
 ) -> TelegramActor:
+    allowed = tuple(dict.fromkeys(allowed_roles))
     missing = [
         name
         for name in required_settings
@@ -81,6 +82,13 @@ def authorize_telegram_actor(
             "Missing required setting: " + ", ".join(missing)
         )
     configured = configured_role_ids(settings)
+    configured_allowed = [role for role in allowed if role in configured]
+    if not configured_allowed:
+        names = [ROLE_SETTING[role] for role in allowed if role in ROLE_SETTING]
+        if names:
+            raise TelegramAuthorizationError(
+                "Missing required setting: " + " or ".join(names)
+            )
     matching_roles = [
         role for role, configured_id in configured.items() if configured_id == user_id
     ]
@@ -90,7 +98,7 @@ def authorize_telegram_actor(
             "Conflicting Telegram role settings: " + conflicting
         )
     actor = resolve_telegram_actor(user_id, username, settings)
-    if actor.role not in set(allowed_roles):
+    if actor.role not in set(allowed):
         raise TelegramAuthorizationError(
             f"Telegram role {actor.role.value} is not allowed for this command"
         )

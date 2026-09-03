@@ -848,7 +848,7 @@ async def cmd_answer_lead(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ARTEM, TelegramRole.VADIM),
-            required_settings=("TELEGRAM_ARTEM_USER_ID", "TELEGRAM_VADIM_USER_ID"),
+            required_settings=(),
         )
         result = await _sales_closer_service().answer_human_request(
             raw[1],
@@ -921,11 +921,7 @@ async def cmd_ack_lead(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
-            required_settings=(
-                "TELEGRAM_ADULT_OWNER_USER_ID",
-                "TELEGRAM_ARTEM_USER_ID",
-                "TELEGRAM_VADIM_USER_ID",
-            ),
+            required_settings=(),
         )
         turn = await _sales_closer_service().acknowledge_lead(
             raw[1],
@@ -957,11 +953,7 @@ async def cmd_sync_lead_context(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
-            required_settings=(
-                "TELEGRAM_ADULT_OWNER_USER_ID",
-                "TELEGRAM_ARTEM_USER_ID",
-                "TELEGRAM_VADIM_USER_ID",
-            ),
+            required_settings=(),
         )
         _sync, opportunity = await _sales_closer_service().begin_context_sync(
             raw[1],
@@ -988,11 +980,7 @@ async def cmd_cancel_sync(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
-            required_settings=(
-                "TELEGRAM_ADULT_OWNER_USER_ID",
-                "TELEGRAM_ARTEM_USER_ID",
-                "TELEGRAM_VADIM_USER_ID",
-            ),
+            required_settings=(),
         )
         cancelled = await _sales_closer_service().cancel_context_sync(
             actor.user_id, actor_role=actor.role.value
@@ -1017,11 +1005,7 @@ async def cmd_regenerate_lead(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
-            required_settings=(
-                "TELEGRAM_ADULT_OWNER_USER_ID",
-                "TELEGRAM_ARTEM_USER_ID",
-                "TELEGRAM_VADIM_USER_ID",
-            ),
+            required_settings=(),
         )
         result = await _sales_closer_service().regenerate_latest_reply(
             raw[1],
@@ -1087,11 +1071,7 @@ async def capture_pending_lead_context(message: Message) -> None:
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
-            required_settings=(
-                "TELEGRAM_ADULT_OWNER_USER_ID",
-                "TELEGRAM_ARTEM_USER_ID",
-                "TELEGRAM_VADIM_USER_ID",
-            ),
+            required_settings=(),
         )
         result = await service.import_context(
             message.text,

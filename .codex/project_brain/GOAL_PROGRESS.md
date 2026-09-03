@@ -495,3 +495,40 @@ Stage 2 is operational when:
   Telegram secret, card replacement, bid, client message, contract or payment
   action occurred. Release 5B follow-ups and Release 5C handoff remain deferred.
 - Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`.
+
+## 2026-09-03 — Stage 5A Draft PR #16 correction cycle V3
+
+- Added a typed real-notification parser for Ukrainian, Russian, English and
+  Polish wrappers. Sanitized HTML structure is authoritative, deterministic
+  plain text is the fallback, and ambiguous message boundaries fail closed.
+- Wrapper language and client-message language are persisted separately. Only
+  the isolated client text reaches intent classification, generation, storage
+  as message content and the copy-ready Telegram section.
+- Freelancehunt support/onboarding notifications route to a bounded safe support
+  card outside the sales repository, generator and funnel metrics.
+- Exact resolution now supports a bounded active-state conversation-title
+  lookup with Unicode/HTML/space/punctuation normalization and atomic thread
+  binding. Zero, duplicate, terminal-only and thread-conflict candidates become
+  `NEEDS_CONTEXT`; resolution basis is persisted on the incoming turn.
+- Intent precedence now puts price before rejection, requires explicit terminal
+  rejection phrases and distinguishes technical uses of “access/доступ” from an
+  explicit grant/share/use of access or credentials.
+- Explicit rejection persists a sanitized loss reason, disables follow-up,
+  transitions to `LOST`, and produces no reply draft, AI call or mark command.
+  Selection/contract copy is neutral and the validator blocks internal actor or
+  automation language in any copy-ready reply.
+- Partial Telegram role configuration is supported per command: either Artem or
+  Vadim may answer independently; any configured permitted role may acknowledge,
+  cancel or regenerate; owner or Artem may sync. Owner-only confirmations,
+  unknown actors and duplicate IDs remain fail closed; `/whoami` is read-only.
+- Five sanitized real-shape fixture files cover 19 parser/resolution/routing cases.
+  Focused 5A V1/V2/V3 validation runs 98 tests successfully. The full suite runs
+  412 tests successfully with ten expected opt-in PostgreSQL skips.
+- Four isolated real PostgreSQL 17 tests pass after the full additive migration
+  list runs twice, including restart/dedup, unique reply allocation, terminal
+  races and concurrent exact-title thread binding. Python 3.12.14 imports,
+  compileall, changed-file Ruff F rules, Telegram HTML/size and diff checks pass.
+- No merge, deployment, production migration/backfill, variable, secret, OAuth,
+  Gmail write, bid, message, contract or payment action occurred. Release 5B and
+  Release 5C remain deferred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V3`.

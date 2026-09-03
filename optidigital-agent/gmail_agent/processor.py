@@ -24,6 +24,10 @@ from .email_analyzer import (
 )
 from .email_classifier import EmailType, classify_email
 from .gmail_provider import EmailMessage, GmailProvider
+from .freelancehunt_private_message import (
+    FreelancehuntPrivateMessageNotification,
+    parse_freelancehunt_private_message_notification,
+)
 from .live_status import (
     FreelancehuntLiveStatusChecker,
     LiveStatus,
@@ -66,6 +70,7 @@ from .telegram_notifier import (
     send_sales_escalation_card,
     send_sales_fallback_card,
     send_sales_response_card,
+    send_platform_support_card,
 )
 
 logger = logging.getLogger(__name__)
@@ -2093,8 +2098,15 @@ class GmailJobProcessor:
         allow_send: bool,
     ) -> bool:
         assert self._sales_closer is not None
+        notification = parse_freelancehunt_private_message_notification(email)
+        if notification.is_platform_support_message:
+            return await self._process_platform_support_message(
+                email, notification, stats, allow_send=allow_send
+            )
         try:
-            result = await self._sales_closer.process_client_message(email)
+            result = await self._sales_closer.process_client_message(
+                email, notification=notification
+            )
         except Exception as exc:
             logger.exception(
                 "Sales dialogue persistence failed; Gmail message remains retryable: %s",
@@ -2135,6 +2147,43 @@ class GmailJobProcessor:
         if not allow_send or result.duplicate and result.incoming_turn.telegram_notified_at:
             return False
         return await self._send_sales_result(result, stats)
+
+    async def _process_platform_support_message(
+        self,
+        email: EmailMessage,
+        notification: FreelancehuntPrivateMessageNotification,
+        stats: ProcessorStats,
+        *,
+        allow_send: bool,
+    ) -> bool:
+        duplicate = bool(
+            self._repository is not None
+            and await self._repository.is_processed(email.id)
+        )
+        if duplicate:
+            stats.duplicates_skipped += 1
+        elif self._repository is not None:
+            await self._repository.upsert_processed(
+                ProcessedItem(
+                    stable_key=email.id,
+                    source_email_id=email.id,
+                    platform="Freelancehunt",
+                    item_type="platform_support_message",
+                    title=notification.conversation_subject or email.subject,
+                    url=notification.safe_thread_url,
+                    decision="support_routed_outside_sales",
+                    score=None,
+                )
+            )
+        await self._provider.mark_as_processed(email.id)
+        if duplicate or not allow_send:
+            return False
+        sent = await send_platform_support_card(
+            self._bot, self._chat_id, notification
+        )
+        if sent:
+            stats.sent += 1
+        return sent
 
     async def _process_single(
         self,

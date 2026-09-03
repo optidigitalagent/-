@@ -283,17 +283,17 @@ def application_owned_sensitive_reply(intent: str, language: str) -> str | None:
         }[lang]
     if intent == "CLIENT_READY_TO_SELECT":
         return {
-            "uk": "Дякуємо. Готовність розпочати зафіксована для термінового перегляду власницею; вибір виконавця, договір і оплата ще не підтверджені.",
-            "ru": "Спасибо. Готовность начать зафиксирована для срочного рассмотрения владелицей; выбор исполнителя, договор и оплата ещё не подтверждены.",
-            "en": "Thank you. Your readiness to start is flagged for urgent owner review; executor selection, contract, and payment are not yet confirmed.",
-            "pl": "Dziękujemy. Gotowość do rozpoczęcia została oznaczona do pilnego przeglądu przez właścicielkę; wybór wykonawcy, umowa i płatność nie są jeszcze potwierdzone.",
+            "uk": "Дякуємо. Перед підтвердженням початку перевіримо умови проєкту в Робочій області Freelancehunt.",
+            "ru": "Спасибо. Перед подтверждением начала проверим условия проекта в Рабочей области Freelancehunt.",
+            "en": "Thank you. Before confirming the start, we will review the project terms in the Freelancehunt Workspace.",
+            "pl": "Dziękujemy. Przed potwierdzeniem rozpoczęcia sprawdzimy warunki projektu w obszarze Freelancehunt Workspace.",
         }[lang]
     if intent == "SELECTED_OR_CONTRACT_STEP":
         return {
-            "uk": "Договірний крок зафіксовано для термінового перегляду власницею. Бот не приймає договір, умови чи оплату і не виконує дій у Workspace.",
-            "ru": "Договорный шаг зафиксирован для срочного рассмотрения владелицей. Бот не принимает договор, условия или оплату и не выполняет действий в Workspace.",
-            "en": "The contract step is flagged for urgent owner review. The bot does not accept a contract, terms, or payment and performs no Workspace action.",
-            "pl": "Etap umowy został oznaczony do pilnego przeglądu przez właścicielkę. Bot nie akceptuje umowy, warunków ani płatności i nie wykonuje działań w Workspace.",
+            "uk": "Дякуємо. Перед підтвердженням перевіримо умови договору та Робочої області Freelancehunt.",
+            "ru": "Спасибо. Перед подтверждением проверим условия договора и Рабочей области Freelancehunt.",
+            "en": "Thank you. Before confirming, we will review the contract and Freelancehunt Workspace terms.",
+            "pl": "Dziękujemy. Przed potwierdzeniem sprawdzimy warunki umowy i obszaru Freelancehunt Workspace.",
         }[lang]
     return None
 

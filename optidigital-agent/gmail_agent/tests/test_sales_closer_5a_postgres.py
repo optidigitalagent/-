@@ -128,6 +128,33 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
             raw_headers={"Message-ID": f"<{email_id}@freelancehunt.com>"},
         )
 
+    @staticmethod
+    def _title_email(title: str, thread_id: str, email_id: str) -> EmailMessage:
+        thread_url = (
+            f"https://freelancehunt.com/en/mailbox/read/thread/{thread_id}"
+            "?tracking=removed#last-message"
+        )
+        html_body = (
+            "<html><body><p>You received a new private message</p>"
+            '<a href="https://freelancehunt.com/freelancer/synthetic_client.html">'
+            "Synthetic Client</a>"
+            '<div class="message-text">Please clarify the authentication endpoint list.</div>'
+            f'<a href="{thread_url}">Reply</a>'
+            '<a href="https://freelancehunt.com/unsubscribe?token=removed">Unsubscribe</a>'
+            "</body></html>"
+        )
+        return EmailMessage(
+            id=email_id,
+            subject=f"New private message from Synthetic Client : {title}",
+            sender="Freelancehunt <notify@freelancehunt.com>",
+            body="",
+            text_body="",
+            html_body=html_body,
+            links=[],
+            received_at=NOW - timedelta(seconds=30),
+            raw_headers={"Message-ID": f"<{email_id}@freelancehunt.com>"},
+        )
+
     async def test_validated_bid_dialogue_confirmation_restart(self):
         repository = PostgresSalesRepository(self.sessions)
         service = SalesCloserService(repository, reply_generator=_generator, now=lambda: NOW)
@@ -302,3 +329,66 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(isinstance(item, IllegalTransitionError) for item in outcomes))
         persisted = await repository.get_opportunity(opportunity.id)
         self.assertEqual(persisted.state, OpportunityState.CLOSED.value)
+
+    async def test_real_shape_title_binding_is_atomic_restart_safe_and_deduplicated(self):
+        repository = PostgresSalesRepository(self.sessions)
+        service = SalesCloserService(
+            repository, reply_generator=_generator, now=lambda: NOW
+        )
+        project_id = "990005030"
+        job = self._job(project_id)
+        job.title = 'PostgreSQL — Exact “Title”'
+        opportunity = await service.ensure_from_validated_job(job)
+        opportunity, _confirmation, _created = await service.mark_bid_sent(
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+        )
+        first_email = self._title_email(
+            'PostgreSQL - Exact "Title"', "88005030", "pg-title-a"
+        )
+        second_email = self._title_email(
+            'PostgreSQL - Exact "Title"', "88005030", "pg-title-b"
+        )
+        first, second = await asyncio.gather(
+            service.process_client_message(first_email),
+            service.process_client_message(second_email),
+        )
+        self.assertEqual({first.opportunity.id, second.opportunity.id}, {opportunity.id})
+        persisted = await repository.get_opportunity(opportunity.id)
+        self.assertEqual(persisted.thread_id, "88005030")
+        self.assertTrue(persisted.normalized_title)
+
+        turns_before_confirmation = await repository.list_turns(opportunity.id)
+        current_draft = next(
+            turn
+            for turn in turns_before_confirmation
+            if turn.direction == "OUTGOING_DRAFT"
+        )
+        persisted, _sent_confirmation, sent_created = await service.mark_reply_sent(
+            opportunity.id,
+            current_draft.reply_version,
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+            confirmed_at=NOW,
+        )
+        self.assertTrue(sent_created)
+        self.assertEqual(persisted.state, OpportunityState.WAITING_CLIENT.value)
+
+        restarted_repository = PostgresSalesRepository(self.sessions)
+        restarted = SalesCloserService(
+            restarted_repository, reply_generator=_generator, now=lambda: NOW
+        )
+        duplicate = await restarted.process_client_message(first_email)
+        self.assertTrue(duplicate.duplicate)
+        restarted_opportunity = await restarted_repository.get_opportunity(opportunity.id)
+        self.assertEqual(restarted_opportunity.state, OpportunityState.WAITING_CLIENT.value)
+        self.assertEqual(restarted_opportunity.thread_id, "88005030")
+        turns = await restarted_repository.list_turns(opportunity.id)
+        incoming = [turn for turn in turns if turn.direction == "INCOMING"]
+        self.assertEqual(len(incoming), 2)
+        self.assertTrue(all(turn.wrapper_language == "en" for turn in incoming))
+        self.assertTrue(all(turn.resolution_basis for turn in incoming))

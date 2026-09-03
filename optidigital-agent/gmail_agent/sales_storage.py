@@ -16,6 +16,8 @@ from typing import Any, Protocol
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from .freelancehunt_private_message import normalize_conversation_title
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -47,6 +49,19 @@ TERMINAL_STATES = frozenset(
         OpportunityState.CLOSED.value,
         OpportunityState.SELECTED.value,
         OpportunityState.HANDOFF_READY.value,
+    }
+)
+
+TITLE_RESOLUTION_STATES = frozenset(
+    {
+        OpportunityState.BID_SUBMITTED.value,
+        OpportunityState.CLIENT_REPLIED.value,
+        OpportunityState.NEGOTIATING.value,
+        OpportunityState.WAITING_CLIENT.value,
+        OpportunityState.NEEDS_CONTEXT.value,
+        OpportunityState.NEEDS_HUMAN_INPUT.value,
+        OpportunityState.SELECTION_REVIEW.value,
+        OpportunityState.CONTRACT_REVIEW.value,
     }
 )
 
@@ -136,6 +151,7 @@ class SalesOpportunity:
     id: str
     identity_key: str
     title: str
+    normalized_title: str = ""
     state: str = OpportunityState.DISCOVERED.value
     source: str = "system"
     gmail_job_key: str = ""
@@ -178,6 +194,7 @@ class SalesOpportunity:
     next_follow_up_at: datetime | None = None
     do_not_follow_up: bool = False
     follow_up_status: str = "DISABLED_5A"
+    loss_reason: str = ""
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 
@@ -219,6 +236,9 @@ class ConversationTurn:
     incoming_canonical_identity: str = ""
     source: str = "GMAIL"
     language: str = ""
+    wrapper_language: str = ""
+    parse_confidence: str = ""
+    resolution_basis: str = ""
     intent: str = "UNKNOWN"
     russian_summary: str = ""
     actual_ask: str = ""
@@ -363,6 +383,14 @@ class SalesRepository(Protocol):
         client_name: str = "",
     ) -> OpportunityResolution: ...
 
+    async def resolve_and_bind_opportunity_by_title(
+        self,
+        normalized_title: str,
+        *,
+        thread_id: str = "",
+        thread_url: str = "",
+    ) -> OpportunityResolution: ...
+
     async def add_turn(self, turn: ConversationTurn) -> tuple[ConversationTurn, bool]: ...
 
     async def add_reply_draft_if_current(
@@ -445,6 +473,8 @@ class InMemorySalesRepository:
         self, opportunity: SalesOpportunity, *, reason: str, actor: str
     ) -> tuple[SalesOpportunity, bool]:
         _validate_actor(actor)
+        if not opportunity.normalized_title:
+            opportunity.normalized_title = normalize_conversation_title(opportunity.title)
         for existing in self.state["opportunities"].values():
             if existing.identity_key == opportunity.identity_key:
                 return replace(existing), False
@@ -664,6 +694,45 @@ class InMemorySalesRepository:
             reply_reference_id=reply_reference_id,
             client_name=client_name,
         )
+
+    async def resolve_and_bind_opportunity_by_title(
+        self,
+        normalized_title: str,
+        *,
+        thread_id: str = "",
+        thread_url: str = "",
+    ) -> OpportunityResolution:
+        key = normalize_conversation_title(normalized_title)
+        matches = [
+            item
+            for item in self.state["opportunities"].values()
+            if item.state in TITLE_RESOLUTION_STATES
+            and normalize_conversation_title(item.normalized_title or item.title) == key
+        ]
+        if len(matches) != 1:
+            return OpportunityResolution(
+                None,
+                "conversation_title_not_found" if not matches else "ambiguous_conversation_title",
+                len(matches) > 1,
+            )
+        selected = matches[0]
+        if thread_id:
+            conflict = next(
+                (
+                    item
+                    for item in self.state["opportunities"].values()
+                    if item.id != selected.id and item.thread_id == thread_id
+                ),
+                None,
+            )
+            if conflict or (selected.thread_id and selected.thread_id != thread_id):
+                return OpportunityResolution(None, "thread_binding_conflict", True)
+            selected.thread_id = thread_id
+            if thread_url:
+                selected.thread_url = thread_url
+        selected.normalized_title = key
+        selected.updated_at = utc_now()
+        return OpportunityResolution(replace(selected), "conversation_subject_exact")
 
     async def add_turn(self, turn: ConversationTurn) -> tuple[ConversationTurn, bool]:
         for existing in self.state["turns"].values():
@@ -944,6 +1013,8 @@ class PostgresSalesRepository:
         from sqlalchemy.dialects.postgresql import insert
 
         _validate_actor(actor)
+        if not opportunity.normalized_title:
+            opportunity.normalized_title = normalize_conversation_title(opportunity.title)
         values = _model_values(opportunity)
         async with self._session_factory() as session:
             statement = (
@@ -1273,6 +1344,77 @@ class PostgresSalesRepository:
             reply_reference_id=reply_reference_id,
             client_name=client_name,
         )
+
+    async def resolve_and_bind_opportunity_by_title(
+        self,
+        normalized_title: str,
+        *,
+        thread_id: str = "",
+        thread_url: str = "",
+    ) -> OpportunityResolution:
+        from sqlalchemy import or_, select
+        from sqlalchemy.exc import IntegrityError
+
+        key = normalize_conversation_title(normalized_title)
+        if not key:
+            return OpportunityResolution(None, "conversation_title_not_found")
+        active_states = list(TITLE_RESOLUTION_STATES)
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(self._opportunity_model)
+                    .where(
+                        self._opportunity_model.state.in_(active_states),
+                        or_(
+                            self._opportunity_model.normalized_title == key,
+                            self._opportunity_model.normalized_title.is_(None),
+                        ),
+                    )
+                    .order_by(self._opportunity_model.updated_at.desc())
+                    .limit(201)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            matches = [
+                row
+                for row in rows
+                if normalize_conversation_title(row.normalized_title or row.title) == key
+            ]
+            if len(matches) != 1:
+                await session.rollback()
+                return OpportunityResolution(
+                    None,
+                    "conversation_title_not_found" if not matches else "ambiguous_conversation_title",
+                    len(matches) > 1,
+                )
+            selected = matches[0]
+            if thread_id:
+                conflict = (
+                    await session.execute(
+                        select(self._opportunity_model.id)
+                        .where(
+                            self._opportunity_model.thread_id == thread_id,
+                            self._opportunity_model.id != selected.id,
+                        )
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if conflict or (selected.thread_id and selected.thread_id != thread_id):
+                    await session.rollback()
+                    return OpportunityResolution(None, "thread_binding_conflict", True)
+                selected.thread_id = thread_id
+                if thread_url:
+                    selected.thread_url = thread_url
+            selected.normalized_title = key
+            selected.updated_at = utc_now()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                return OpportunityResolution(None, "thread_binding_conflict", True)
+            return OpportunityResolution(
+                _opportunity_from_row(selected), "conversation_subject_exact"
+            )
 
     async def add_turn(self, turn: ConversationTurn) -> tuple[ConversationTurn, bool]:
         from sqlalchemy import or_, select
@@ -1837,10 +1979,14 @@ def _resolve_items(
         combined = set().union(*(matches for _basis, matches in authoritative))
         common = set.intersection(*(matches for _basis, matches in authoritative))
         if len(combined) > 1 or len(common) != 1:
-            return OpportunityResolution(None, "conflicting_authoritative_identifiers", True)
+            return OpportunityResolution(
+                None, "conflicting_authoritative_identifiers", True
+            )
         selected_id = next(iter(common))
         selected = next(item for item in items if item.id == selected_id)
-        basis = "+".join(basis for basis, matches in authoritative if selected_id in matches)
+        basis = "+".join(
+            basis for basis, matches in authoritative if selected_id in matches
+        )
         return OpportunityResolution(replace(selected), basis)
     if client_name:
         matches = [
@@ -1884,6 +2030,8 @@ def _model_values(value: Any) -> dict[str, Any]:
             "actual_submitted_timeline_raw",
             "actual_submitted_money_json",
             "actual_submitted_timeline_json",
+            "normalized_title",
+            "loss_reason",
         },
         ConversationTurn: {
             "gmail_message_id",
@@ -1892,6 +2040,9 @@ def _model_values(value: Any) -> dict[str, Any]:
             "incoming_gmail_message_id",
             "incoming_canonical_identity",
             "language",
+            "wrapper_language",
+            "parse_confidence",
+            "resolution_basis",
             "russian_summary",
             "actual_ask",
             "negotiation_strategy",

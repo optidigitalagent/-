@@ -21,8 +21,12 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from .commercial_terms import parse_money_terms, parse_timeline_terms
-from .email_analyzer import detect_language
 from .gmail_provider import EmailMessage
+from .freelancehunt_private_message import (
+    FreelancehuntPrivateMessageNotification,
+    normalize_conversation_title,
+    parse_freelancehunt_private_message_notification,
+)
 from .quality_gate import (
     PROPOSAL_READY_QUALITY_STATUSES,
     QualityStatus,
@@ -118,9 +122,12 @@ class SalesProcessResult:
     validation_errors: tuple[str, ...] = ()
     duplicate: bool = False
     notification_deferred: bool = False
+    safe_excerpt: str = ""
 
     @property
     def next_action(self) -> str:
+        if self.opportunity.state == OpportunityState.LOST.value:
+            return "Record only; the client explicitly ended the opportunity and no reply is required."
         if self.missing_context:
             return (
                 "Preview this exact opportunity and paste one sanitized thread copy: "
@@ -144,6 +151,14 @@ class SalesCloserError(RuntimeError):
 
 class UntrustedSalesMessage(SalesCloserError):
     pass
+
+
+class PlatformSupportMessage(SalesCloserError):
+    """The notification is a platform/support event, not a sales opportunity."""
+
+    def __init__(self, notification: FreelancehuntPrivateMessageNotification) -> None:
+        self.notification = notification
+        super().__init__("platform support notification is outside the sales pipeline")
 
 
 ReplyGenerator = Callable[
@@ -268,8 +283,14 @@ def extract_message_identity(email: EmailMessage, safe_body: str | None = None) 
 
 def classify_client_intent(text: str) -> ClientIntent:
     value = re.sub(r"\s+", " ", str(text or "")).casefold()
+    if re.search(
+        r"\b(price|pricing|cost|budget|rate|дорог\w*|цен\w*|стоимост\w*|бюджет\w*|"
+        r"дешев\w*|цін\w*|вартіст\w*|кошту\w*|дешевш\w*|budżet\w*|"
+        r"cen\w*|koszt\w*|drogo|taniej)\b",
+        value,
+    ):
+        return ClientIntent.PRICE_OBJECTION
     patterns: tuple[tuple[ClientIntent, tuple[str, ...]], ...] = (
-        (ClientIntent.REJECTION, ("not proceed", "not to proceed", "decline", "rejected", "не подходит", "відмов", "не будем", "rezygn", "odrzuc")),
         (
             ClientIntent.SELECTED_OR_CONTRACT_STEP,
             (
@@ -283,19 +304,91 @@ def classify_client_intent(text: str) -> ClientIntent:
             ),
         ),
         (ClientIntent.CLIENT_READY_TO_SELECT, ("choose you", "selected you", "ready to start", "обираємо вас", "выбираем вас", "готовы начать", "wybieramy", "zaczynamy")),
-        (ClientIntent.PRICE_OBJECTION, ("too expensive", "lower price", "discount", "budget is", "дорого", "дешевле", "знижк", "бюджет", "za drogo", "rabat")),
+        (
+            ClientIntent.REJECTION,
+            (
+                "we will not proceed",
+                "will not proceed",
+                "decided not to proceed",
+                "we decided not to proceed",
+                "we have decided not to proceed",
+                "we selected another freelancer",
+                "we chose another freelancer",
+                "proposal is rejected",
+                "cancelling the project",
+                "canceling the project",
+                "мы решили не продолжать",
+                "мы не будем продолжать",
+                "решили не продолжать",
+                "не будем продолжать",
+                "мы выбрали другого исполнителя",
+                "ставка отклонена",
+                "отказываемся от сотрудничества",
+                "проект отменен",
+                "проект отменён",
+                "ми вирішили не продовжувати",
+                "ми не будемо продовжувати",
+                "вирішили не продовжувати",
+                "не будемо продовжувати",
+                "ми обрали іншого виконавця",
+                "ставку відхилено",
+                "відмовляємося від співпраці",
+                "проєкт скасовано",
+                "zdecydowaliśmy się nie kontynuować",
+                "nie będziemy kontynuować",
+                "rezygnujemy z projektu",
+                "wybraliśmy innego wykonawcę",
+                "oferta została odrzucona",
+                "rezygnujemy ze współpracy",
+                "anulujemy projekt",
+                "wybraliśmy innego freelancera",
+            ),
+        ),
         (ClientIntent.TIMELINE_OBJECTION, ("too long", "sooner", "faster", "urgent", "быстрее", "срочно", "раніше", "терміново", "szybciej", "pilne")),
         (ClientIntent.SCOPE_CHANGE, ("also add", "additional", "one more", "extra feature", "добавить еще", "додати ще", "дополнительно", "додатков", "dodatkowo", "jeszcze")),
         (ClientIntent.CALL_REQUEST, ("call", "meeting", "zoom", "созвон", "дзвінок", "встреч", "spotkanie", "rozmow")),
-        (ClientIntent.ACCESS_REQUEST, ("access", "credentials", "password", "доступ", "парол", "логин", "dostęp", "hasło")),
         (ClientIntent.PORTFOLIO_OR_PROOF_REQUEST, ("portfolio", "case study", "client case", "example", "proof", "портфолио", "кейс", "приклад", "przykład", "realizac")),
-        (ClientIntent.TECHNICAL_QUESTION, ("api", "crm", "webhook", "database", "integration", "інтеграц", "техніч", "интеграц", "техничес", "technicz", "integrac")),
         (ClientIntent.NEGOTIATION, ("terms", "milestone", "offer", "услов", "этап", "умов", "етап", "warunk", "etap")),
         (ClientIntent.CLARIFICATION, ("clarify", "explain", "what do you mean", "уточн", "поясн", "doprecyz", "wyjaś")),
     )
     for intent, needles in patterns:
         if any(needle in value for needle in needles):
             return intent
+    access_action = re.search(
+        r"(?:grant|share|provide|send|give|invite|add|use|предостав\w*|переда\w*|"
+        r"пришл\w*|отправ\w*|добав\w*|использ\w*|надам\w*|передам\w*|надішл\w*|"
+        r"додам\w*|використ\w*|przyzna\w*|udostępni\w*|wyśl\w*|dodam\w*|uży\w*)"
+        r".{0,80}(?:access|credentials|password|otp|secret|token|login|account|repository|repo|role|permissions?|"
+        r"workspace|server|hosting|database|crm|api key|доступ|учетн\w* запис|"
+        r"обліков\w* запис|репозитор|роль|прав\w* доступ|дозвол\w*|dostęp|"
+        r"poświadczen|konto|repozytor|rola|uprawnien)",
+        value,
+    ) or re.search(
+        r"(?:access|credentials|доступ|обліков\w* запис|dostęp|konto|uprawnien)"
+        r".{0,40}(?:was|were|is|are|уже|вже|został\w*)\s*"
+        r"(?:granted|shared|provided|sent|предостав\w*|переда\w*|надан\w*|"
+        r"przyznan\w*|udostępnion\w*)",
+        value,
+    )
+    if access_action:
+        return ClientIntent.ACCESS_REQUEST
+    if any(
+        needle in value
+        for needle in (
+            "api",
+            "crm",
+            "webhook",
+            "database",
+            "integration",
+            "інтеграц",
+            "техніч",
+            "интеграц",
+            "техничес",
+            "technicz",
+            "integrac",
+        )
+    ):
+        return ClientIntent.TECHNICAL_QUESTION
     if "?" in value:
         return ClientIntent.CLARIFICATION
     return ClientIntent.UNKNOWN
@@ -356,6 +449,13 @@ def reply_quality_errors(
     if not text:
         errors.append("reply_missing")
         return errors
+    if re.search(
+        r"(?:\b(?:bot|бот|ai agent|internal automation|owner review)\b|"
+        r"внутренн\w* автоматизац\w*|внутрішн\w* автоматизац\w*|"
+        r"перегляд\w* власниц\w*|рассмотрен\w* владелиц\w*)",
+        lowered,
+    ):
+        errors.append("internal_actor_language")
     if _detected_reply_language(text) != language:
         errors.append("wrong_language")
     if text.count("?") > 1:
@@ -583,6 +683,9 @@ class SalesCloserService:
             id=opportunity_id,
             identity_key=identity_key,
             title=str(getattr(job, "title", "") or fallback),
+            normalized_title=normalize_conversation_title(
+                str(getattr(job, "title", "") or fallback)
+            ),
             state=state,
             source=str(getattr(job, "discovery_source", "") or "proposal_quality_gate"),
             gmail_job_key=fallback,
@@ -699,19 +802,49 @@ class SalesCloserService:
         except (KeyError, ValueError) as exc:
             raise SalesCloserError(str(exc)) from exc
 
-    async def process_client_message(self, email: EmailMessage) -> SalesProcessResult:
+    async def process_client_message(
+        self,
+        email: EmailMessage,
+        notification: FreelancehuntPrivateMessageNotification | None = None,
+    ) -> SalesProcessResult:
         if not trusted_freelancehunt_sender(email.sender):
             raise UntrustedSalesMessage("CLIENT_PRIVATE_MESSAGE sender is not trusted Freelancehunt mail")
-        safe_body, _redacted = redact_sensitive_content(email.text_body or email.body or "")
-        identity = extract_message_identity(email, safe_body)
-        client_name = _client_name(email.subject)
+        parsed = notification or parse_freelancehunt_private_message_notification(email)
+        if parsed.is_platform_support_message:
+            raise PlatformSupportMessage(parsed)
+        actual_message = parsed.actual_message_text
+        diagnostic_excerpt = parsed.safe_excerpt
+        legacy_identity = extract_message_identity(
+            email, actual_message or diagnostic_excerpt
+        )
+        identity = MessageIdentity(
+            project_id=parsed.project_id or legacy_identity.project_id,
+            thread_id=parsed.thread_id or legacy_identity.thread_id,
+            project_url=parsed.project_url or legacy_identity.project_url,
+            thread_url=parsed.safe_thread_url or legacy_identity.thread_url,
+            message_reference_id=legacy_identity.message_reference_id,
+            reply_reference_id=legacy_identity.reply_reference_id,
+            canonical_turn_identity=legacy_identity.canonical_turn_identity,
+        )
+        client_name = parsed.sender_display_name or _client_name(email.subject)
         resolution = await self.repository.resolve_opportunity(
             thread_id=identity.thread_id,
             project_id=identity.project_id,
             project_url=identity.project_url,
             reply_reference_id=identity.reply_reference_id,
-            client_name=client_name,
+            client_name="",
         )
+        if resolution.opportunity is None and not resolution.ambiguous:
+            if parsed.conversation_subject:
+                resolution = await self.repository.resolve_and_bind_opportunity_by_title(
+                    normalize_conversation_title(parsed.conversation_subject),
+                    thread_id=identity.thread_id,
+                    thread_url=identity.thread_url,
+                )
+            elif client_name:
+                resolution = await self.repository.resolve_opportunity(
+                    client_name=client_name
+                )
         opportunity = resolution.opportunity
         if opportunity is None:
             identity_key = (
@@ -738,6 +871,9 @@ class SalesCloserService:
                 ),
                 identity_key=identity_key,
                 title=email.subject or "Unresolved Freelancehunt dialogue",
+                normalized_title=normalize_conversation_title(
+                    parsed.conversation_subject or email.subject
+                ),
                 source="gmail_private_message",
                 project_id="" if resolution.ambiguous else identity.project_id,
                 thread_id="" if resolution.ambiguous else identity.thread_id,
@@ -776,19 +912,26 @@ class SalesCloserService:
         received = email.received_at
         if received and received.tzinfo is None:
             received = received.replace(tzinfo=timezone.utc)
-        intent = classify_client_intent(safe_body)
-        language = detect_language(f"{email.subject}\n{safe_body}")
+        intent = (
+            classify_client_intent(parsed.actual_message_text)
+            if parsed.actual_message_text
+            else ClientIntent.UNKNOWN
+        )
+        language = parsed.client_message_language or "en"
         due = notification_due_at(now)
         incoming = ConversationTurn(
             id=uuid4().hex,
             opportunity_id=opportunity.id,
             direction="INCOMING",
-            content=safe_body,
-            content_sha256=_hash_text(safe_body),
+            content=actual_message,
+            content_sha256=_hash_text(actual_message),
             canonical_turn_identity=identity.canonical_turn_identity,
             gmail_message_id=email.id,
             source_reference_id=identity.message_reference_id,
             language=language,
+            wrapper_language=parsed.wrapper_language,
+            parse_confidence=parsed.parse_confidence,
+            resolution_basis=resolution_basis,
             intent=intent.value,
             source_received_at=received,
             detected_at=now,
@@ -798,16 +941,12 @@ class SalesCloserService:
         )
         incoming, created = await self.repository.add_turn(incoming)
         if not created:
-            return await self._result_for_turn(incoming, resolution_basis, duplicate=True)
-
-        for previous_turn in await self.repository.list_turns(opportunity.id):
-            if (
-                previous_turn.direction == "OUTGOING_DRAFT"
-                and previous_turn.source_reference_id != incoming.id
-            ):
-                await self.repository.update_turn_fields(
-                    previous_turn.id, {"direction": "OUTGOING_SUPERSEDED"}
-                )
+            return await self._result_for_turn(
+                incoming,
+                resolution_basis,
+                duplicate=True,
+                safe_excerpt=diagnostic_excerpt,
+            )
 
         opportunity = await self.repository.update_opportunity_fields(
             opportunity.id,
@@ -820,7 +959,7 @@ class SalesCloserService:
                     "russian_summary": (
                         "Новое сообщение по terminal opportunity; требуется срочный ручной просмотр."
                     ),
-                    "actual_ask": safe_body[:500],
+                    "actual_ask": actual_message[:500],
                     "negotiation_strategy": "Не менять terminal state автоматически.",
                     "risks": "Только владелица может отдельно подтвердить изменение terminal state.",
                     "missing_facts": "terminal opportunity requires owner review",
@@ -834,6 +973,7 @@ class SalesCloserService:
                 resolution_basis=resolution_basis,
                 validation_errors=("terminal_state_manual_review",),
                 notification_deferred=due > now,
+                safe_excerpt=diagnostic_excerpt,
             )
         if opportunity.state in {
             OpportunityState.BID_SUBMITTED.value,
@@ -853,6 +993,11 @@ class SalesCloserService:
             )
 
         missing = self._context_errors(opportunity, resolution_basis)
+        if not parsed.actual_message_text:
+            missing.append(
+                "actual client message could not be isolated: "
+                + ", ".join(parsed.safe_parse_errors or ("unknown parse failure",))
+            )
         if missing or resolution.ambiguous:
             if resolution.ambiguous:
                 missing.append("conflicting or ambiguous project/thread mapping")
@@ -861,7 +1006,7 @@ class SalesCloserService:
                 {
                     "missing_facts": "; ".join(missing),
                     "russian_summary": "Контекст диалога нельзя безопасно связать с одной ставкой.",
-                    "actual_ask": safe_body[:500],
+                    "actual_ask": actual_message[:500],
                     "negotiation_strategy": "Сначала восстановить точную ветку и предыдущие обещания.",
                     "risks": "Ответ без контекста может противоречить ставке.",
                 },
@@ -880,6 +1025,42 @@ class SalesCloserService:
                 human_request=None,
                 resolution_basis=resolution_basis,
                 missing_context=tuple(missing),
+                notification_deferred=due > now,
+                safe_excerpt=diagnostic_excerpt,
+            )
+
+        if intent == ClientIntent.REJECTION:
+            loss_reason = _safe_rejection_reason(parsed.actual_message_text)
+            incoming = await self.repository.update_turn_fields(
+                incoming.id,
+                {
+                    "russian_summary": "Клиент явно завершил возможность сотрудничества.",
+                    "actual_ask": parsed.actual_message_text[:500],
+                    "negotiation_strategy": "Не отвечать и не выполнять действий на платформе.",
+                    "risks": "Повторный контакт после явного отказа неуместен.",
+                },
+            ) or incoming
+            opportunity = await self.repository.update_opportunity_fields(
+                opportunity.id,
+                {
+                    "loss_reason": loss_reason,
+                    "do_not_follow_up": True,
+                    "follow_up_status": "DISABLED_CLIENT_REJECTION",
+                },
+            ) or opportunity
+            opportunity = await self.repository.transition(
+                opportunity.id,
+                OpportunityState.LOST.value,
+                source="sales_rejection_guard",
+                reason=f"explicit terminal client rejection: {loss_reason}",
+                actor="system",
+            )
+            return SalesProcessResult(
+                opportunity=opportunity,
+                incoming_turn=incoming,
+                reply_turn=None,
+                human_request=None,
+                resolution_basis=resolution_basis,
                 notification_deferred=due > now,
             )
 
@@ -914,7 +1095,7 @@ class SalesCloserService:
                 {
                     "missing_facts": question,
                     "russian_summary": _fallback_russian_summary(intent),
-                    "actual_ask": safe_body[:500],
+                    "actual_ask": actual_message[:500],
                     "negotiation_strategy": "Получить один факт и затем подготовить проверенный ответ.",
                     "risks": "Нельзя честно подтвердить неизвестный факт.",
                 },
@@ -933,6 +1114,7 @@ class SalesCloserService:
                 human_request=request,
                 resolution_basis=resolution_basis,
                 notification_deferred=due > now,
+                safe_excerpt=diagnostic_excerpt,
             )
 
         reply, errors = await self._generate_and_store(opportunity, incoming, intent)
@@ -1411,7 +1593,14 @@ class SalesCloserService:
 
     def _context_errors(self, opportunity: SalesOpportunity, resolution_basis: str) -> list[str]:
         missing: list[str] = []
-        if resolution_basis in {"unresolved", "ambiguous_client_name_hint", "conflicting_authoritative_identifiers"}:
+        if resolution_basis in {
+            "unresolved",
+            "ambiguous_client_name_hint",
+            "conflicting_authoritative_identifiers",
+            "conversation_title_not_found",
+            "ambiguous_conversation_title",
+            "thread_binding_conflict",
+        } or resolution_basis.startswith("ambiguous_"):
             missing.append("exact project/thread mapping")
         if not opportunity.source_description:
             missing.append("source project description")
@@ -1611,9 +1800,7 @@ class SalesCloserService:
         if draft.direction == "OUTGOING_SUPERSEDED":
             return None, ["newer_incoming_turn"]
         target = (
-            OpportunityState.LOST
-            if intent == ClientIntent.REJECTION
-            else OpportunityState.SELECTION_REVIEW
+            OpportunityState.SELECTION_REVIEW
             if intent == ClientIntent.CLIENT_READY_TO_SELECT
             else OpportunityState.CONTRACT_REVIEW
             if intent == ClientIntent.SELECTED_OR_CONTRACT_STEP
@@ -1674,7 +1861,11 @@ class SalesCloserService:
         }
 
     async def _result_for_turn(
-        self, incoming: ConversationTurn, basis: str, duplicate: bool = False
+        self,
+        incoming: ConversationTurn,
+        basis: str,
+        duplicate: bool = False,
+        safe_excerpt: str = "",
     ) -> SalesProcessResult:
         opportunity = await self.repository.get_opportunity(incoming.opportunity_id)
         if opportunity is None:
@@ -1704,6 +1895,7 @@ class SalesCloserService:
             missing_context=missing if opportunity.state == OpportunityState.NEEDS_CONTEXT.value else (),
             duplicate=duplicate,
             notification_deferred=bool(incoming.notification_due_at and incoming.notification_due_at > self._now()),
+            safe_excerpt=safe_excerpt,
         )
 
 
@@ -1727,6 +1919,12 @@ def _fallback_russian_summary(intent: ClientIntent) -> str:
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(str(value or "").encode("utf-8")).hexdigest()
+
+
+def _safe_rejection_reason(value: str) -> str:
+    text, _redacted = redact_sensitive_content(str(value or ""))
+    compact = re.sub(r"\s+", " ", text).strip()
+    return compact[:500] or "explicit client rejection"
 
 
 def _subject_fingerprint(text: str, intent: ClientIntent) -> str:
