@@ -10,6 +10,7 @@ import ast
 import logging
 import sys
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,6 +21,16 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from bot.html_utils import escape_html, safe_http_url
+from gmail_agent.commercial_terms import parse_money_terms, parse_timeline_terms
+from gmail_agent.live_status import LiveStatus, LiveStatusResult
+from gmail_agent.quality_gate import (
+    ANALYSIS_VERSION,
+    EVIDENCE_REGISTRY,
+    QualityStatus,
+    compose_application_owned_proposal,
+    proposal_text_hash,
+    proposal_version,
+)
 from gmail_agent.storage import ScanRun, StoredGmailJob
 
 
@@ -83,7 +94,7 @@ def _message(text: str) -> MagicMock:
 
 
 def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmailJob:
-    return StoredGmailJob(
+    job = StoredGmailJob(
         stable_key=stable_key,
         source_email_id="parent-redacted",
         platform="Freelancehunt",
@@ -95,12 +106,39 @@ def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmai
         urgency="medium",
         why_relevant="Automation and APIs",
         status=status,
+        language="en",
         live_status="ACTIVE_BIDDABLE",
         live_status_checked_at=datetime.now(timezone.utc),
         live_status_evidence="submit a bid",
         biddable=True,
         qualified=True,
+        executable="yes",
+        fit_score=8.0,
+        analysis_quality_status=QualityStatus.VALID.value,
+        analysis_version=ANALYSIS_VERSION,
+        proposal_version="",
+        score_valid=True,
+        score_raw="8.5",
+        score_state="VALID",
+        fit_score_valid=True,
+        fit_score_raw="8.0",
+        fit_score_state="VALID",
+        proposal_draft="We can deliver this Python automation project.",
+        recommended_price="500 USD",
+        realistic_timeline="5 days",
+        evidence_case_id="NO_DIRECT_CASE",
+        selected_evidence=EVIDENCE_REGISTRY["NO_DIRECT_CASE"]["en"],
     )
+    money = parse_money_terms(job.recommended_price)
+    timeline = parse_timeline_terms(job.realistic_timeline)
+    job = replace(
+        job,
+        money_terms_json=money.to_json(),
+        timeline_terms_json=timeline.to_json(),
+    )
+    job = replace(job, proposal_draft=compose_application_owned_proposal(job))
+    job = replace(job, proposal_content_sha256=proposal_text_hash(job.proposal_draft))
+    return replace(job, proposal_version=proposal_version(job))
 
 
 class TestAdminDigestCommands(unittest.IsolatedAsyncioTestCase):
@@ -416,6 +454,11 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
     async def test_reply_loads_persistent_job_after_memory_cache_is_empty(self):
         repository = MagicMock()
         repository.get_job = AsyncMock(return_value=_job())
+        repository.claim_processed = AsyncMock(return_value=True)
+        repository.upsert_processed = AsyncMock()
+        repository.delete_processed = AsyncMock()
+        repository.update_job_fields = AsyncMock(return_value=_job())
+        repository.apply_backfill_live_result = AsyncMock(return_value=_job())
         repository_type = MagicMock(return_value=repository)
         message = _message("/reply_job stable-key-1")
         handler = _load_handler(
@@ -431,13 +474,26 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
         with (
             patch("gmail_agent.storage.PostgresGmailRepository", repository_type),
             patch("gmail_agent.reply_generator.generate_reply", AsyncMock(return_value="Draft reply")),
+            patch(
+                "gmail_agent.live_status.FreelancehuntLiveStatusChecker.check",
+                AsyncMock(
+                    return_value=LiveStatusResult(
+                        LiveStatus.ACTIVE_BIDDABLE,
+                        datetime.now(timezone.utc),
+                        "Synthetic enabled bid form.",
+                        True,
+                    )
+                ),
+            ),
         ):
             await handler(message)
 
-        repository.get_job.assert_awaited_once_with("stable-key-1")
+        self.assertGreaterEqual(repository.get_job.await_count, 2)
+        repository.claim_processed.assert_not_awaited()
+        repository.upsert_processed.assert_awaited_once()
         output = "\n".join(call.args[0] for call in message.answer.await_args_list)
         self.assertIn("Python automation", output)
-        self.assertIn("Draft reply", output)
+        self.assertIn("We can deliver this Python automation project.", output)
 
     async def test_reply_refuses_blocked_project_even_with_saved_proposal(self):
         blocked = {

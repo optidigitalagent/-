@@ -450,7 +450,7 @@ class TestGmailTestHtml(unittest.IsolatedAsyncioTestCase):
 
 
 class TestReplyAndSkipHtml(unittest.IsolatedAsyncioTestCase):
-    async def test_reply_escapes_job_and_generated_text_and_rejects_javascript_url(self):
+    async def test_reply_rejects_noncanonical_memory_job_without_rendering_unsafe_content(self):
         job_id = "job<1>&"
         store = {job_id: {
             "title": "<script>title</script>",
@@ -472,15 +472,16 @@ class TestReplyAndSkipHtml(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        with patch("gmail_agent.reply_generator.generate_reply", AsyncMock(return_value="Draft <b>bold</b> & safe")):
+        generate = AsyncMock(return_value="Draft <b>bold</b> & safe")
+        with patch("gmail_agent.reply_generator.generate_reply", generate):
             await handler(message)
 
         output = "\n".join(call.args[0] for call in message.answer.await_args_list)
         self.assertNotIn("<script>", output)
         self.assertNotIn("<b>bold</b>", output)
         self.assertNotIn("javascript:", output)
-        self.assertIn("&lt;script&gt;title&lt;/script&gt;", output)
-        self.assertIn("Draft &lt;b&gt;bold&lt;/b&gt; &amp; safe", output)
+        self.assertIn("Freelancehunt feed/Gmail package", output)
+        generate.assert_not_awaited()
 
     async def test_skip_escapes_user_supplied_job_id(self):
         job_id = "missing<id>&"
