@@ -648,3 +648,23 @@ token.json: ✅ знайдено
   production row, variable, OAuth/Telegram secret, card, bid, or message was
   changed.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`.
+
+## 2026-09-03 Stage 4 nullable Score/Fit metadata hotfix
+
+- Reapplied the previously approved Stage 4 tree on a new branch from rollback
+  `main` `01978e2b1935ea708f86afdeaed321bb3f8db8c2`; reapply tree equals approved
+  source head `468592c0f1c799bef1730701e092c67532c875e3`.
+- Reproduced the production defect before fixing it on real PostgreSQL 17:
+  official RSS -> `LIVE_STATUS_UNKNOWN` -> status-only analysis -> insert ->
+  `fit_score_valid=NULL` -> SQLSTATE 23502.
+- Added one central Score/Fit normalization contract plus defensive repository
+  normalization for insert, conflict upsert, update, retry/restart, live-status
+  recheck, and quality-backfill persistence.
+- All 302 protected tests remain green. The full suite discovers 310 tests;
+  304 pass in the default run with six opt-in PostgreSQL skips, and all eight
+  focused tests pass with the six real-PostgreSQL cases enabled. Migration x2,
+  scheduler/restart, compileall, Ruff F, diff, Python 3.12.14, localization,
+  Telegram HTML/size, live-status, and cross-source dedup gates pass.
+- No merge, deployment, production migration/backfill, replacement card,
+  variable/secret change, bid, client message, contract, or payment occurred.
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.

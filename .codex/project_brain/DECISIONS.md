@@ -285,3 +285,22 @@
 - A direct Response remains draft/retryable until Telegram confirms the exact
   copy message. Re-lock and revalidate the same text/version before persisting
   the sent state.
+
+## 2026-09-03 — Nullable Score/Fit metadata hotfix contract
+
+- Keep the PostgreSQL `score_valid`, `fit_score_valid`, `score_state`, and
+  `fit_score_state` columns NOT NULL. Nullable application metadata is a
+  boundary defect, not a reason to weaken the schema.
+- Use one `normalize_score_metadata` contract for both Score and Fit from model
+  parsing through processor construction and repository persistence.
+- Preserve `MISSING`, `INVALID`, `FAILED`, genuine `0.0`, and finite 0–10
+  values as distinct semantics. A numeric `0.0` compatibility value never
+  overrides its validity/state metadata.
+- Normalize before digest/RSS and single-job construction, insert, conflict
+  upsert, update, retry/restart, live recheck, and quality backfill writes.
+- Treat an otherwise proposal-ready record with unavailable Score/Fit metadata
+  as `QUALITY_MANUAL_REVIEW`, clear the active commercial/proposal package, and
+  emit only sanitized metadata-contract telemetry.
+- Keep issue #11 open. Merge, Railway deployment, production migration,
+  backfill, replacement cards, variables, secrets, bids, and client messages
+  require separate authorization.

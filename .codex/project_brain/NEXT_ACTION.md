@@ -2,30 +2,31 @@
 
 ## Current status
 
-`READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`
+`READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`
 
-Stage 4 issue #11 remains the current work item in Draft PR #12 on
-`feature/proposal-quality-gate-v1`. The V3 correction cycle adds approved
-application-owned evidence and commercial wording for uk/ru/en/pl, strict
-typed `MoneyTerms` and `TimelineTerms`, final-text revalidation before hashing
-and versioning, multilingual past-work and generic off-platform blocking, and
-separate delivery semantics for unsolicited cards and explicit manual
-retrieval.
+Stage 4 issue #11 remains open after PR #12 was rolled back. The follow-up
+branch is `fix/proposal-quality-gate-nullable-score-fit-metadata-v1`, created
+from rollback `main` `01978e2b1935ea708f86afdeaed321bb3f8db8c2`.
+Commit `a44641f` cleanly reapplies the approved Stage 4 tree, and separate
+commit `39beac1` adds the nullable Score/Fit metadata hotfix.
 
 Validation evidence:
 
-- 302/302 tests pass, including 26 focused V3 behavioral/adversarial tests;
+- all 302 protected tests remain passing; the full suite discovers 310 tests,
+  runs 304 successfully and skips only six opt-in PostgreSQL cases;
+- all eight focused nullable-metadata tests pass when those six cases run on
+  an isolated real PostgreSQL 17 server;
 - compileall, Ruff F-rule checks, `git diff --check`, and production-like
   Python 3.12.14 imports pass;
-- the additive migration ran twice on isolated PostgreSQL 17; all three V3
-  Gmail-job columns were present and an exact proposal/hash/version/canonical
-  terms package remained proposal-ready after save/reload;
-- read-only production audit found 77 total rows and 67 ACTIVE_BIDDABLE legacy
-  rows: 67 Score `<= 0`, 67 null/zero Fit, 67 without deployed registry
-  evidence, and one with an empty proposal; no row was changed;
-- production remains unchanged on `main`
-  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
-  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS`, 1/1 replica running).
+- the pre-fix real PostgreSQL test reproduced SQLSTATE 23502 on
+  `fit_score_valid=NULL`; the identical route passes after normalization;
+- clean and production-like existing-column schemas each accepted `init_db`
+  twice and retained NOT NULL boolean/state contracts;
+- scheduler, second-cycle, restart, conflict-upsert, update, live recheck and
+  quality-backfill persistence paths retain coherent Score/Fit semantics;
+- production remains unchanged on rollback `main`
+  `01978e2b1935ea708f86afdeaed321bb3f8db8c2`, Railway deployment
+  `5af42416-7c91-4283-9c26-8282f0d6f4d4` (`SUCCESS`, 1/1 replica running).
 
 No merge, deployment, Railway variable change, OAuth/Telegram secret change,
 backfill, replacement card, bid, client message, contract, or payment was
@@ -33,5 +34,5 @@ performed.
 
 ## Exactly one next action
 
-Review updated Draft PR #12 and, if accepted, provide a separate explicit V3
-deployment authorization.
+Review the new follow-up Draft PR and, if accepted, provide a separate explicit
+nullable-metadata hotfix deployment authorization.

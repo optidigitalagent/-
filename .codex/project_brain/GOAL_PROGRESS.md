@@ -390,3 +390,28 @@ Stage 2 is operational when:
   `43a219b0-14e9-4f94-a108-b1a12e20039a` is `SUCCESS` with one of one replica
   running.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`.
+
+## 2026-09-03 — Stage 4 nullable Score/Fit metadata follow-up
+
+- PR #12 was rolled back after normal scheduler traffic reached the official
+  RSS `LIVE_STATUS_UNKNOWN` status-only path and attempted to persist
+  `fit_score_valid=NULL` into a NOT NULL PostgreSQL column.
+- The follow-up branch starts exactly from rollback `main` `01978e2b...`.
+  Reverting the rollback produced reapply commit `a44641f`; its tree exactly
+  matches approved Stage 4 source `468592c...` before the narrow hotfix.
+- Commit `39beac1` centralizes Score/Fit normalization in the quality contract,
+  applies it to analyzer and processor construction, and adds defensive
+  normalization to insert/upsert/update/backfill and reload boundaries.
+- The failing-before real PostgreSQL test reproduced
+  `asyncpg.exceptions.NotNullViolationError` / SQLSTATE 23502 on
+  `gmail_jobs.fit_score_valid`; the same route passes after the hotfix.
+- Validation: the protected 302 tests remain passing; the full suite discovers
+  310 tests (304 pass plus six opt-in PostgreSQL skips), and all eight focused
+  tests pass with those six cases enabled against isolated PostgreSQL 17.
+  Clean and existing-column migrations pass twice, as do scheduler, repeat,
+  restart, insert, upsert, update, backfill, Python 3.12.14 import, compileall,
+  Ruff F checks, diff check, localization, Telegram HTML/size, live-status, and
+  cross-source dedup regressions.
+- Production remains unchanged on rollback `main` `01978e2b...` and healthy
+  Railway deployment `5af42416-7c91-4283-9c26-8282f0d6f4d4`.
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
