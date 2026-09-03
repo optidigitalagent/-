@@ -25,13 +25,12 @@ from gmail_agent.live_status import (
     retry_due,
 )
 from gmail_agent.processor import GmailJobProcessor
-from gmail_agent.quality_gate import ANALYSIS_VERSION
 from gmail_agent.storage import InMemoryGmailRepository
 from gmail_agent.telegram_notifier import format_job_card, format_live_status_card
 from gmail_agent.tests.digest_fixtures import DIGEST_ONE_JOB_HTML
 
 
-NOW = datetime.now(timezone.utc)
+NOW = datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc)
 PROJECT_URL = "https://freelancehunt.com/project/sanitized/1650987.html"
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -93,23 +92,9 @@ def _active_analysis() -> JobAnalysis:
         url=PROJECT_URL,
         urgency="medium",
         why_relevant="Python automation",
-        full_description="Sanitized active Python automation project.",
-        description_completeness="FULL",
-        language="en",
-        service_lane="automation",
-        executable="yes",
-        fit_score=7.5,
-        estimated_effort="2 days",
-        delivery_risk="API access must be confirmed.",
-        client_payment_risk="Not enough data; use a funded milestone.",
-        project_mode="CASH",
-        project_mode_reason="Bounded paid automation.",
-        evidence_case_id="NO_DIRECT_CASE",
-        proposal_draft="We can deliver this sanitized Python automation project.",
+        proposal_draft="Sanitized proposal draft.",
         recommended_price="1000 UAH",
         realistic_timeline="2 days",
-        next_action="Review the proposal manually.",
-        analysis_version=ANALYSIS_VERSION,
     )
 
 
@@ -696,10 +681,7 @@ class TestTelegramLiveStatusFormatting(unittest.TestCase):
         analysis.biddable = True
         card = format_job_card(analysis)
         self.assertIn("Live status:</b> ACTIVE — bid available", card)
-        self.assertIn(
-            f"Checked:</b> {NOW.strftime('%Y-%m-%d %H:%M:%S UTC')}",
-            card,
-        )
+        self.assertIn("Checked:</b> 2026-09-02 12:00:00 UTC", card)
         self.assertIn("Готовий відгук", card)
 
     def test_blocked_card_has_no_price_or_proposal(self):
@@ -780,7 +762,7 @@ class TestDirectParserUsesSharedGuard(unittest.TestCase):
             }
             self.assertIn("_ensure_order_current_biddable", calls, name)
 
-    def test_gmail_proposals_use_unified_service_and_manual_recheck_is_read_only(self):
+    def test_gmail_saved_and_rewrite_path_share_guard_and_manual_recheck_is_read_only(self):
         project_root = Path(__file__).resolve().parents[2]
         source = (project_root / "bot" / "handlers.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -794,11 +776,7 @@ class TestDirectParserUsesSharedGuard(unittest.TestCase):
             for node in ast.walk(functions["cmd_reply_job"])
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertIn("GmailJobProcessor", reply_calls)
-        reply_source = ast.get_source_segment(source, functions["cmd_reply_job"]) or ""
-        self.assertIn("deliver_validated_proposal_text_version", reply_source)
-        self.assertIn("generate_validate_and_persist_proposal", reply_source)
-        self.assertNotIn("generate_reply", reply_source)
+        self.assertIn("_ensure_gmail_job_current_biddable", reply_calls)
         recheck = functions["cmd_recheck_live"]
         recheck_source = ast.get_source_segment(source, recheck) or ""
         self.assertIn("force=True", recheck_source)

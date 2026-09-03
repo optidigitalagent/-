@@ -11,15 +11,6 @@ from bot.html_utils import escape_html, safe_http_url
 from .email_analyzer import JobAnalysis
 from .email_classifier import EmailType
 from .live_status import LiveStatus
-from .quality_gate import (
-    PROPOSAL_READY_QUALITY_STATUSES,
-    QualityStatus,
-    apply_validation,
-    finite_score,
-    is_proposal_ready,
-    quality_errors,
-    validate_analysis,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +58,12 @@ def _urgency_emoji(urgency: str) -> str:
     return {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(urgency, "⚪")
 
 
-def _score_emoji(score: Any) -> str:
-    value = finite_score(score)
-    if value is None:
-        return "⚪"
-    if value >= 8:
+def _score_emoji(score: float) -> str:
+    if score >= 8:
         return "🔥"
-    if value >= 6:
+    if score >= 6:
         return "✅"
-    if value >= 4:
+    if score >= 4:
         return "⚠️"
     return "❌"
 
@@ -172,18 +160,6 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         "",
         f"<b>Платформа:</b> {escape_html(_short(analysis.platform))}",
         f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
-        *(
-            [
-                "<b>Analysis quality:</b> "
-                + (
-                    "VALID"
-                    if analysis.analysis_quality_status == QualityStatus.VALID.value
-                    else "REPAIRED"
-                )
-            ]
-            if analysis.analysis_quality_status in PROPOSAL_READY_QUALITY_STATUSES
-            else []
-        ),
         f"<b>Score:</b> {escape_html(analysis.score_display)}",
         f"<b>Бюджет:</b> {escape_html(_short(analysis.budget))}",
         *(
@@ -205,7 +181,7 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         "",
         f"<b>Service lane:</b> {escape_html(_short(analysis.service_lane))}",
         f"<b>Можемо виконати:</b> {escape_html(_short(analysis.executable or 'maybe'))}",
-        f"<b>Fit:</b> {escape_html(analysis.fit_score_display)}",
+        f"<b>Fit:</b> {escape_html(analysis.score_display)}",
         f"<b>Win signal:</b> {escape_html(_short(analysis.win_probability_signal))}",
         f"<b>Scope clarity:</b> {escape_html(_short(analysis.scope_clarity))}",
         f"<b>Трудомісткість:</b> {escape_html(_short(analysis.estimated_effort))}",
@@ -214,11 +190,6 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
         f"<b>Режим:</b> {escape_html(_short(analysis.project_mode))} — {escape_html(_short(analysis.project_mode_reason))}",
         f"<b>Рекомендована ціна:</b> {escape_html(_short(analysis.recommended_price))}",
         f"<b>Реалістичний строк:</b> {escape_html(_short(analysis.realistic_timeline))}",
-        *(
-            [f"<b>Evidence ID:</b> {escape_html(_short(analysis.evidence_case_id))}"]
-            if analysis.evidence_case_id
-            else []
-        ),
         f"<b>Релевантний кейс:</b> {escape_html(_short(analysis.selected_evidence))}",
     ]
     if analysis.reason:
@@ -294,33 +265,6 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
         and analysis.live_status != LiveStatus.ACTIVE_BIDDABLE.value
     ):
         return [format_live_status_card(analysis)]
-
-    if (
-        analysis.event_type
-        in {
-            EmailType.PROJECT_SINGLE.value,
-            EmailType.PROJECT_DIGEST.value,
-            EmailType.PROJECT_FEED.value,
-        }
-        and analysis.live_status == LiveStatus.ACTIVE_BIDDABLE.value
-        and analysis.biddable is True
-        and analysis.analysis_version
-        and not analysis.analysis_quality_status
-    ):
-        apply_validation(analysis, validate_analysis(analysis))
-
-    if (
-        analysis.event_type
-        in {
-            EmailType.PROJECT_SINGLE.value,
-            EmailType.PROJECT_DIGEST.value,
-            EmailType.PROJECT_FEED.value,
-        }
-        and analysis.live_status == LiveStatus.ACTIVE_BIDDABLE.value
-        and analysis.biddable is True
-        and not is_proposal_ready(analysis)
-    ):
-        return format_quality_review_card_parts(analysis)
 
     if analysis.event_type == EmailType.CLIENT_PRIVATE_MESSAGE.value:
         summary = _private_summary_lines(analysis)
@@ -403,58 +347,6 @@ def format_live_status_card(analysis: JobAnalysis) -> str:
     return "\n".join(lines)
 
 
-def format_quality_review_card_parts(analysis: JobAnalysis) -> list[str]:
-    """Render full safe source context as bounded multipart manual review."""
-
-    errors = quality_errors(analysis) or ["quality_state_not_proposal_ready"]
-    safe_url = safe_http_url(analysis.url)
-    lines = [
-        "🟡 <b>QUALITY MANUAL REVIEW</b>",
-        "<b>Проєкт активний:</b> yes",
-        "<b>Bid-ready:</b> no",
-        f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
-        f"<b>Повнота ТЗ:</b> {escape_html(_short(analysis.description_completeness))}",
-        f"<b>Бюджет:</b> {escape_html(_short(analysis.budget))}",
-        f"<b>Категорія:</b> {escape_html(_short(analysis.category))}",
-        f"<b>Live status:</b> {escape_html(_short(analysis.live_status))}",
-        f"<b>Live checked:</b> {escape_html(_received(analysis.live_status_checked_at))}",
-        f"<b>Score:</b> {escape_html(analysis.score_display)}",
-        f"<b>Fit:</b> {escape_html(analysis.fit_score_display)}",
-        "<b>Quality errors:</b>",
-    ]
-    lines.extend(f"• <code>{escape_html(_short(error, 180))}</code>" for error in errors)
-    if analysis.quality_clarification_question:
-        lines.append(
-            "<b>One clarification:</b> "
-            + escape_html(_short(analysis.quality_clarification_question, 500))
-        )
-    if safe_url:
-        lines.append(f'🔗 <a href="{escape_html(safe_url)}">Відкрити проєкт</a>')
-    lines += [
-        "<b>Usable proposal:</b> absent",
-        "<b>Наступна дія власниці:</b> Перевірити помилки або виконати "
-        f"<code>/quality_recheck {escape_html(analysis.email_id)}</code>; ставку не надсилати.",
-    ]
-    parts = _pack_html_lines(lines)
-    for chunk in _split_text(analysis.full_description):
-        _append_html_section(parts, f"<b>Повне безпечне ТЗ:</b>\n{escape_html(chunk)}")
-    if len(parts) > 1:
-        total = len(parts)
-        parts = [
-            f"<b>Manual review {index}/{total}</b>\n{part}"
-            for index, part in enumerate(parts, 1)
-        ]
-    if any(len(part) > TELEGRAM_TEXT_LIMIT for part in parts):
-        raise ValueError("Telegram quality-review card part exceeds 4096 characters")
-    return parts
-
-
-def format_quality_review_card(analysis: JobAnalysis) -> str:
-    """Backward-compatible first part for callers expecting one string."""
-
-    return format_quality_review_card_parts(analysis)[0]
-
-
 async def send_live_status_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:
     """Send at most the caller-controlled diagnostic card, never a proposal."""
 
@@ -485,11 +377,11 @@ async def send_job_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:
                 disable_web_page_preview=True,
             )
         logger.info(
-            "Sent Telegram event card: event=%s key=%s parts=%d score=%s",
+            "Sent Telegram event card: event=%s key=%s parts=%d score=%.1f",
             analysis.event_type,
             analysis.email_id,
             len(parts),
-            analysis.score_display,
+            analysis.score,
         )
         return True
     except Exception:

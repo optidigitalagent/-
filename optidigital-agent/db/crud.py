@@ -57,26 +57,8 @@ async def update_order_status(session: AsyncSession, order_id: int, status: str)
     await session.commit()
 
 
-async def save_response(
-    session: AsyncSession,
-    order_id: int,
-    text: str,
-    result: str | None = None,
-    **quality_fields,
-) -> Response:
-    if quality_fields.get("proposal_version") and not quality_fields.get(
-        "proposal_content_sha256"
-    ):
-        from gmail_agent.quality_gate import proposal_text_hash
-
-        quality_fields["proposal_content_sha256"] = proposal_text_hash(text)
-    response = Response(
-        order_id=order_id,
-        text=text,
-        sent_at=datetime.utcnow(),
-        result=result,
-        **quality_fields,
-    )
+async def save_response(session: AsyncSession, order_id: int, text: str, result: str | None = None) -> Response:
+    response = Response(order_id=order_id, text=text, sent_at=datetime.utcnow(), result=result)
     session.add(response)
     await session.commit()
     await session.refresh(response)

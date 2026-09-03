@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 4 — proposal-quality gate**
+**Stage 3 — instant broad Freelancehunt discovery and first live revenue cycle**
 
 ## Readiness by workstream
 
@@ -15,9 +15,8 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Дія.Підпис verification: completed, reported by the user**
 - **Operational Gmail connection to ChatGPT: confirmed**
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
-- **Instant official-RSS discovery: deployed and verified**
-- **Railway → Telegram target-channel migration: completed**
-- **Proposal-quality gate V2: review blockers closed; deployment authorization pending**
+- **Fresh project digest on the new adult mailbox: not yet observed**
+- **Railway → Telegram opportunity flow: not yet activated on the new mailbox**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -39,24 +38,17 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `REVENUE_FLOW_IMPLEMENTATION_REQUIRED`
 - `DEPLOYED_LIVE_STATUS_HOTFIX_V2`
 - `ISSUE_7_COMPLETED`
-- `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`
-- `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
-- `STAGE_4_ACTIVE`
-- `ISSUE_11_CURRENT_WORK_ITEM`
-- `PROPOSAL_QUALITY_GATE_V2_READY_FOR_DEPLOY_REVIEW`
+- `STAGE_3_ACTIVE`
+- `ISSUE_9_CURRENT_WORK_ITEM`
 
 ## Protected production baseline
 
-- Production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`.
-- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`.
+- Production `main`: `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`.
+- Railway deployment: `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
-- Instant discovery is deployed and verified, and the Telegram channel
-  migration is complete.
-- Stage 4 is active; GitHub issue #11 is the current work item.
-- Current production cards with Score/Fit `0.0` are diagnostic legacy output,
-  not proposal-ready results.
+- Stage 3 is active; GitHub issue #9 is the current work item.
 
 ## Completed account and profile work
 
@@ -106,8 +98,8 @@ Do not rewrite it from scratch.
 - [x] `/reply_job` uses the full persisted description, context, evidence, price, timeline and saved proposal
 - [x] Active Gmail prompts/messages use Antonov Digital branding
 - [x] Scoring uses the approved no-minimum-budget, no-preferred-lane revenue policy
-- [x] The adult-owned OAuth identity and production ingestion baseline have been proven
-- [x] Local adult-mailbox read-only test and controlled Telegram validation completed; the deployed flow supersedes this historical gate
+- [ ] The new adult-owned OAuth identity is not yet installed and proven in Railway
+- [x] Local adult-mailbox read-only test and one controlled Telegram TEST completed; production end-to-end remains gated
 
 ## Stage 2 implementation plan
 
@@ -291,102 +283,3 @@ Stage 2 is operational when:
   `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5` and Railway deployment
   `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS`).
 - Status: `READY_FOR_INSTANT_DISCOVERY_DEPLOY`.
-
-## 2026-09-03 — Stage 4 issue #11 deployment gate
-
-- Instant discovery is now `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`, and
-  `TELEGRAM_CHANNEL_MIGRATION_COMPLETED` is the current channel state.
-- The proposal-quality gate runs after the unchanged live-status guard and
-  before qualification or Telegram delivery. Score and Fit remain separate;
-  only fresh `ACTIVE_BIDDABLE` + `executable=yes` + `QUALITY_VALID` or
-  `QUALITY_REPAIRED` can expose a proposal action.
-- Missing, null, malformed, non-finite and zero Score/Fit fail closed for
-  executable yes/maybe. Evidence is selected from the controlled Project Brain
-  registry, and proposal text is checked for placeholders, contacts,
-  unsupported claims, language, scope, specificity and commercial consistency.
-- One exact-error repair is permitted. A second deterministic failure becomes
-  manual review; provider failure remains retryable. Non-executable work stores
-  no price, timeline or usable proposal.
-- Controlled backfill is preview-first, bounded to 100, preserves source and
-  old analysis snapshots, refreshes live status, and deduplicates proposal
-  versions before any explicitly enabled replacement.
-- Read-only production preview at `2026-09-03T08:03:00Z`: 55
-  ACTIVE_BIDDABLE legacy rows; 55 with Score `<= 0`, 55 with null/zero Fit, 0
-  empty prices, 0 empty timelines, 0 empty proposals, and 55 without the new
-  approved evidence registry ID. No row was changed.
-- Validation: 239/239 tests pass (200 protected baseline plus 39 Stage 4
-  tests); compileall and production-like Python 3.12 import pass. The additive
-  migration ran twice against isolated PostgreSQL 17 and all 33 Stage 4
-  columns were present.
-- Production remains unchanged on `main`
-  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
-  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
-- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY`.
-
-## 2026-09-03 — Stage 4 issue #11 deployment review V2
-
-- Every newly generated or rewritten canonical proposal now crosses one
-  fail-closed service boundary: forced live refresh, candidate generation,
-  deterministic validation, at most one repair, revalidation, content-bound
-  versioning, persistence and version-aware delivery.
-- Legacy direct `Order` generation is disabled. A `Response` is copyable only
-  when its exact text hash, proposal version, source identity, quality result
-  and live-validation timestamp all match under a locked final database read.
-- Evidence and commercial clauses are application-owned. The model-owned body
-  cannot introduce case/capability claims, prices, timelines or milestone
-  logic; the final exact registry evidence and structured price/timeline block
-  are inserted by the application and bound into `proposal_version`.
-- Non-active backfill writes the first complete audit snapshot and hides active
-  proposal fields in one transaction. UNKNOWN uses `live_status_pending` or
-  `live_status_unknown_exhausted`, never the generic terminal state.
-- Missing, malformed, provider-failed and real-zero Score/Fit survive storage
-  and restart as distinct states (`—`, `INVALID`, `FAILED`, `0.0/10`).
-- Validation: 276/276 tests pass, including 37 focused V2 behavioral and
-  adversarial tests plus the protected 239-test suite. Compileall, Ruff F-rule
-  checks, `git diff --check` and production-like Python 3.12 import pass.
-- The additive migration ran twice on isolated PostgreSQL 17. All seven direct
-  Response protection fields and six score-semantic fields were present;
-  conflict preservation and atomic snapshot/hide behavior passed.
-- Read-only production audit at `2026-09-03T09:45:05Z`: 73 total rows; 63
-  ACTIVE_BIDDABLE legacy rows; all 63 have Score `<= 0`, null/zero Fit and no
-  deployed approved-evidence field, while 0 have empty price, timeline or
-  proposal. The V2 score/Response columns are correctly absent before deploy.
-- Production remains unchanged on `main`
-  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
-  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
-- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V2`.
-
-## 2026-09-03 — Stage 4 issue #11 deployment review V3
-
-- Final proposal composition is fully application-owned after the model body:
-  exact evidence and commercial clauses, milestone wording, timeline wording,
-  `NO_DIRECT_CASE`, and `DEMO_REQUIRED` are approved constants for uk/ru/en/pl.
-- Commercial terms now cross strict full-string allowlist parsers into typed
-  `MoneyTerms` and `TimelineTerms`, persist as canonical JSON, and are rendered
-  only from parsed values. Suffix injection, contradictory terms, malformed
-  ranges, invalid values, contacts, and arbitrary tails fail closed.
-- The exact localized final text is revalidated before its SHA-256 and
-  `pqg-v3` version are computed. Save/reload must reproduce the same text,
-  language, evidence, canonical terms, hash, version, and readiness decision.
-- Multilingual first-person past-work/experience claims and generic URLs,
-  domains, handles, phones, email obfuscation, social networks, messengers, and
-  mixed-script bypasses are rejected across the body and model-owned fields.
-- Unsolicited cards retain durable proposal-version dedup and stale-lease
-  recovery. Explicit `/reply_job` retrieval always performs a fresh live check,
-  may repeat the same validated text without a new version, and records each
-  successful retrieval separately. Direct Response state becomes sent only
-  after Telegram accepts the copy message.
-- Validation: 302/302 tests pass, including 26 focused V3 tests. Compileall,
-  Ruff F rules, diff check, and Python 3.12.14 production-like imports pass.
-- Isolated PostgreSQL 17 accepted the additive migration twice. The three V3
-  columns were present, and a persisted canonical proposal package passed an
-  exact round-trip readiness check after reload.
-- Current read-only production audit: 77 total rows, 67 ACTIVE_BIDDABLE; 67
-  legacy zero Score, 67 null/zero Fit, 67 without deployed evidence fields,
-  and one empty proposal. The V2/V3 columns remain absent, as expected before
-  deployment. The transaction was read-only and rolled back.
-- Production remains unchanged on `main`
-  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`; Railway deployment
-  `43a219b0-14e9-4f94-a108-b1a12e20039a` is `SUCCESS` with one of one replica
-  running.
-- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`.

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -15,10 +17,10 @@ Rules:
 - Use the requested client language exactly: uk, ru, en or pl.
 - Show direct understanding of the complete source specification/context.
 - Give a short concrete implementation approach.
-- Do not mention any prior case, client, proof point or completed capability.
-  The application appends the exact approved evidence clause after validation.
-- Do not mention a price, currency, milestone count or delivery duration.
-  The application appends those exact structured commercial fields.
+- Mention only the supplied approved evidence; never invent clients, results,
+  metrics, reviews, employees, years or skills.
+- Include the supplied project/milestone price and realistic timeline when they
+  are available; do not invent a fixed hourly rate or reject a low budget.
 - Polish communication is written with AI assistance; do not claim oral fluency.
 - Keep it concise and confident, with one low-friction next step.
 - Do not say that the message was sent and do not perform any platform action.
@@ -42,9 +44,6 @@ async def generate_reply(
     recommended_timeline: str = "",
     existing_proposal: str = "",
     rewrite: bool = False,
-    validation_errors: tuple[str, ...] | list[str] = (),
-    original_candidate: str = "",
-    repair_context: dict[str, Any] | None = None,
 ) -> str:
     """Return the stored proposal first; rewrite only on explicit request."""
 
@@ -75,29 +74,6 @@ async def generate_reply(
         f"Complete persisted specification/message:\n{description or '(not available)'}\n"
         f"Source link: {url or '(not available)'}"
     )
-    if validation_errors:
-        user_content += (
-            "\n\nBOUNDED QUALITY REPAIR. Correct exactly these errors and return a "
-            "complete replacement proposal body:\n"
-            + "\n".join(f"- {error}" for error in validation_errors)
-            + "\nOriginal generated candidate:\n"
-            + (original_candidate or "(empty)")
-        )
-        context = repair_context or {}
-        user_content += (
-            "\nOriginal model_output_json:\n"
-            + str(context.get("model_output_json") or "{}")[:12000]
-            + "\nNormalized original analysis:\n"
-            + json.dumps(
-                context.get("normalized_analysis") or {},
-                ensure_ascii=False,
-                default=str,
-                sort_keys=True,
-            )[:12000]
-            + "\nApproved application-owned evidence option (context only; "
-            "do not paraphrase it into the model-owned body):\n"
-            + str(context.get("approved_evidence") or "")
-        )
 
     try:
         response = await client.chat.completions.create(
