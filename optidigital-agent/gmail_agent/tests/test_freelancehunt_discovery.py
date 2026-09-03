@@ -28,6 +28,7 @@ from gmail_agent.gmail_provider import EmailMessage, MockGmailProvider
 from gmail_agent.live_status import LiveStatus, LiveStatusResult
 from gmail_agent.processor import GmailJobProcessor
 from gmail_agent.project_identity import freelancehunt_project_stable_key
+from gmail_agent.quality_gate import ANALYSIS_VERSION
 from gmail_agent.storage import InMemoryGmailRepository
 from gmail_agent.telegram_notifier import TELEGRAM_TEXT_LIMIT, format_job_card_parts
 from parser.base import BasePlatformParser
@@ -111,24 +112,35 @@ def _candidate_analysis(
         event_type=candidate.event_type,
         source_email_id=candidate.source_email_id,
         full_description=candidate.description,
-        description_completeness=candidate.description_completeness,
+        description_completeness="FULL",
+        language="en",
         category=candidate.category,
         project_id=candidate.project_id,
         service_lane=lane,
         executable=executable,
         fit_score=score,
+        score_valid=True,
+        score_raw=str(score),
+        score_state="VALID",
+        fit_score_valid=True,
+        fit_score_raw=str(score),
+        fit_score_state="VALID",
         win_probability_signal="medium",
         scope_clarity="medium",
         estimated_effort="1-2 days",
         delivery_risk="low",
         client_payment_risk="unknown",
         project_mode="CASH",
-        project_mode_reason="Small but executable first-cycle work.",
+        project_mode_reason="Small budget, but the scope is executable first-cycle work.",
         recommended_price="100 UAH" if relevant else "",
         realistic_timeline="1 day" if relevant else "",
-        selected_evidence="Public RSS specification.",
-        evidence="Title, description, category and budget assessed.",
-        proposal_draft="Synthetic manual-bid draft." if relevant else "",
+        evidence_case_id="NO_DIRECT_CASE",
+        evidence=f"The published source describes {candidate.title}.",
+        proposal_draft=(
+            f"We can deliver {candidate.title} using the published project requirements."
+            if relevant
+            else ""
+        ),
         next_action=(
             "Adult owner reviews and submits manually."
             if relevant
@@ -142,6 +154,7 @@ def _candidate_analysis(
         source_feed_timestamp=candidate.source_feed_timestamp,
         feed_fetched_at=candidate.feed_fetched_at,
         first_seen_at=candidate.first_seen_at,
+        analysis_version=ANALYSIS_VERSION,
     )
 
 
@@ -350,10 +363,22 @@ class TestInstantDiscoveryPipeline(unittest.IsolatedAsyncioTestCase):
             url=email.links[0],
             urgency="medium",
             why_relevant="Executable.",
+            language="en",
+            description_completeness="FULL",
             executable="yes",
             service_lane="content",
+            fit_score=8,
+            estimated_effort="1 day",
+            delivery_risk="Source access must be confirmed.",
+            client_payment_risk="Not enough data; use a funded milestone.",
+            project_mode="CASH",
+            project_mode_reason="Bounded paid task.",
             recommended_price="100 UAH",
-            proposal_draft="Manual draft.",
+            realistic_timeline="1 day",
+            evidence_case_id="NO_DIRECT_CASE",
+            proposal_draft="We can deliver the synthetic content editing task.",
+            next_action="Review the proposal manually.",
+            analysis_version=ANALYSIS_VERSION,
         )
         send = AsyncMock(return_value=True)
         processor = GmailJobProcessor(
@@ -622,7 +647,7 @@ class TestInstantDiscoveryPipeline(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stats.sent, 0)
         send.assert_not_awaited()
         processed = await repository.get_processed(batch.candidates[0].stable_key)
-        self.assertEqual(processed.decision, "not_relevant")
+        self.assertEqual(processed.decision, "quality_non_executable")
 
     async def test_malformed_feed_records_failed_scan_without_project_actions(self):
         repository = InMemoryGmailRepository()
@@ -682,6 +707,7 @@ class TestStage3ConfigurationAndCompatibility(unittest.IsolatedAsyncioTestCase):
         analysis.title = "SEO <script>alert(1)</script>"
         analysis.full_description = "Use <b>unsafe source markup</b> & research."
         analysis.live_status = LiveStatus.ACTIVE_BIDDABLE.value
+        analysis.live_status_checked_at = datetime.now(timezone.utc)
         analysis.biddable = True
         parts = format_job_card_parts(analysis)
         self.assertEqual(len(parts), 1)
