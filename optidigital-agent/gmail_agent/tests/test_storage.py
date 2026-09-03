@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
+import logging
 import sys
 import types
 import unittest
@@ -42,6 +44,8 @@ def _load_storage_module() -> types.ModuleType:
         "utc_now",
         "ProcessedItem",
         "StoredGmailJob",
+        "_quality_errors_with_metadata_violation",
+        "_normalize_stored_job",
         "ScanRun",
         "InMemoryGmailRepository",
     }
@@ -67,9 +71,19 @@ def _load_storage_module() -> types.ModuleType:
     module_name = "_gmail_storage_without_sqlalchemy"
     module = types.ModuleType(module_name)
     module.__file__ = str(STORAGE_PATH)
+    from gmail_agent.quality_gate import (
+        PROPOSAL_READY_QUALITY_STATUSES,
+        SCORE_STATES,
+        SCORE_VALID,
+        finite_score,
+        normalize_score_metadata,
+    )
+
     module.__dict__.update(
         {
             "asyncio": asyncio,
+            "json": json,
+            "logger": logging.getLogger(module_name),
             "Sequence": Sequence,
             "dataclass": dataclass,
             "dataclass_field": dataclass_field,
@@ -77,6 +91,11 @@ def _load_storage_module() -> types.ModuleType:
             "datetime": datetime,
             "timedelta": timedelta,
             "timezone": timezone,
+            "PROPOSAL_READY_QUALITY_STATUSES": PROPOSAL_READY_QUALITY_STATUSES,
+            "SCORE_STATES": SCORE_STATES,
+            "SCORE_VALID": SCORE_VALID,
+            "finite_score": finite_score,
+            "normalize_score_metadata": normalize_score_metadata,
         }
     )
     sys.modules[module_name] = module

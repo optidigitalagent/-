@@ -2,41 +2,37 @@
 
 ## Current status
 
-`READY_FOR_INSTANT_DISCOVERY_DEPLOY`
+`READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`
 
-The live-status safety hotfix V2 is deployed and is the protected production
-baseline:
-
-- state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`;
-- GitHub issue #7: completed;
-- production `main`: `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`;
-- Railway deployment: `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a`;
-- deployment state: `SUCCESS / RUNNING`.
-
-Stage 3 is active. GitHub issue #9 is the current work item. The isolated
-implementation branch is `feature/freelancehunt-instant-discovery-v1`; it adds
-official-RSS discovery, 60-second polling, shared canonical project identity,
-restart-safe PostgreSQL dedup, the unchanged live-status guard, broad
-commercial analysis and Telegram latency telemetry.
+Stage 4 issue #11 remains open after PR #12 was rolled back. The follow-up
+branch is `fix/proposal-quality-gate-nullable-score-fit-metadata-v1`, created
+from rollback `main` `01978e2b1935ea708f86afdeaed321bb3f8db8c2`.
+Commit `a44641f` cleanly reapplies the approved Stage 4 tree, and separate
+commit `39beac1` adds the nullable Score/Fit metadata hotfix.
 
 Validation evidence:
 
-- 200/200 canonical tests pass: the protected 181-test baseline plus 19 Stage 3
-  tests;
-- PostgreSQL-like migration ran 79 additive statements twice with no
-  destructive operation and all required Stage 3 columns present;
-- Python 3.12 production-like startup under Railway runtime configuration
-  registered 60 seconds, `max_instances=1`, `coalesce=true`;
-- a current official public-feed item parsed to one canonical ID and the
-  deployed guard classified it `ACTIVE_BIDDABLE`, `biddable=true`;
-- sanitized controlled latency was 25.053 seconds; repeat and restart each
-  produced a duplicate with one total send call;
-- production remains unchanged on the protected baseline above.
+- all 302 protected tests remain passing; the full suite discovers 310 tests,
+  runs 304 successfully and skips only six opt-in PostgreSQL cases;
+- all eight focused nullable-metadata tests pass when those six cases run on
+  an isolated real PostgreSQL 17 server;
+- compileall, Ruff F-rule checks, `git diff --check`, and production-like
+  Python 3.12.14 imports pass;
+- the pre-fix real PostgreSQL test reproduced SQLSTATE 23502 on
+  `fit_score_valid=NULL`; the identical route passes after normalization;
+- clean and production-like existing-column schemas each accepted `init_db`
+  twice and retained NOT NULL boolean/state contracts;
+- scheduler, second-cycle, restart, conflict-upsert, update, live recheck and
+  quality-backfill persistence paths retain coherent Score/Fit semantics;
+- production remains unchanged on rollback `main`
+  `01978e2b1935ea708f86afdeaed321bb3f8db8c2`, Railway deployment
+  `5af42416-7c91-4283-9c26-8282f0d6f4d4` (`SUCCESS`, 1/1 replica running).
 
-No merge, production deployment, Railway variable change, bid or client
-message is authorized by the Stage 3 implementation work.
+No merge, deployment, Railway variable change, OAuth/Telegram secret change,
+backfill, replacement card, bid, client message, contract, or payment was
+performed.
 
 ## Exactly one next action
 
-Reply `AUTHORIZE_INSTANT_DISCOVERY_DEPLOY` to authorize merge and a controlled
-Railway deployment of issue #9.
+Review the new follow-up Draft PR and, if accepted, provide a separate explicit
+nullable-metadata hotfix deployment authorization.

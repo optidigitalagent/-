@@ -626,3 +626,45 @@ token.json: ✅ знайдено
   `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`, Railway deployment
   `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS / RUNNING`).
 - Status: `READY_FOR_INSTANT_DISCOVERY_DEPLOY`.
+
+## 2026-09-03 Stage 4 proposal-quality gate review V3
+
+- Closed the V3 localization, typed-commercial, multilingual claim, generic
+  off-platform, manual retrieval, stale-claim, and final source-of-truth
+  blockers in existing Draft PR #12.
+- Final evidence and commercial wording is approved and localized for
+  uk/ru/en/pl. Price/timeline inputs are parsed into canonical typed values;
+  the final proposal is revalidated before exact hash and `pqg-v3` versioning.
+- Unsolicited delivery remains durable and version-deduplicated. Explicit
+  manual retrieval is repeatable after a fresh live check and records separate
+  retrieval telemetry. Direct Response sent state follows confirmed Telegram
+  copy delivery.
+- QA: 302/302 full tests, 26/26 focused V3 tests, compileall, Ruff F checks,
+  diff check, Python 3.12.14 import, and PostgreSQL 17 migration-twice plus
+  exact reload round-trip all pass.
+- Read-only production remains `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS`, 1/1 running). No
+  production row, variable, OAuth/Telegram secret, card, bid, or message was
+  changed.
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`.
+
+## 2026-09-03 Stage 4 nullable Score/Fit metadata hotfix
+
+- Reapplied the previously approved Stage 4 tree on a new branch from rollback
+  `main` `01978e2b1935ea708f86afdeaed321bb3f8db8c2`; reapply tree equals approved
+  source head `468592c0f1c799bef1730701e092c67532c875e3`.
+- Reproduced the production defect before fixing it on real PostgreSQL 17:
+  official RSS -> `LIVE_STATUS_UNKNOWN` -> status-only analysis -> insert ->
+  `fit_score_valid=NULL` -> SQLSTATE 23502.
+- Added one central Score/Fit normalization contract plus defensive repository
+  normalization for insert, conflict upsert, update, retry/restart, live-status
+  recheck, and quality-backfill persistence.
+- All 302 protected tests remain green. The full suite discovers 310 tests;
+  304 pass in the default run with six opt-in PostgreSQL skips, and all eight
+  focused tests pass with the six real-PostgreSQL cases enabled. Migration x2,
+  scheduler/restart, compileall, Ruff F, diff, Python 3.12.14, localization,
+  Telegram HTML/size, live-status, and cross-source dedup gates pass.
+- No merge, deployment, production migration/backfill, replacement card,
+  variable/secret change, bid, client message, contract, or payment occurred.
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.

@@ -7,17 +7,28 @@ equivalent :class:`InMemoryGmailRepository` without credentials or a database.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, case, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .project_identity import freelancehunt_project_stable_key
+from .quality_gate import (
+    PROPOSAL_READY_QUALITY_STATUSES,
+    SCORE_STATES,
+    SCORE_VALID,
+    finite_score,
+    normalize_score_metadata,
+)
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_JOB_STATUSES = frozenset(
     {
@@ -26,9 +37,11 @@ TERMINAL_JOB_STATUSES = frozenset(
         "live_status_terminal",
         "live_status_unknown_exhausted",
         "live_status_active_manual",
+        "quality_manual_review",
+        "quality_non_executable",
     }
 )
-DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed")
+DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed", "quality_review_pending")
 DEFAULT_SENDING_LEASE = timedelta(minutes=15)
 _IDENTITY_RECONCILIATION_MARKER = "stage3_freelancehunt_identity_v1"
 _LEGACY_CARD_STATUSES = frozenset(
@@ -126,11 +139,144 @@ class StoredGmailJob:
     first_seen_at: datetime | None = None
     telegram_sent_at: datetime | None = None
     publication_to_telegram_latency_seconds: float | None = None
+    analysis_quality_status: str = ""
+    quality_checked_at: datetime | None = None
+    quality_errors: str = "[]"
+    quality_repair_count: int = 0
+    proposal_quality_score: float | None = None
+    evidence_case_id: str = ""
+    analysis_version: str = ""
+    proposal_version: str = ""
+    proposal_content_sha256: str = ""
+    money_terms_json: str = ""
+    timeline_terms_json: str = ""
+    original_analysis_snapshot: str = ""
+    quality_clarification_question: str = ""
+    model_output_json: str = ""
+    score_valid: bool = False
+    score_raw: str = ""
+    score_state: str = "MISSING"
+    fit_score_valid: bool = False
+    fit_score_raw: str = ""
+    fit_score_state: str = "MISSING"
 
 
 # Short public name for callers; the longer name makes its persistence role
 # explicit at call sites that also use the analyzer's JobAnalysis type.
 GmailJob = StoredGmailJob
+
+
+def _quality_errors_with_metadata_violation(
+    value: str, fields: Sequence[str]
+) -> str:
+    try:
+        decoded = json.loads(value or "[]")
+        errors = [str(item) for item in decoded] if isinstance(decoded, list) else []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        errors = []
+    for field_name in fields:
+        error = f"score_metadata_contract_violation:{field_name}"
+        if error not in errors:
+            errors.append(error)
+    return json.dumps(errors, ensure_ascii=False)
+
+
+def _normalize_stored_job(
+    job: StoredGmailJob, *, strict_numeric: bool = True
+) -> StoredGmailJob:
+    """Enforce concrete and coherent Score/Fit metadata at every write edge."""
+
+    updates: dict[str, Any] = {}
+    corrected: list[str] = []
+    states: dict[str, str] = {}
+    for field_name in ("score", "fit_score"):
+        original_value = getattr(job, field_name)
+        original_valid = getattr(job, f"{field_name}_valid", None)
+        original_raw = getattr(job, f"{field_name}_raw", None)
+        original_state = getattr(job, f"{field_name}_state", None)
+        normalized_state = (
+            original_state.strip().upper()
+            if isinstance(original_state, str)
+            else ""
+        )
+        concrete_contract = (
+            isinstance(original_valid, bool)
+            and isinstance(original_raw, str)
+            and isinstance(original_state, str)
+            and original_state == normalized_state
+            and normalized_state in SCORE_STATES
+            and original_valid == (normalized_state == SCORE_VALID)
+            and (
+                normalized_state != SCORE_VALID
+                or finite_score(original_value) is not None
+            )
+        )
+        if (
+            not strict_numeric
+            and concrete_contract
+            and (field_name == "fit_score" or finite_score(original_value) is not None)
+        ):
+            states[field_name] = normalized_state
+            continue
+        metadata = normalize_score_metadata(
+            original_value,
+            raw=original_raw,
+            explicit_state=original_state or "",
+            explicit_valid=original_valid,
+            analysis_succeeded=(
+                str(getattr(job, f"{field_name}_state", "") or "").upper()
+                != "FAILED"
+            ),
+        )
+        normalized = {
+            field_name: metadata.value,
+            f"{field_name}_valid": metadata.valid,
+            f"{field_name}_raw": metadata.raw,
+            f"{field_name}_state": metadata.state,
+        }
+        states[field_name] = metadata.state
+        for key, value in normalized.items():
+            original = getattr(job, key)
+            if type(original) is not type(value) or original != value:
+                corrected.append(key)
+            updates[key] = value
+
+    unsafe_ready_claim = (
+        job.analysis_quality_status in PROPOSAL_READY_QUALITY_STATUSES
+        and job.live_status == "ACTIVE_BIDDABLE"
+        and job.biddable is True
+        and str(job.executable or "").casefold() == "yes"
+    )
+    unavailable = [name for name, state in states.items() if state != SCORE_VALID]
+    if unsafe_ready_claim and unavailable:
+        corrected.extend(unavailable)
+        updates.update(
+            qualified=False,
+            status=(
+                job.status
+                if job.status in TERMINAL_JOB_STATUSES
+                else "quality_manual_review"
+            ),
+            status_updated_at=utc_now(),
+            analysis_quality_status="QUALITY_MANUAL_REVIEW",
+            quality_errors=_quality_errors_with_metadata_violation(
+                job.quality_errors, unavailable
+            ),
+            proposal_quality_score=0.0,
+            recommended_price="",
+            realistic_timeline="",
+            proposal_draft="",
+            proposal_version="",
+            proposal_content_sha256="",
+            money_terms_json="",
+            timeline_terms_json="",
+        )
+    if corrected:
+        logger.warning(
+            "Normalized Score/Fit persistence metadata fields=%s",
+            ",".join(sorted(set(corrected))),
+        )
+    return replace(job, **updates)
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,6 +304,18 @@ class ScanRun:
     live_status_unknown: int = 0
     ai_calls_avoided: int = 0
     max_publication_to_telegram_latency_seconds: float | None = None
+    quality_valid: int = 0
+    quality_repaired: int = 0
+    quality_manual_review: int = 0
+    quality_non_executable: int = 0
+    quality_failed: int = 0
+    zero_score_blocked: int = 0
+    missing_price_blocked: int = 0
+    missing_proposal_blocked: int = 0
+    invalid_evidence_blocked: int = 0
+    repair_calls: int = 0
+    repair_successes: int = 0
+    proposal_versions_sent: int = 0
     id: int | None = None
 
 
@@ -168,6 +326,10 @@ class GmailRepository(Protocol):
     async def get_processed(self, stable_key: str) -> ProcessedItem | None: ...
 
     async def upsert_processed(self, item: ProcessedItem) -> ProcessedItem: ...
+
+    async def claim_processed(self, item: ProcessedItem) -> bool: ...
+
+    async def delete_processed(self, stable_key: str) -> None: ...
 
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob: ...
 
@@ -208,6 +370,17 @@ class GmailRepository(Protocol):
     async def list_scan_runs(self, limit: int = 20) -> list[ScanRun]: ...
 
     async def reconcile_freelancehunt_identities(self) -> int: ...
+
+    async def list_quality_backfill_candidates(
+        self, limit: int = 20
+    ) -> list[StoredGmailJob]: ...
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None: ...
 
 
 class InMemoryGmailRepository:
@@ -296,10 +469,24 @@ class InMemoryGmailRepository:
             self._processed[item.stable_key] = stored
             return replace(stored)
 
+    async def claim_processed(self, item: ProcessedItem) -> bool:
+        async with self._lock:
+            if item.stable_key in self._processed:
+                return False
+            self._processed[item.stable_key] = replace(item)
+            return True
+
+    async def delete_processed(self, stable_key: str) -> None:
+        async with self._lock:
+            self._processed.pop(stable_key, None)
+
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob:
         async with self._lock:
+            job = _normalize_stored_job(job, strict_numeric=False)
             current = self._jobs.get(job.stable_key)
             if current is not None:
+                explicit_quality = bool(job.analysis_quality_status)
+                keep_existing_quality = bool(current.analysis_quality_status) and not explicit_quality
                 status = current.status if current.status in TERMINAL_JOB_STATUSES else job.status
                 status_updated_at = (
                     current.status_updated_at
@@ -317,9 +504,94 @@ class InMemoryGmailRepository:
                         job.full_description or current.full_description
                     ),
                     client_context=(job.client_context or current.client_context),
-                    proposal_draft=(job.proposal_draft or current.proposal_draft),
+                    proposal_draft=(
+                        job.proposal_draft
+                        if job.analysis_quality_status
+                        else (job.proposal_draft or current.proposal_draft)
+                    ),
                     selected_evidence=(
-                        job.selected_evidence or current.selected_evidence
+                        job.selected_evidence
+                        if job.analysis_quality_status
+                        else (job.selected_evidence or current.selected_evidence)
+                    ),
+                    recommended_price=(
+                        current.recommended_price
+                        if keep_existing_quality
+                        else job.recommended_price
+                    ),
+                    realistic_timeline=(
+                        current.realistic_timeline
+                        if keep_existing_quality
+                        else job.realistic_timeline
+                    ),
+                    analysis_quality_status=(
+                        current.analysis_quality_status
+                        if keep_existing_quality
+                        else job.analysis_quality_status
+                    ),
+                    quality_checked_at=(
+                        current.quality_checked_at
+                        if keep_existing_quality
+                        else job.quality_checked_at
+                    ),
+                    quality_errors=(
+                        current.quality_errors
+                        if keep_existing_quality
+                        else job.quality_errors
+                    ),
+                    quality_repair_count=(
+                        current.quality_repair_count
+                        if keep_existing_quality
+                        else job.quality_repair_count
+                    ),
+                    proposal_quality_score=(
+                        current.proposal_quality_score
+                        if keep_existing_quality
+                        else job.proposal_quality_score
+                    ),
+                    evidence_case_id=(
+                        current.evidence_case_id
+                        if keep_existing_quality
+                        else job.evidence_case_id
+                    ),
+                    analysis_version=(
+                        current.analysis_version
+                        if keep_existing_quality
+                        else job.analysis_version
+                    ),
+                    proposal_version=(
+                        current.proposal_version
+                        if keep_existing_quality
+                        else job.proposal_version
+                    ),
+                    proposal_content_sha256=(
+                        current.proposal_content_sha256
+                        if keep_existing_quality
+                        else job.proposal_content_sha256
+                    ),
+                    money_terms_json=(
+                        current.money_terms_json
+                        if keep_existing_quality
+                        else job.money_terms_json
+                    ),
+                    timeline_terms_json=(
+                        current.timeline_terms_json
+                        if keep_existing_quality
+                        else job.timeline_terms_json
+                    ),
+                    original_analysis_snapshot=(
+                        current.original_analysis_snapshot
+                        or job.original_analysis_snapshot
+                    ),
+                    quality_clarification_question=(
+                        current.quality_clarification_question
+                        if keep_existing_quality
+                        else job.quality_clarification_question
+                    ),
+                    model_output_json=(
+                        current.model_output_json
+                        if keep_existing_quality
+                        else job.model_output_json
                     ),
                     first_seen_at=(current.first_seen_at or job.first_seen_at),
                     discovery_source=(
@@ -330,7 +602,7 @@ class InMemoryGmailRepository:
                         job.discovery_sources or job.discovery_source,
                     ),
                 )
-            stored = replace(job)
+            stored = _normalize_stored_job(job, strict_numeric=False)
             self._jobs[job.stable_key] = stored
             return replace(stored)
 
@@ -372,9 +644,43 @@ class InMemoryGmailRepository:
                 "created_at",
             }
             values = {key: value for key, value in fields.items() if key in allowed}
+            if values.get("original_analysis_snapshot"):
+                values["original_analysis_snapshot"] = (
+                    job.original_analysis_snapshot
+                    or values["original_analysis_snapshot"]
+                )
             if "status" in values and "status_updated_at" not in values:
                 values["status_updated_at"] = utc_now()
-            updated = replace(job, **values)
+            updated = _normalize_stored_job(
+                replace(job, **values), strict_numeric=False
+            )
+            self._jobs[stable_key] = updated
+            return replace(updated)
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None:
+        """Atomically preserve the first audit snapshot before hiding fields."""
+
+        async with self._lock:
+            job = self._jobs.get(stable_key)
+            if job is None:
+                return None
+            allowed = set(StoredGmailJob.__dataclass_fields__) - {
+                "stable_key", "created_at", "full_description", "source_email_id"
+            }
+            values = {key: value for key, value in fields.items() if key in allowed}
+            values["original_analysis_snapshot"] = (
+                job.original_analysis_snapshot or original_snapshot
+            )
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            updated = _normalize_stored_job(
+                replace(job, **values), strict_numeric=False
+            )
             self._jobs[stable_key] = updated
             return replace(updated)
 
@@ -462,6 +768,36 @@ class InMemoryGmailRepository:
                 reverse=True,
             )
             return [replace(run) for run in ordered[:limit]]
+
+    async def list_quality_backfill_candidates(
+        self, limit: int = 20
+    ) -> list[StoredGmailJob]:
+        if limit <= 0:
+            return []
+        from .quality_gate import EVIDENCE_REGISTRY, PROPOSAL_READY_QUALITY_STATUSES
+
+        async with self._lock:
+            rows = [
+                job
+                for job in self._jobs.values()
+                if job.live_status == "ACTIVE_BIDDABLE"
+                and job.biddable is True
+                and (
+                    job.analysis_quality_status
+                    not in PROPOSAL_READY_QUALITY_STATUSES
+                    or job.score is None
+                    or job.score <= 0
+                    or job.fit_score is None
+                    or job.fit_score <= 0
+                    or not (job.recommended_price or "").strip()
+                    or not (job.realistic_timeline or "").strip()
+                    or not (job.proposal_draft or "").strip()
+                    or (job.evidence_case_id or "").strip().upper()
+                    not in EVIDENCE_REGISTRY
+                )
+            ]
+            rows.sort(key=lambda job: (job.created_at, job.stable_key))
+            return [replace(job) for job in rows[: min(int(limit), 100)]]
 
 
 AsyncSessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -657,16 +993,62 @@ class PostgresGmailRepository:
                 "created_at",
                 "status",
                 "status_updated_at",
-                # Source truth and the original proposal remain immutable on
-                # conflict; rewrites are returned separately by /reply_job.
+                # Source truth remains immutable on conflict. Stage 4 may
+                # replace or clear a proposal only with an explicit persisted
+                # quality state; the prior package is retained in
+                # original_analysis_snapshot for audit.
                 "full_description",
                 "client_context",
-                "proposal_draft",
-                "selected_evidence",
                 "first_seen_at",
                 "discovery_source",
             }
         }
+        quality_incoming = and_(
+            excluded.analysis_quality_status.is_not(None),
+            excluded.analysis_quality_status != "",
+        )
+        for field_name in (
+            "proposal_draft",
+            "selected_evidence",
+            "analysis_quality_status",
+            "quality_checked_at",
+            "quality_errors",
+            "quality_repair_count",
+            "proposal_quality_score",
+            "evidence_case_id",
+            "analysis_version",
+            "proposal_version",
+            "proposal_content_sha256",
+            "money_terms_json",
+            "timeline_terms_json",
+            "original_analysis_snapshot",
+            "quality_clarification_question",
+            "model_output_json",
+        ):
+            incoming[field_name] = case(
+                (quality_incoming, getattr(excluded, field_name)),
+                else_=getattr(self._job_model, field_name),
+            )
+        incoming["original_analysis_snapshot"] = case(
+            (
+                or_(
+                    self._job_model.original_analysis_snapshot.is_(None),
+                    self._job_model.original_analysis_snapshot == "",
+                ),
+                excluded.original_analysis_snapshot,
+            ),
+            else_=self._job_model.original_analysis_snapshot,
+        )
+        quality_or_legacy = or_(
+            quality_incoming,
+            self._job_model.analysis_quality_status.is_(None),
+            self._job_model.analysis_quality_status == "",
+        )
+        for field_name in ("recommended_price", "realistic_timeline"):
+            incoming[field_name] = case(
+                (quality_or_legacy, getattr(excluded, field_name)),
+                else_=getattr(self._job_model, field_name),
+            )
         incoming["status"] = _preserved_job_status(excluded.status, self._job_model)
         incoming["status_updated_at"] = _preserved_job_status_updated_at(
             excluded.status_updated_at, self._job_model
@@ -723,15 +1105,130 @@ class PostgresGmailRepository:
         values = {key: value for key, value in fields.items() if key in allowed}
         if not values:
             return await self.get_job(stable_key)
-        if "status" in values and "status_updated_at" not in values:
-            values["status_updated_at"] = utc_now()
+        async with self._session_factory() as session:
+            model = await session.get(
+                self._job_model, stable_key, with_for_update=True
+            )
+            if model is None:
+                return None
+            current = _job_from_row(model)
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            if values.get("original_analysis_snapshot"):
+                values["original_analysis_snapshot"] = (
+                    current.original_analysis_snapshot
+                    or values["original_analysis_snapshot"]
+                )
+            normalized = _normalize_stored_job(replace(current, **values))
+            for field_name in ("score", "fit_score"):
+                for suffix in ("", "_valid", "_raw", "_state"):
+                    key = f"{field_name}{suffix}"
+                    values[key] = getattr(normalized, key)
+            for key in (
+                "qualified",
+                "status",
+                "status_updated_at",
+                "analysis_quality_status",
+                "quality_errors",
+                "proposal_quality_score",
+                "recommended_price",
+                "realistic_timeline",
+                "proposal_draft",
+                "proposal_version",
+                "proposal_content_sha256",
+                "money_terms_json",
+                "timeline_terms_json",
+            ):
+                if getattr(normalized, key) != getattr(current, key) or key in values:
+                    values[key] = getattr(normalized, key)
+            statement = (
+                update(self._job_model)
+                .where(self._job_model.stable_key == stable_key)
+                .values(**values)
+                .returning(*self._job_model.__table__.c)
+            )
+            result = await session.execute(statement)
+            row = result.mappings().one_or_none()
+            stored = _job_from_row(row) if row is not None else None
+            await session.commit()
+            return stored
+
+    async def claim_processed(self, item: ProcessedItem) -> bool:
         statement = (
-            update(self._job_model)
-            .where(self._job_model.stable_key == stable_key)
-            .values(**values)
-            .returning(*self._job_model.__table__.c)
+            postgres_insert(self._processed_item_model)
+            .values(**_processed_values(item))
+            .on_conflict_do_nothing(
+                index_elements=[self._processed_item_model.stable_key]
+            )
+            .returning(self._processed_item_model.stable_key)
         )
         async with self._session_factory() as session:
+            result = await session.execute(statement)
+            claimed = result.scalar_one_or_none() is not None
+            await session.commit()
+            return claimed
+
+    async def delete_processed(self, stable_key: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(self._processed_item_model).where(
+                    self._processed_item_model.stable_key == stable_key
+                )
+            )
+            await session.commit()
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None:
+        """One transaction: first snapshot wins, then active fields may hide."""
+
+        allowed = set(StoredGmailJob.__dataclass_fields__) - {
+            "stable_key", "created_at", "full_description", "source_email_id"
+        }
+        values = {key: value for key, value in fields.items() if key in allowed}
+        async with self._session_factory() as session:
+            model = await session.get(
+                self._job_model, stable_key, with_for_update=True
+            )
+            if model is None:
+                return None
+            current = _job_from_row(model)
+            values["original_analysis_snapshot"] = (
+                current.original_analysis_snapshot or original_snapshot
+            )
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            normalized = _normalize_stored_job(replace(current, **values))
+            for field_name in ("score", "fit_score"):
+                for suffix in ("", "_valid", "_raw", "_state"):
+                    key = f"{field_name}{suffix}"
+                    values[key] = getattr(normalized, key)
+            for key in (
+                "qualified",
+                "status",
+                "status_updated_at",
+                "analysis_quality_status",
+                "quality_errors",
+                "proposal_quality_score",
+                "recommended_price",
+                "realistic_timeline",
+                "proposal_draft",
+                "proposal_version",
+                "proposal_content_sha256",
+                "money_terms_json",
+                "timeline_terms_json",
+            ):
+                if getattr(normalized, key) != getattr(current, key) or key in values:
+                    values[key] = getattr(normalized, key)
+            statement = (
+                update(self._job_model)
+                .where(self._job_model.stable_key == stable_key)
+                .values(**values)
+                .returning(*self._job_model.__table__.c)
+            )
             result = await session.execute(statement)
             row = result.mappings().one_or_none()
             stored = _job_from_row(row) if row is not None else None
@@ -854,6 +1351,50 @@ class PostgresGmailRepository:
             result = await session.scalars(statement)
             return [_scan_run_from_row(model) for model in result.all()]
 
+    async def list_quality_backfill_candidates(
+        self, limit: int = 20
+    ) -> list[StoredGmailJob]:
+        if limit <= 0:
+            return []
+        from .quality_gate import EVIDENCE_REGISTRY, PROPOSAL_READY_QUALITY_STATUSES
+
+        statement = (
+            select(self._job_model)
+            .where(
+                self._job_model.live_status == "ACTIVE_BIDDABLE",
+                self._job_model.biddable.is_(True),
+                or_(
+                    self._job_model.analysis_quality_status.is_(None),
+                    self._job_model.analysis_quality_status.not_in(
+                        tuple(PROPOSAL_READY_QUALITY_STATUSES)
+                    ),
+                    self._job_model.score_valid.is_(False),
+                    self._job_model.score_state != "VALID",
+                    self._job_model.score <= 0,
+                    self._job_model.fit_score_valid.is_(False),
+                    self._job_model.fit_score_state != "VALID",
+                    self._job_model.fit_score.is_(None),
+                    self._job_model.fit_score <= 0,
+                    self._job_model.recommended_price.is_(None),
+                    self._job_model.recommended_price == "",
+                    self._job_model.realistic_timeline.is_(None),
+                    self._job_model.realistic_timeline == "",
+                    self._job_model.proposal_draft.is_(None),
+                    self._job_model.proposal_draft == "",
+                    self._job_model.evidence_case_id.is_(None),
+                    self._job_model.evidence_case_id == "",
+                    self._job_model.evidence_case_id.not_in(
+                        tuple(EVIDENCE_REGISTRY)
+                    ),
+                ),
+            )
+            .order_by(self._job_model.created_at.asc(), self._job_model.stable_key.asc())
+            .limit(min(int(limit), 100))
+        )
+        async with self._session_factory() as session:
+            result = await session.scalars(statement)
+            return [_job_from_row(model) for model in result.all()]
+
 
 def _preserved_job_status(incoming_status: Any, job_model: Any) -> Any:
     from sqlalchemy import case
@@ -897,7 +1438,11 @@ def _processed_values(item: ProcessedItem) -> dict[str, Any]:
 
 
 def _job_values(job: StoredGmailJob) -> dict[str, Any]:
-    return {field: getattr(job, field) for field in StoredGmailJob.__dataclass_fields__}
+    normalized = _normalize_stored_job(job)
+    return {
+        field: getattr(normalized, field)
+        for field in StoredGmailJob.__dataclass_fields__
+    }
 
 
 def _scan_run_values(run: ScanRun) -> dict[str, Any]:
@@ -915,8 +1460,13 @@ def _processed_from_row(row: Any) -> ProcessedItem:
 
 
 def _job_from_row(row: Any) -> StoredGmailJob:
-    return StoredGmailJob(
-        **{field: _row_value(row, field) for field in StoredGmailJob.__dataclass_fields__}
+    return _normalize_stored_job(
+        StoredGmailJob(
+            **{
+                field: _row_value(row, field)
+                for field in StoredGmailJob.__dataclass_fields__
+            }
+        )
     )
 
 
