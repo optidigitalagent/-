@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 4 — proposal-quality gate**
+**Stage 4 — proposal-quality gate deployed and verified**
 
 ## Readiness by workstream
 
@@ -17,7 +17,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
-- **Proposal-quality gate V2: review blockers closed; deployment authorization pending**
+- **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -41,20 +41,20 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `ISSUE_7_COMPLETED`
 - `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`
 - `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
-- `STAGE_4_ACTIVE`
-- `ISSUE_11_CURRENT_WORK_ITEM`
-- `PROPOSAL_QUALITY_GATE_V2_READY_FOR_DEPLOY_REVIEW`
+- `STAGE_4_DEPLOYED_AND_VERIFIED`
+- `ISSUE_11_COMPLETED`
+- `PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOYED_AND_VERIFIED`
 
 ## Protected production baseline
 
-- Production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`.
-- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`.
+- Production `main`: `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
+- Railway deployment: `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
 - Instant discovery is deployed and verified, and the Telegram channel
   migration is complete.
-- Stage 4 is active; GitHub issue #11 is the current work item.
+- Stage 4 issue #11 is completed after the nullable-metadata hotfix deployment.
 - Current production cards with Score/Fit `0.0` are diagnostic legacy output,
   not proposal-ready results.
 
@@ -415,3 +415,24 @@ Stage 2 is operational when:
 - Production remains unchanged on rollback `main` `01978e2b...` and healthy
   Railway deployment `5af42416-7c91-4283-9c26-8282f0d6f4d4`.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
+
+## 2026-09-03 — Stage 4 nullable Score/Fit metadata production deployment
+
+- PR #13 was promoted from Draft and merged from exact reviewed source HEAD
+  `ec54f2527918f9139db60408db97773b24718edc`.
+- Production `main` is `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`;
+  its tree `41d7bf648034009b528e8db5c6a6244ca76f6192` matches the reviewed PR tree.
+- Railway deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05` reached `SUCCESS`,
+  is not stopped, and has exactly one of one replica RUNNING.
+- The additive startup migration created all 20 expected Stage 4
+  `gmail_jobs` columns. A read-only audit of 102 rows found zero NULL
+  valid/state fields, zero Score/Fit semantic mismatches, and zero unsafe
+  proposal-ready rows.
+- Four RSS and four Gmail scheduler cycles completed with `errors=0`; bounded
+  logs contained no traceback, NotNullViolation, SQLSTATE 23502, or
+  IntegrityError.
+- Issue #11 was closed only after the production verification passed.
+- No manual migration, backfill, replacement card, variable/secret or OAuth
+  change, bid, client message, contract, or payment was performed.
+- Status:
+  `PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOYED_AND_VERIFIED`.
