@@ -20,6 +20,8 @@ from .quality_gate import (
     quality_errors,
     validate_analysis,
 )
+from .sales_closer import SalesProcessResult, opportunity_id_for_analysis
+from .sales_storage import HumanInformationRequest, SalesOpportunity
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +135,25 @@ def _split_text(value: str, max_escaped: int = 3000) -> list[str]:
 
 def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
     safe_url = safe_http_url(analysis.url)
+    bid_ready = is_proposal_ready(analysis)
+    decision = (
+        "GO"
+        if bid_ready and finite_score(analysis.score) is not None and finite_score(analysis.score) >= 6
+        else "REVIEW"
+    )
     lines = [
-        f"{_score_emoji(analysis.score)} <b>New Job Match</b> {_urgency_emoji(analysis.urgency)}",
+        (
+            f"{_score_emoji(analysis.score)} <b>{decision} — AI SALES CLOSER BID PACKAGE</b> "
+            f"{_urgency_emoji(analysis.urgency)}"
+            if bid_ready
+            else f"{_score_emoji(analysis.score)} <b>New Job Match</b> {_urgency_emoji(analysis.urgency)}"
+        ),
+        *(
+            [f"<b>Opportunity:</b> <code>{escape_html(opportunity_id_for_analysis(analysis))}</code>"]
+            if bid_ready
+            else []
+        ),
+        *( [f"<b>Decision:</b> {decision}"] if bid_ready else [] ),
         f"<b>Event:</b> {escape_html(_short(analysis.event_type))}",
         f"<b>Отримано:</b> {escape_html(_received(analysis.received_at))}",
         *(
@@ -200,7 +219,7 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
             if analysis.tags
             else []
         ),
-        f"<b>Ставок:</b> {escape_html(analysis.bid_count if analysis.bid_count is not None else '—')}",
+        f"<b>Competition/public bid signal:</b> {escape_html(analysis.bid_count if analysis.bid_count is not None else '—')}",
         f"<b>Клієнт:</b> {escape_html(_short(analysis.client_name))}",
         "",
         f"<b>Service lane:</b> {escape_html(_short(analysis.service_lane))}",
@@ -356,14 +375,27 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
     elif analysis.event_type == EmailType.CLIENT_PRIVATE_MESSAGE.value:
         _append_html_section(parts, "<b>Готова відповідь:</b> NEEDS_CONTEXT")
 
-    next_action = analysis.next_action or (
-        "Відкрити подію на Freelancehunt і виконати фінальну дію особисто."
-    )
-    commands = (
-        f"<b>Наступна дія власниці:</b> {escape_html(next_action)}\n\n"
-        f"<code>/reply_job {escape_html(analysis.email_id)}</code>   "
-        f"<code>/skip_job {escape_html(analysis.email_id)}</code>"
-    )
+    if is_proposal_ready(analysis) and analysis.event_type in {
+        EmailType.PROJECT_SINGLE.value,
+        EmailType.PROJECT_DIGEST.value,
+        EmailType.PROJECT_FEED.value,
+    }:
+        opportunity_id = opportunity_id_for_analysis(analysis)
+        commands = (
+            f"<b>Validated proposal retrieval:</b> <code>/reply_job {escape_html(analysis.email_id)}</code>\n"
+            "<b>Наступна дія власниці (одна):</b> перевірити й вручну подати точний "
+            "відгук у Freelancehunt, потім зафіксувати фактичні умови:\n"
+            f"<code>/mark_bid_sent {escape_html(opportunity_id)} | &lt;price&gt; | &lt;timeline&gt;</code>"
+        )
+    else:
+        next_action = analysis.next_action or (
+            "Відкрити подію на Freelancehunt і виконати фінальну дію особисто."
+        )
+        commands = (
+            f"<b>Наступна дія власниці:</b> {escape_html(next_action)}\n\n"
+            f"<code>/reply_job {escape_html(analysis.email_id)}</code>   "
+            f"<code>/skip_job {escape_html(analysis.email_id)}</code>"
+        )
     _append_html_section(parts, commands)
 
     if len(parts) > 1:
@@ -495,3 +527,163 @@ async def send_job_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:
     except Exception:
         logger.exception("Failed to send job card: email_id=%s", analysis.email_id)
         return False
+
+
+def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
+    """Render the dedicated private-message card without exposing model JSON."""
+
+    opportunity = result.opportunity
+    incoming = result.incoming_turn
+    reply = result.reply_turn
+    urgent = incoming.intent in {
+        "PRICE_OBJECTION",
+        "TIMELINE_OBJECTION",
+        "CALL_REQUEST",
+        "CLIENT_READY_TO_SELECT",
+        "SELECTED_OR_CONTRACT_STEP",
+    }
+    link = safe_http_url(opportunity.thread_url or opportunity.project_url)
+    lines = [
+        "🔴 <b>HIGH PRIORITY — CLIENT RESPONSE</b>",
+        *( ["🚨 <b>URGENT commercial/selection event</b>"] if urgent else [] ),
+        f"<b>Opportunity:</b> <code>{escape_html(opportunity.id)}</code>",
+        f"<b>Project:</b> {escape_html(_short(opportunity.title, 500))}",
+        f"<b>State:</b> {escape_html(opportunity.state)}",
+        f"<b>Resolved by:</b> {escape_html(result.resolution_basis)}",
+        f"<b>Client language:</b> {escape_html(incoming.language)}",
+        f"<b>Intent:</b> {escape_html(incoming.intent)}",
+        f"<b>Простое резюме:</b> {escape_html(_short(incoming.russian_summary, 700))}",
+        f"<b>Что клиент хочет:</b> {escape_html(_short(incoming.actual_ask or incoming.content, 700))}",
+        f"<b>Previous promises:</b> proposal {escape_html(opportunity.proposal_version or '—')}; "
+        f"price {escape_html(_short(opportunity.actual_submitted_price))}; "
+        f"timeline {escape_html(_short(opportunity.actual_submitted_timeline))}",
+        f"<b>Negotiation recommendation:</b> {escape_html(_short(incoming.negotiation_strategy, 700))}",
+        f"<b>Risks:</b> {escape_html(_short(incoming.risks or opportunity.risks, 700))}",
+        f"<b>Missing facts:</b> {escape_html(_short(incoming.missing_facts))}",
+        f"<b>Detection latency:</b> {escape_html(_latency(incoming.response_latency_seconds))}",
+        (
+            "<b>SLA ≤2 min:</b> MET"
+            if incoming.response_latency_seconds is None
+            or incoming.response_latency_seconds <= 120
+            else "🚨 <b>SLA ≤2 min:</b> MISSED"
+        ),
+    ]
+    if link:
+        lines.append(f'🔗 <a href="{escape_html(link)}">Open safe Freelancehunt thread</a>')
+    parts = _pack_html_lines(lines)
+    for chunk in _split_text(incoming.content):
+        _append_html_section(parts, f"<b>Client message:</b>\n{escape_html(chunk)}")
+    if reply is not None:
+        for chunk in _split_text(reply.content):
+            _append_html_section(
+                parts,
+                f"<b>Copy-ready answer · {escape_html(reply.reply_version)}:</b>\n{escape_html(chunk)}",
+            )
+    else:
+        status = "NEEDS_CONTEXT" if result.missing_context else "NEEDS_HUMAN_INPUT"
+        _append_html_section(parts, f"<b>Copy-ready answer:</b> {status}")
+    _append_html_section(
+        parts,
+        f"<b>Next action (one):</b> {escape_html(result.next_action)}",
+    )
+    if len(parts) > 1:
+        total = len(parts)
+        parts = [
+            f"<b>Sales card {index}/{total}</b>\n{part}"
+            for index, part in enumerate(parts, 1)
+        ]
+    if any(len(part) > TELEGRAM_TEXT_LIMIT for part in parts):
+        raise ValueError("Telegram sales card part exceeds 4096 characters")
+    return parts
+
+
+async def send_sales_response_card(
+    bot: Any, chat_id: int, result: SalesProcessResult
+) -> bool:
+    try:
+        for part in format_sales_response_card_parts(result):
+            await bot.send_message(
+                chat_id=chat_id,
+                text=part,
+                disable_web_page_preview=True,
+            )
+        return True
+    except Exception:
+        logger.exception(
+            "Failed to send sales card: opportunity=%s turn=%s",
+            result.opportunity.id,
+            result.incoming_turn.id,
+        )
+        return False
+
+
+def format_pipeline_counts(counts: dict[str, int]) -> str:
+    labels = (
+        ("PROPOSAL_READY", "proposal ready"),
+        ("BID_SUBMITTED", "bid submitted"),
+        ("CLIENT_REPLIED", "client replied"),
+        ("NEEDS_CONTEXT", "needs context"),
+        ("NEEDS_HUMAN_INPUT", "needs human input"),
+        ("NEGOTIATING", "negotiating"),
+        ("WAITING_CLIENT", "waiting client"),
+        ("SELECTED", "selected"),
+        ("LOST", "lost"),
+    )
+    lines = ["📊 <b>Sales pipeline · Stage 5A</b>"]
+    lines.extend(
+        f"<b>{escape_html(label)}:</b> {int(counts.get(state, 0) or 0)}"
+        for state, label in labels
+    )
+    lines.append("<i>Follow-up scheduler: disabled in Release 5A.</i>")
+    return "\n".join(lines)
+
+
+def format_lead_timeline(
+    opportunity: SalesOpportunity,
+    transitions: list[Any],
+    turns: list[Any],
+    requests: list[HumanInformationRequest],
+) -> list[str]:
+    lines = [
+        "🧭 <b>Sales lead timeline</b>",
+        f"<b>Opportunity:</b> <code>{escape_html(opportunity.id)}</code>",
+        f"<b>Project:</b> {escape_html(_short(opportunity.title, 600))}",
+        f"<b>Current state:</b> {escape_html(opportunity.state)}",
+        f"<b>Actual terms:</b> {escape_html(_short(opportunity.actual_submitted_price))} · "
+        f"{escape_html(_short(opportunity.actual_submitted_timeline))}",
+    ]
+    for transition in transitions:
+        lines.append(
+            f"• {escape_html(_received(transition.timestamp))} · "
+            f"{escape_html(transition.previous_state or 'START')} → "
+            f"<b>{escape_html(transition.new_state)}</b> · "
+            f"{escape_html(transition.actor)} · {escape_html(_short(transition.reason, 260))}"
+        )
+    for turn in turns:
+        if turn.direction == "OUTGOING_REJECTED":
+            continue
+        lines.append(
+            f"• {escape_html(_received(turn.created_at))} · {escape_html(turn.direction)} "
+            f"{escape_html(turn.reply_version or turn.intent or '')} · "
+            f"{escape_html(_short(turn.content, 240))}"
+        )
+    for request in requests:
+        lines.append(
+            f"• human fact {escape_html(request.status)} · "
+            f"{escape_html(_short(request.question, 260))}"
+        )
+    action = {
+        "PROPOSAL_READY": "Adult owner manually submits the bid and confirms actual terms.",
+        "NEEDS_CONTEXT": "Open and sync the exact Freelancehunt thread.",
+        "NEEDS_HUMAN_INPUT": "Answer the one open human-information request.",
+        "NEGOTIATING": "Adult owner manually sends the exact validated reply and confirms its version.",
+        "WAITING_CLIENT": "Wait for the client; no automatic follow-up runs in 5A.",
+        "SELECTED": "Review the contract step manually; Release 5C handoff is not active.",
+        "LOST": "No action; the opportunity is retained for audit.",
+    }.get(opportunity.state, "Review the current state manually.")
+    lines.append(f"<b>Next action (one):</b> {escape_html(action)}")
+    parts = _pack_html_lines(lines)
+    if len(parts) > 1:
+        total = len(parts)
+        parts = [f"<b>Lead {index}/{total}</b>\n{part}" for index, part in enumerate(parts, 1)]
+    return parts

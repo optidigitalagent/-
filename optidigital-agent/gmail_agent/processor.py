@@ -48,13 +48,19 @@ from .quality_gate import (
     validate_analysis,
 )
 from .security import redact_security_event, redact_sensitive_content
+from .sales_closer import SalesCloserService, SalesProcessResult
+from .sales_storage import PostgresSalesRepository
 from .storage import (
     GmailRepository,
     ProcessedItem,
     ScanRun,
     StoredGmailJob,
 )
-from .telegram_notifier import send_job_card, send_live_status_card
+from .telegram_notifier import (
+    send_job_card,
+    send_live_status_card,
+    send_sales_response_card,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +170,7 @@ class GmailJobProcessor:
         live_status_checker: FreelancehuntLiveStatusChecker | None = None,
         live_status_retry_base_seconds: int = 60,
         live_status_max_retries: int = 3,
+        sales_closer: SalesCloserService | None = None,
     ):
         self._provider = provider
         self._bot = bot
@@ -182,6 +189,18 @@ class GmailJobProcessor:
         self._live_status_checker = live_status_checker
         self._live_status_retry_base_seconds = max(1, live_status_retry_base_seconds)
         self._live_status_max_retries = max(1, live_status_max_retries)
+        self._sales_closer = sales_closer
+        if (
+            self._sales_closer is None
+            and repository is not None
+            and repository.__class__.__name__ == "PostgresGmailRepository"
+        ):
+            session_factory = getattr(repository, "session_factory", None)
+            if session_factory is not None:
+                self._sales_closer = SalesCloserService(
+                    PostgresSalesRepository(session_factory),
+                    openai_client=openai_client,
+                )
 
     async def _mark_processed(self, email_id: str) -> None:
         self._dedup.mark_processed(email_id)
@@ -1374,6 +1393,20 @@ class GmailJobProcessor:
         manual_review = (
             analysis.analysis_quality_status == QualityStatus.MANUAL_REVIEW.value
         )
+        if self._sales_closer is not None and (
+            is_proposal_ready(analysis) or manual_review
+        ):
+            try:
+                await self._sales_closer.ensure_from_validated_job(job)
+            except Exception as exc:
+                stats.errors += 1
+                stats.error_details.append(
+                    f"{job.stable_key}: sales opportunity persistence failed: {exc}"
+                )
+                logger.exception(
+                    "Sales opportunity persistence failed for %s", job.stable_key
+                )
+                return False
         if quality_required and not is_proposal_ready(analysis):
             if not manual_review:
                 # Legacy/invalid persisted rows cannot escape via restart queue.
@@ -1543,6 +1576,8 @@ class GmailJobProcessor:
             )
         if not is_proposal_ready(analysis):
             return False
+        if self._sales_closer is not None:
+            await self._sales_closer.ensure_from_validated_job(job)
 
         digest = hashlib.sha256(stable_key.encode("utf-8")).hexdigest()
         sent = await send_text(analysis)
@@ -1924,6 +1959,77 @@ class GmailJobProcessor:
             await self._provider.mark_as_processed(email.id)
         return cards_sent_this_scan
 
+    async def _send_sales_result(
+        self, result: SalesProcessResult, stats: ProcessorStats
+    ) -> bool:
+        """Deliver one stored sales card; the card never performs a platform action."""
+
+        if self._sales_closer is None or result.notification_deferred:
+            return False
+        sent = await send_sales_response_card(self._bot, self._chat_id, result)
+        if not sent:
+            stats.errors += 1
+            stats.error_details.append(
+                f"{result.incoming_turn.gmail_message_id}: sales Telegram send failed"
+            )
+            return True
+        await self._sales_closer.mark_notified(result.incoming_turn.id)
+        stats.sent += 1
+        return True
+
+    async def _drain_sales_notifications(self, stats: ProcessorStats) -> int:
+        if self._sales_closer is None:
+            return 0
+        attempted = 0
+        try:
+            pending = await self._sales_closer.pending_cards()
+            for result in pending[: self._max_cards_per_scan]:
+                if await self._send_sales_result(result, stats):
+                    attempted += 1
+        except Exception as exc:
+            stats.errors += 1
+            stats.error_details.append(f"sales notification drain failed: {exc}")
+            logger.exception("Failed to drain pending sales notifications")
+        return attempted
+
+    async def _process_sales_private_message(
+        self,
+        email: EmailMessage,
+        stats: ProcessorStats,
+        *,
+        allow_send: bool,
+    ) -> bool:
+        assert self._sales_closer is not None
+        result = await self._sales_closer.process_client_message(email)
+        if result.duplicate:
+            stats.duplicates_skipped += 1
+        else:
+            stats.relevant += 1
+            stats.qualified += 1
+            if result.reply_turn is not None or result.validation_errors:
+                stats.ai_analyzed += 1
+        if self._repository is not None:
+            await self._repository.upsert_processed(
+                ProcessedItem(
+                    stable_key=email.id,
+                    source_email_id=email.id,
+                    platform="Freelancehunt",
+                    item_type="sales_dialogue",
+                    title=result.opportunity.title,
+                    url=result.opportunity.thread_url or result.opportunity.project_url,
+                    decision=(
+                        "duplicate"
+                        if result.duplicate
+                        else result.opportunity.state.casefold()
+                    ),
+                    score=None,
+                )
+            )
+        await self._provider.mark_as_processed(email.id)
+        if not allow_send or result.duplicate and result.incoming_turn.telegram_notified_at:
+            return False
+        return await self._send_sales_result(result, stats)
+
     async def _process_single(
         self,
         email: EmailMessage,
@@ -1931,6 +2037,13 @@ class GmailJobProcessor:
         allow_send: bool = True,
     ) -> bool:
         """Process a single-job email and report whether a card was attempted."""
+        if (
+            self._sales_closer is not None
+            and self._email_type(email) == EmailType.CLIENT_PRIVATE_MESSAGE
+        ):
+            return await self._process_sales_private_message(
+                email, stats, allow_send=allow_send
+            )
         if self._repository is not None:
             return await self._process_repository_single(
                 email, stats, allow_send=allow_send
@@ -2528,8 +2641,9 @@ class GmailJobProcessor:
         started_at = datetime.now(timezone.utc)
 
         async def execute() -> ProcessorStats:
+            sales_cards = await self._drain_sales_notifications(stats)
             await self._drain_live_status_notices(stats)
-            cards_sent_this_scan = await self._drain_retry_queue(stats)
+            cards_sent_this_scan = sales_cards + await self._drain_retry_queue(stats)
             try:
                 emails = await self._provider.get_new_emails()
             except Exception as exc:

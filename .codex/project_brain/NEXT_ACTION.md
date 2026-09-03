@@ -2,37 +2,38 @@
 
 ## Current status
 
-`READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`
+`READY_FOR_SALES_CLOSER_5A_DEPLOY`
 
-Stage 4 issue #11 remains open after PR #12 was rolled back. The follow-up
-branch is `fix/proposal-quality-gate-nullable-score-fit-metadata-v1`, created
-from rollback `main` `01978e2b1935ea708f86afdeaed321bb3f8db8c2`.
-Commit `a44641f` cleanly reapplies the approved Stage 4 tree, and separate
-commit `39beac1` adds the nullable Score/Fit metadata hotfix.
+Stage 4 and issue #11 are deployed and verified. Stage 5 is active; GitHub
+issue #15 and Release 5A are the current work item. The implementation branch
+is `feature/freelance-sales-closer-5a`, created from exact production `main`
+`1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
+
+Release 5A adds restart-safe opportunity/dialogue persistence, explicit
+adult-owner bid/reply confirmations, exact version/hash binding, deterministic
+intent/reply validation, one-fact human input, `/pipeline`, `/lead`, and a
+working-window-aware high-priority Telegram dialogue path. It contains no
+Freelancehunt write action.
+
+Release 5B follow-up fields are persisted but disabled; no timed scheduler was
+implemented. Release 5C handoff is deferred.
 
 Validation evidence:
 
-- all 302 protected tests remain passing; the full suite discovers 310 tests,
-  runs 304 successfully and skips only six opt-in PostgreSQL cases;
-- all eight focused nullable-metadata tests pass when those six cases run on
-  an isolated real PostgreSQL 17 server;
-- compileall, Ruff F-rule checks, `git diff --check`, and production-like
-  Python 3.12.14 imports pass;
-- the pre-fix real PostgreSQL test reproduced SQLSTATE 23502 on
-  `fit_score_valid=NULL`; the identical route passes after normalization;
-- clean and production-like existing-column schemas each accepted `init_db`
-  twice and retained NOT NULL boolean/state contracts;
-- scheduler, second-cycle, restart, conflict-upsert, update, live recheck and
-  quality-backfill persistence paths retain coherent Score/Fit semantics;
-- production remains unchanged on rollback `main`
-  `01978e2b1935ea708f86afdeaed321bb3f8db8c2`, Railway deployment
-  `5af42416-7c91-4283-9c26-8282f0d6f4d4` (`SUCCESS`, 1/1 replica running).
+- 35 focused deterministic tests pass;
+- the production-like synthetic loop passes against isolated PostgreSQL 17
+  with mocked Telegram and AI, including restart persistence;
+- the additive migration list passes twice;
+- the full Gmail-agent suite discovers 346 tests, passes 340 and skips only six
+  unrelated opt-in PostgreSQL cases;
+- compile checks and `git diff --check` pass.
 
-No merge, deployment, Railway variable change, OAuth/Telegram secret change,
-backfill, replacement card, bid, client message, contract, or payment was
-performed.
+Production remains unchanged on `main`
+`1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway deployment
+`765ba1da-4df3-4472-8ea8-b0d6fa5dad05` (`SUCCESS / RUNNING`). No merge,
+deployment, variable, secret, backfill or platform action was performed.
 
 ## Exactly one next action
 
-Review the new follow-up Draft PR and, if accepted, provide a separate explicit
-nullable-metadata hotfix deployment authorization.
+Review the Release 5A Draft PR and, if accepted, provide separate explicit
+merge/deployment authorization.

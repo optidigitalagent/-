@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 4 — proposal-quality gate**
+**Stage 5 — issue #15 AI Sales Closer Copilot; Release 5A**
 
 ## Readiness by workstream
 
@@ -17,7 +17,8 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
-- **Proposal-quality gate V2: review blockers closed; deployment authorization pending**
+- **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
+- **AI Sales Closer Release 5A: implementation and deployment gate complete**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -41,22 +42,24 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `ISSUE_7_COMPLETED`
 - `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`
 - `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
-- `STAGE_4_ACTIVE`
-- `ISSUE_11_CURRENT_WORK_ITEM`
-- `PROPOSAL_QUALITY_GATE_V2_READY_FOR_DEPLOY_REVIEW`
+- `STAGE_4_DEPLOYED_AND_VERIFIED`
+- `ISSUE_11_COMPLETED`
+- `STAGE_5_ACTIVE`
+- `ISSUE_15_CURRENT_WORK_ITEM`
+- `READY_FOR_SALES_CLOSER_5A_DEPLOY`
 
 ## Protected production baseline
 
-- Production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`.
-- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`.
+- Production `main`: `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
+- Railway deployment: `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
 - Instant discovery is deployed and verified, and the Telegram channel
   migration is complete.
-- Stage 4 is active; GitHub issue #11 is the current work item.
-- Current production cards with Score/Fit `0.0` are diagnostic legacy output,
-  not proposal-ready results.
+- Stage 4 is deployed and verified; GitHub issue #11 is completed.
+- Stage 5 is active; GitHub issue #15 and Release 5A are the current work item.
+- Release 5B timed follow-ups and Release 5C delivery handoff are deferred.
 
 ## Completed account and profile work
 
@@ -415,3 +418,34 @@ Stage 2 is operational when:
 - Production remains unchanged on rollback `main` `01978e2b...` and healthy
   Railway deployment `5af42416-7c91-4283-9c26-8282f0d6f4d4`.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
+
+## 2026-09-03 — Stage 5 issue #15 Release 5A deployment gate
+
+- Stage 4 and its nullable-metadata correction are deployed and verified on
+  production `main` `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway
+  deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05` (`SUCCESS / RUNNING`).
+- One restart-safe `sales_opportunities` row owns one concrete project/thread
+  identity. Conversation turns, explicit owner confirmations, human fact
+  requests and every state transition are append-only/auditable.
+- Validated Stage 4 proposals create a version/hash-bound bid package. Only
+  `/mark_bid_sent` records actual manually submitted terms; it never submits.
+- Trusted private-message emails bypass score filtering, resolve by exact
+  thread/project/reference evidence, preserve full context, classify intent,
+  and produce a deterministic-validator-approved client-language draft.
+- Missing dialogue context becomes `NEEDS_CONTEXT`; unavailable delivery facts
+  become one `NEEDS_HUMAN_INPUT` request that `/answer_lead` resolves without
+  deleting earlier drafts or history.
+- `/mark_reply_sent` binds the exact reply version and SHA-256, records response
+  latency and moves the opportunity to `WAITING_CLIENT`; it never sends.
+- `/pipeline` and `/lead` expose current counts and compact auditable history.
+  Working-window deferral is 08:00–21:00 Europe/Kyiv, with durable pending cards.
+- Release 5B fields are present with `follow_up_status=DISABLED_5A`; no timed
+  follow-up scheduler exists. Release 5C handoff is not implemented.
+- Validation: 35 focused deterministic tests plus one real isolated PostgreSQL
+  E2E; the full suite discovered 346 tests, passed 340 and skipped only six
+  unrelated opt-in PostgreSQL cases.
+  The entire additive migration list ran twice, and the restart retained the
+  exact opportunity, confirmed turns and `WAITING_CLIENT` state.
+- No production, Railway variable, OAuth, Telegram secret, Gmail, bid,
+  message, contract, payment, backfill or replacement-card mutation occurred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY`.

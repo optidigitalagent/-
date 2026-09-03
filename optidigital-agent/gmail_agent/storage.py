@@ -822,6 +822,12 @@ class PostgresGmailRepository:
         self._order_model = Order
         self._setting_model = Setting
 
+    @property
+    def session_factory(self) -> AsyncSessionFactory:
+        """Expose the same transaction boundary to additive domain repositories."""
+
+        return self._session_factory
+
     async def reconcile_freelancehunt_identities(self) -> int:
         """Alias already-handled Gmail/parser rows to the Stage 3 project key.
 

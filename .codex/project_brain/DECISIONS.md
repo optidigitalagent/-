@@ -304,3 +304,30 @@
 - Keep issue #11 open. Merge, Railway deployment, production migration,
   backfill, replacement cards, variables, secrets, bids, and client messages
   require separate authorization.
+
+## 2026-09-03 — Stage 5A sales-closer contract
+
+- One sales opportunity is keyed by exact project ID, thread ID, safe project
+  URL or proven reply-reference mapping. Client name is only a last,
+  non-authoritative hint and may resolve only one active candidate.
+- Every opportunity state change records timestamp, source, previous/new state,
+  reason and one allowed actor: `system`, `adult_owner` or `Artem`.
+- A bid is `BID_SUBMITTED` only after the adult owner confirms actual price,
+  timeline and the exact validated proposal version. A reply is sent only after
+  the adult owner confirms the exact reply version/hash. Telegram commands
+  record these actions but never perform them on Freelancehunt.
+- Trusted `CLIENT_PRIVATE_MESSAGE` events use a dedicated, score-bypassing
+  dialogue path. Gmail message ID and canonical turn identity both deduplicate;
+  conflicting identifiers fail closed into a separate `NEEDS_CONTEXT` record.
+- AI sees the complete source description, exact submitted proposal and terms,
+  confirmed dialogue, constraints, decisions, open questions, human facts,
+  approved evidence and current state. Unconfirmed drafts are never promises.
+- Deterministic validation is authoritative and permits at most one bounded AI
+  repair. Unsupported commitments, mismatched commercial terms, invented
+  evidence, contacts, language mismatch, unrelated text, contradictions,
+  missing context and free scope expansion are blocked.
+- Release 5A persists the Release 5B timing fields with follow-ups disabled.
+  No follow-up scheduler or Release 5C delivery handoff is part of this change.
+- Production merge/deploy, variables, OAuth, Telegram secrets, backfill,
+  replacement cards, bids, messages, contracts and payments remain separately
+  authorized stop-gate actions.

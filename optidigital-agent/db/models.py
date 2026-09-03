@@ -1,6 +1,17 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -239,6 +250,183 @@ class GmailJob(Base):
     fit_score_state: Mapped[str] = mapped_column(String(20), default="MISSING", server_default="MISSING", nullable=False)
 
 
+class SalesOpportunity(Base):
+    """One commercial workflow for one exact project/thread identity."""
+
+    __tablename__ = "sales_opportunities"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    identity_key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    state: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    gmail_job_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    project_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    thread_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    reply_reference_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    client_name: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
+    source_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_completeness: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="PARTIAL", server_default="PARTIAL"
+    )
+    decision: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="REVIEW", server_default="REVIEW"
+    )
+    live_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    competition_signal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommended_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recommended_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    risks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    initial_proposal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_submitted_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_submitted_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    bid_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    client_constraints_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    decisions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    human_facts_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    unresolved_questions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    last_owner_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_client_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    follow_up_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    do_not_follow_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    follow_up_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="DISABLED_5A", server_default="DISABLED_5A"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_sales_opportunity_project_id"),
+        UniqueConstraint("thread_id", name="uq_sales_opportunity_thread_id"),
+    )
+
+
+class OpportunityStateTransition(Base):
+    __tablename__ = "opportunity_state_transitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    previous_state: Mapped[str] = mapped_column(String(50), nullable=False)
+    new_state: Mapped[str] = mapped_column(String(50), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    __table_args__ = (
+        Index("ix_opportunity_transitions_timeline", "opportunity_id", "timestamp"),
+    )
+
+
+class ConversationTurn(Base):
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    direction: Mapped[str] = mapped_column(String(30), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonical_turn_identity: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    source_reference_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    intent: Mapped[str] = mapped_column(String(50), nullable=False, default="UNKNOWN", server_default="UNKNOWN")
+    russian_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_ask: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negotiation_strategy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    risks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    missing_facts: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    telegram_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_conversation_turns_timeline", "opportunity_id", "created_at"),
+        UniqueConstraint(
+            "opportunity_id", "reply_version", name="uq_conversation_turn_reply_version"
+        ),
+    )
+
+
+class OwnerActionConfirmation(Base):
+    __tablename__ = "owner_action_confirmations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    actor: Mapped[str] = mapped_column(String(20), nullable=False)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    response_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_owner_confirmations_timeline", "opportunity_id", "confirmed_at"),
+    )
+
+
+class HumanInformationRequest(Base):
+    __tablename__ = "human_information_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    source_turn_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("conversation_turns.id", ondelete="CASCADE"), nullable=False
+    )
+    fact_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN", server_default="OPEN")
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resulting_reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    __table_args__ = (
+        Index("ix_human_requests_open", "opportunity_id", "status"),
+    )
+
+
 _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_name TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_url TEXT",
@@ -372,6 +560,21 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_calls INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_successes INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS proposal_versions_sent INTEGER NOT NULL DEFAULT 0",
+    # Stage 5A is additive. create_all creates the new sales tables; these
+    # guards also make repeat deploys and an early/partial schema restart-safe.
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_owner_message_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_client_message_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS do_not_follow_up BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_status TEXT NOT NULL DEFAULT 'DISABLED_5A'",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS telegram_notified_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS notification_due_at TIMESTAMPTZ",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_project_id ON sales_opportunities (project_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_thread_id ON sales_opportunities (thread_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_state ON sales_opportunities (state)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_project_id ON sales_opportunities (project_id) WHERE project_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_thread_id ON sales_opportunities (thread_id) WHERE thread_id IS NOT NULL",
 ]
 
 

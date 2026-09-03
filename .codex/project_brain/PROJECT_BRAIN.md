@@ -140,10 +140,15 @@ Collect permitted platform alerts and direct leads, normalize them and prevent d
 
 Evaluate fit, scope, risk, price logic and relevant evidence; create personalized proposals.
 
-### Stage 4 — Negotiation and handoff
+### Stage 4 — Proposal-quality gate
 
-Manage ordinary communication, track commitments and hand funded projects to delivery.
+Validate the complete proposal package after live-status checks and before any
+adult-owner action. Stage 4 and issue #11 are deployed and verified.
 
-### Stage 5 — Optimization
+### Stage 5 — AI Sales Closer Copilot
 
-Use real funnel data to improve service positioning, case selection, proposal strategy, follow-ups and channel allocation.
+Release 5A persists one exact opportunity per project/thread, prepares the
+validated bid package and contextual client replies, and records only explicit
+manual-send confirmations. Release 5B will add timed follow-ups; Release 5C
+will add selected-project delivery handoff. Neither deferred release is active
+in 5A.
