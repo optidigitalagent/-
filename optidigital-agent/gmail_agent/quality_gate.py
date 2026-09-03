@@ -282,6 +282,16 @@ class QualityValidation:
         return json.dumps(list(self.errors), ensure_ascii=False)
 
 
+@dataclass(frozen=True, slots=True)
+class ScoreMetadata:
+    """Canonical persistence representation for one Score/Fit field."""
+
+    value: float
+    valid: bool
+    raw: str
+    state: str
+
+
 def finite_score(value: Any) -> float | None:
     """Return a valid score without turning missing/malformed data into zero."""
 
@@ -325,6 +335,64 @@ def score_state(
     if candidate is None or (isinstance(candidate, str) and not candidate.strip()):
         return SCORE_MISSING
     return SCORE_VALID if finite_score(candidate) is not None else SCORE_INVALID
+
+
+def normalize_score_metadata(
+    value: Any,
+    *,
+    raw: Any = None,
+    explicit_state: str = "",
+    explicit_valid: bool | None = None,
+    analysis_succeeded: bool = True,
+) -> ScoreMetadata:
+    """Return one coherent, non-null Score/Fit persistence contract.
+
+    A real zero remains ``VALID``. Missing, malformed, non-finite, out-of-range,
+    and provider-failure inputs use the numeric database fallback ``0.0`` while
+    retaining their distinct state, so the fallback can never imply a genuine
+    score or make a proposal eligible.
+    """
+
+    try:
+        raw_text = "" if raw is None else str(raw)
+    except Exception:
+        raw_text = ""
+    raw_text = raw_text.strip()
+    requested_state = str(explicit_state or "").strip().upper()
+    parsed_value = finite_score(value)
+    parsed_raw = finite_score(raw_text) if raw_text else None
+    parsed = parsed_raw if raw_text else parsed_value
+    value_supplied = value is not None and not (
+        isinstance(value, str) and not value.strip()
+    )
+
+    if analysis_succeeded is False or requested_state == SCORE_FAILED:
+        state = SCORE_FAILED
+    elif requested_state == SCORE_MISSING:
+        state = SCORE_MISSING
+    elif requested_state == SCORE_INVALID:
+        state = SCORE_INVALID
+    elif value_supplied and parsed_value is None:
+        state = SCORE_INVALID
+    elif requested_state == SCORE_VALID:
+        state = SCORE_VALID if parsed is not None else SCORE_INVALID
+    elif explicit_valid is False:
+        state = SCORE_INVALID if raw_text else SCORE_MISSING
+    elif explicit_valid is True:
+        state = SCORE_VALID if parsed is not None else SCORE_INVALID
+    elif raw_text:
+        state = SCORE_VALID if parsed_raw is not None else SCORE_INVALID
+    elif value is None or (isinstance(value, str) and not value.strip()):
+        state = SCORE_MISSING
+    else:
+        state = SCORE_VALID if parsed_value is not None else SCORE_INVALID
+
+    return ScoreMetadata(
+        value=(parsed if state == SCORE_VALID and parsed is not None else 0.0),
+        valid=state == SCORE_VALID,
+        raw=raw_text,
+        state=state,
+    )
 
 
 def score_display(

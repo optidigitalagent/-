@@ -42,10 +42,9 @@ from .quality_gate import (
     SCORE_VALID,
     QualityStatus,
     apply_validation,
-    finite_score,
     is_proposal_ready,
+    normalize_score_metadata,
     quality_errors,
-    score_state,
     validate_analysis,
 )
 from .security import redact_security_event, redact_sensitive_content
@@ -359,7 +358,7 @@ class GmailJobProcessor:
 
     @staticmethod
     def _analysis_fields(analysis: JobAnalysis) -> dict[str, Any]:
-        return {
+        fields = {
             "event_type": analysis.event_type,
             "full_description": analysis.full_description,
             "description_completeness": analysis.description_completeness,
@@ -375,7 +374,6 @@ class GmailJobProcessor:
             "thread_id": analysis.thread_id,
             "service_lane": analysis.service_lane,
             "executable": analysis.executable,
-            "fit_score": analysis.fit_score,
             "win_probability_signal": analysis.win_probability_signal,
             "scope_clarity": analysis.scope_clarity,
             "estimated_effort": analysis.estimated_effort,
@@ -426,30 +424,25 @@ class GmailJobProcessor:
             "original_analysis_snapshot": analysis.original_analysis_snapshot,
             "quality_clarification_question": analysis.quality_clarification_question,
             "model_output_json": analysis.model_output_json,
-            "score_valid": analysis.score_valid,
-            "score_raw": analysis.score_raw,
-            "score_state": analysis.score_state,
-            "fit_score_valid": analysis.fit_score_valid,
-            "fit_score_raw": analysis.fit_score_raw,
-            "fit_score_state": analysis.fit_score_state,
         }
+        fields.update(GmailJobProcessor._score_storage_fields(analysis, "score"))
+        fields.update(GmailJobProcessor._score_storage_fields(analysis, "fit_score"))
+        return fields
 
     @staticmethod
     def _score_storage_fields(analysis: JobAnalysis, field_name: str) -> dict[str, Any]:
-        value = getattr(analysis, field_name)
-        state = score_state(
-            value,
+        metadata = normalize_score_metadata(
+            getattr(analysis, field_name),
             raw=getattr(analysis, f"{field_name}_raw", None),
             explicit_state=getattr(analysis, f"{field_name}_state", ""),
             explicit_valid=getattr(analysis, f"{field_name}_valid", None),
             analysis_succeeded=analysis.analysis_succeeded,
         )
-        parsed = finite_score(value)
         return {
-            field_name: parsed if parsed is not None else 0.0,
-            f"{field_name}_valid": state == SCORE_VALID,
-            f"{field_name}_raw": str(getattr(analysis, f"{field_name}_raw", "") or ""),
-            f"{field_name}_state": state,
+            field_name: metadata.value,
+            f"{field_name}_valid": metadata.valid,
+            f"{field_name}_raw": metadata.raw,
+            f"{field_name}_state": metadata.state,
         }
 
     @staticmethod
@@ -464,6 +457,7 @@ class GmailJobProcessor:
             platform=analysis.platform or candidate.platform,
             title=analysis.title or candidate.title,
             **GmailJobProcessor._score_storage_fields(analysis, "score"),
+            **GmailJobProcessor._score_storage_fields(analysis, "fit_score"),
             reason=analysis.reason,
             budget=analysis.budget or candidate.budget or None,
             url=candidate.url or analysis.url or None,
@@ -473,7 +467,7 @@ class GmailJobProcessor:
             **{
                 key: value
                 for key, value in GmailJobProcessor._analysis_fields(analysis).items()
-                if key not in {"score_valid", "score_raw", "score_state"}
+                if not key.startswith("score") and not key.startswith("fit_score")
             },
         )
 
@@ -561,6 +555,7 @@ class GmailJobProcessor:
             platform=analysis.platform,
             title=analysis.title,
             **GmailJobProcessor._score_storage_fields(analysis, "score"),
+            **GmailJobProcessor._score_storage_fields(analysis, "fit_score"),
             reason=analysis.reason,
             budget=analysis.budget or None,
             url=analysis.url or None,
@@ -570,7 +565,7 @@ class GmailJobProcessor:
             **{
                 key: value
                 for key, value in GmailJobProcessor._analysis_fields(analysis).items()
-                if key not in {"score_valid", "score_raw", "score_state"}
+                if not key.startswith("score") and not key.startswith("fit_score")
             },
         )
 
@@ -919,7 +914,7 @@ class GmailJobProcessor:
             is_relevant=False,
             title=title,
             platform=platform or "Freelancehunt",
-            score=0.0,
+            score=None,
             reason=result.evidence,
             budget="",
             url=url,

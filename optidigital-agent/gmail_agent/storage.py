@@ -7,6 +7,8 @@ equivalent :class:`InMemoryGmailRepository` without credentials or a database.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field as dataclass_field, replace
@@ -18,6 +20,15 @@ from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .project_identity import freelancehunt_project_stable_key
+from .quality_gate import (
+    PROPOSAL_READY_QUALITY_STATUSES,
+    SCORE_STATES,
+    SCORE_VALID,
+    finite_score,
+    normalize_score_metadata,
+)
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_JOB_STATUSES = frozenset(
     {
@@ -153,6 +164,119 @@ class StoredGmailJob:
 # Short public name for callers; the longer name makes its persistence role
 # explicit at call sites that also use the analyzer's JobAnalysis type.
 GmailJob = StoredGmailJob
+
+
+def _quality_errors_with_metadata_violation(
+    value: str, fields: Sequence[str]
+) -> str:
+    try:
+        decoded = json.loads(value or "[]")
+        errors = [str(item) for item in decoded] if isinstance(decoded, list) else []
+    except (TypeError, ValueError, json.JSONDecodeError):
+        errors = []
+    for field_name in fields:
+        error = f"score_metadata_contract_violation:{field_name}"
+        if error not in errors:
+            errors.append(error)
+    return json.dumps(errors, ensure_ascii=False)
+
+
+def _normalize_stored_job(
+    job: StoredGmailJob, *, strict_numeric: bool = True
+) -> StoredGmailJob:
+    """Enforce concrete and coherent Score/Fit metadata at every write edge."""
+
+    updates: dict[str, Any] = {}
+    corrected: list[str] = []
+    states: dict[str, str] = {}
+    for field_name in ("score", "fit_score"):
+        original_value = getattr(job, field_name)
+        original_valid = getattr(job, f"{field_name}_valid", None)
+        original_raw = getattr(job, f"{field_name}_raw", None)
+        original_state = getattr(job, f"{field_name}_state", None)
+        normalized_state = (
+            original_state.strip().upper()
+            if isinstance(original_state, str)
+            else ""
+        )
+        concrete_contract = (
+            isinstance(original_valid, bool)
+            and isinstance(original_raw, str)
+            and isinstance(original_state, str)
+            and original_state == normalized_state
+            and normalized_state in SCORE_STATES
+            and original_valid == (normalized_state == SCORE_VALID)
+            and (
+                normalized_state != SCORE_VALID
+                or finite_score(original_value) is not None
+            )
+        )
+        if (
+            not strict_numeric
+            and concrete_contract
+            and (field_name == "fit_score" or finite_score(original_value) is not None)
+        ):
+            states[field_name] = normalized_state
+            continue
+        metadata = normalize_score_metadata(
+            original_value,
+            raw=original_raw,
+            explicit_state=original_state or "",
+            explicit_valid=original_valid,
+            analysis_succeeded=(
+                str(getattr(job, f"{field_name}_state", "") or "").upper()
+                != "FAILED"
+            ),
+        )
+        normalized = {
+            field_name: metadata.value,
+            f"{field_name}_valid": metadata.valid,
+            f"{field_name}_raw": metadata.raw,
+            f"{field_name}_state": metadata.state,
+        }
+        states[field_name] = metadata.state
+        for key, value in normalized.items():
+            original = getattr(job, key)
+            if type(original) is not type(value) or original != value:
+                corrected.append(key)
+            updates[key] = value
+
+    unsafe_ready_claim = (
+        job.analysis_quality_status in PROPOSAL_READY_QUALITY_STATUSES
+        and job.live_status == "ACTIVE_BIDDABLE"
+        and job.biddable is True
+        and str(job.executable or "").casefold() == "yes"
+    )
+    unavailable = [name for name, state in states.items() if state != SCORE_VALID]
+    if unsafe_ready_claim and unavailable:
+        corrected.extend(unavailable)
+        updates.update(
+            qualified=False,
+            status=(
+                job.status
+                if job.status in TERMINAL_JOB_STATUSES
+                else "quality_manual_review"
+            ),
+            status_updated_at=utc_now(),
+            analysis_quality_status="QUALITY_MANUAL_REVIEW",
+            quality_errors=_quality_errors_with_metadata_violation(
+                job.quality_errors, unavailable
+            ),
+            proposal_quality_score=0.0,
+            recommended_price="",
+            realistic_timeline="",
+            proposal_draft="",
+            proposal_version="",
+            proposal_content_sha256="",
+            money_terms_json="",
+            timeline_terms_json="",
+        )
+    if corrected:
+        logger.warning(
+            "Normalized Score/Fit persistence metadata fields=%s",
+            ",".join(sorted(set(corrected))),
+        )
+    return replace(job, **updates)
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +482,7 @@ class InMemoryGmailRepository:
 
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob:
         async with self._lock:
+            job = _normalize_stored_job(job, strict_numeric=False)
             current = self._jobs.get(job.stable_key)
             if current is not None:
                 explicit_quality = bool(job.analysis_quality_status)
@@ -477,7 +602,7 @@ class InMemoryGmailRepository:
                         job.discovery_sources or job.discovery_source,
                     ),
                 )
-            stored = replace(job)
+            stored = _normalize_stored_job(job, strict_numeric=False)
             self._jobs[job.stable_key] = stored
             return replace(stored)
 
@@ -526,7 +651,9 @@ class InMemoryGmailRepository:
                 )
             if "status" in values and "status_updated_at" not in values:
                 values["status_updated_at"] = utc_now()
-            updated = replace(job, **values)
+            updated = _normalize_stored_job(
+                replace(job, **values), strict_numeric=False
+            )
             self._jobs[stable_key] = updated
             return replace(updated)
 
@@ -551,7 +678,9 @@ class InMemoryGmailRepository:
             )
             if "status" in values and "status_updated_at" not in values:
                 values["status_updated_at"] = utc_now()
-            updated = replace(job, **values)
+            updated = _normalize_stored_job(
+                replace(job, **values), strict_numeric=False
+            )
             self._jobs[stable_key] = updated
             return replace(updated)
 
@@ -976,26 +1105,48 @@ class PostgresGmailRepository:
         values = {key: value for key, value in fields.items() if key in allowed}
         if not values:
             return await self.get_job(stable_key)
-        if "status" in values and "status_updated_at" not in values:
-            values["status_updated_at"] = utc_now()
-        if values.get("original_analysis_snapshot"):
-            values["original_analysis_snapshot"] = case(
-                (
-                    or_(
-                        self._job_model.original_analysis_snapshot.is_(None),
-                        self._job_model.original_analysis_snapshot == "",
-                    ),
-                    values["original_analysis_snapshot"],
-                ),
-                else_=self._job_model.original_analysis_snapshot,
-            )
-        statement = (
-            update(self._job_model)
-            .where(self._job_model.stable_key == stable_key)
-            .values(**values)
-            .returning(*self._job_model.__table__.c)
-        )
         async with self._session_factory() as session:
+            model = await session.get(
+                self._job_model, stable_key, with_for_update=True
+            )
+            if model is None:
+                return None
+            current = _job_from_row(model)
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            if values.get("original_analysis_snapshot"):
+                values["original_analysis_snapshot"] = (
+                    current.original_analysis_snapshot
+                    or values["original_analysis_snapshot"]
+                )
+            normalized = _normalize_stored_job(replace(current, **values))
+            for field_name in ("score", "fit_score"):
+                for suffix in ("", "_valid", "_raw", "_state"):
+                    key = f"{field_name}{suffix}"
+                    values[key] = getattr(normalized, key)
+            for key in (
+                "qualified",
+                "status",
+                "status_updated_at",
+                "analysis_quality_status",
+                "quality_errors",
+                "proposal_quality_score",
+                "recommended_price",
+                "realistic_timeline",
+                "proposal_draft",
+                "proposal_version",
+                "proposal_content_sha256",
+                "money_terms_json",
+                "timeline_terms_json",
+            ):
+                if getattr(normalized, key) != getattr(current, key) or key in values:
+                    values[key] = getattr(normalized, key)
+            statement = (
+                update(self._job_model)
+                .where(self._job_model.stable_key == stable_key)
+                .values(**values)
+                .returning(*self._job_model.__table__.c)
+            )
             result = await session.execute(statement)
             row = result.mappings().one_or_none()
             stored = _job_from_row(row) if row is not None else None
@@ -1038,25 +1189,46 @@ class PostgresGmailRepository:
             "stable_key", "created_at", "full_description", "source_email_id"
         }
         values = {key: value for key, value in fields.items() if key in allowed}
-        values["original_analysis_snapshot"] = case(
-            (
-                or_(
-                    self._job_model.original_analysis_snapshot.is_(None),
-                    self._job_model.original_analysis_snapshot == "",
-                ),
-                original_snapshot,
-            ),
-            else_=self._job_model.original_analysis_snapshot,
-        )
-        if "status" in values and "status_updated_at" not in values:
-            values["status_updated_at"] = utc_now()
-        statement = (
-            update(self._job_model)
-            .where(self._job_model.stable_key == stable_key)
-            .values(**values)
-            .returning(*self._job_model.__table__.c)
-        )
         async with self._session_factory() as session:
+            model = await session.get(
+                self._job_model, stable_key, with_for_update=True
+            )
+            if model is None:
+                return None
+            current = _job_from_row(model)
+            values["original_analysis_snapshot"] = (
+                current.original_analysis_snapshot or original_snapshot
+            )
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            normalized = _normalize_stored_job(replace(current, **values))
+            for field_name in ("score", "fit_score"):
+                for suffix in ("", "_valid", "_raw", "_state"):
+                    key = f"{field_name}{suffix}"
+                    values[key] = getattr(normalized, key)
+            for key in (
+                "qualified",
+                "status",
+                "status_updated_at",
+                "analysis_quality_status",
+                "quality_errors",
+                "proposal_quality_score",
+                "recommended_price",
+                "realistic_timeline",
+                "proposal_draft",
+                "proposal_version",
+                "proposal_content_sha256",
+                "money_terms_json",
+                "timeline_terms_json",
+            ):
+                if getattr(normalized, key) != getattr(current, key) or key in values:
+                    values[key] = getattr(normalized, key)
+            statement = (
+                update(self._job_model)
+                .where(self._job_model.stable_key == stable_key)
+                .values(**values)
+                .returning(*self._job_model.__table__.c)
+            )
             result = await session.execute(statement)
             row = result.mappings().one_or_none()
             stored = _job_from_row(row) if row is not None else None
@@ -1266,7 +1438,11 @@ def _processed_values(item: ProcessedItem) -> dict[str, Any]:
 
 
 def _job_values(job: StoredGmailJob) -> dict[str, Any]:
-    return {field: getattr(job, field) for field in StoredGmailJob.__dataclass_fields__}
+    normalized = _normalize_stored_job(job)
+    return {
+        field: getattr(normalized, field)
+        for field in StoredGmailJob.__dataclass_fields__
+    }
 
 
 def _scan_run_values(run: ScanRun) -> dict[str, Any]:
@@ -1284,8 +1460,13 @@ def _processed_from_row(row: Any) -> ProcessedItem:
 
 
 def _job_from_row(row: Any) -> StoredGmailJob:
-    return StoredGmailJob(
-        **{field: _row_value(row, field) for field in StoredGmailJob.__dataclass_fields__}
+    return _normalize_stored_job(
+        StoredGmailJob(
+            **{
+                field: _row_value(row, field)
+                for field in StoredGmailJob.__dataclass_fields__
+            }
+        )
     )
 
 

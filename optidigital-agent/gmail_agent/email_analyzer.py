@@ -13,10 +13,7 @@ from .email_classifier import EmailType
 from .quality_gate import (
     ANALYSIS_VERSION,
     SCORE_FAILED,
-    SCORE_INVALID,
-    SCORE_MISSING,
-    SCORE_VALID,
-    finite_score,
+    normalize_score_metadata,
     score_display,
 )
 
@@ -233,15 +230,17 @@ class JobAnalysis:
 
 
 def _score_semantics(value: Any, *, provider_succeeded: bool) -> tuple[float | None, bool, str, str]:
-    if not provider_succeeded:
-        return 0.0, False, "", SCORE_FAILED
-    if value is None or (isinstance(value, str) and not value.strip()):
-        return None, False, "", SCORE_MISSING
-    raw = str(value)
-    parsed = finite_score(value)
-    if parsed is None:
-        return None, False, raw, SCORE_INVALID
-    return parsed, True, raw, SCORE_VALID
+    metadata = normalize_score_metadata(
+        value,
+        raw=("" if value is None else value),
+        analysis_succeeded=provider_succeeded,
+    )
+    semantic_value = (
+        metadata.value
+        if metadata.valid or metadata.state == SCORE_FAILED
+        else None
+    )
+    return semantic_value, metadata.valid, metadata.raw, metadata.state
 
 
 def detect_language(text: str) -> str:
