@@ -668,3 +668,23 @@ token.json: ✅ знайдено
 - No merge, deployment, production migration/backfill, replacement card,
   variable/secret change, bid, client message, contract, or payment occurred.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
+
+## 2026-09-03 Stage 4 nullable Score/Fit metadata deployment
+
+- Exact PR #13 source HEAD
+  `ec54f2527918f9139db60408db97773b24718edc` was merged as production
+  `main` `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
+- Railway deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05` reached `SUCCESS`
+  with exactly one of one replica RUNNING and no stopped deployment state.
+- Startup completed and all 20 expected additive Stage 4 `gmail_jobs` columns
+  are present. Read-only PostgreSQL validation over 102 rows found zero NULL
+  valid/state fields, zero Score/Fit metadata mismatches, and zero unsafe
+  proposal-ready rows.
+- Four RSS and four Gmail scheduler cycles completed with `errors=0`. Bounded
+  runtime logs contained zero traceback, NotNullViolation, SQLSTATE 23502, or
+  IntegrityError matches.
+- Issue #11 was closed after verification. No manual migration, quality
+  backfill, replacement Telegram card, variable/secret or OAuth change, bid,
+  client message, contract, or payment was performed.
+- Status:
+  `PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOYED_AND_VERIFIED`.

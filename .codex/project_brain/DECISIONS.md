@@ -304,3 +304,21 @@
 - Keep issue #11 open. Merge, Railway deployment, production migration,
   backfill, replacement cards, variables, secrets, bids, and client messages
   require separate authorization.
+
+## 2026-09-03 — Nullable Score/Fit metadata hotfix deployment
+
+- Accept the user's separate deployment authorization as permission to merge
+  exact PR #13 HEAD `ec54f2527918f9139db60408db97773b24718edc` and allow the
+  GitHub-linked Railway service to deploy the resulting merge commit.
+- Production source of truth is now `main`
+  `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway deployment
+  `765ba1da-4df3-4472-8ea8-b0d6fa5dad05` (`SUCCESS`, 1/1 RUNNING).
+- Accept the application startup's additive, idempotent `init_db` execution as
+  part of deployment. Do not run a separate manual migration or destructive
+  alteration.
+- Keep quality backfill, replacement Telegram cards, variables, secrets,
+  OAuth, bids, client messages, contracts, and payments outside this
+  authorization.
+- Close issue #11 only after terminal Railway SUCCESS, the Score/Fit schema
+  and row invariants pass read-only checks, and several ordinary scheduler
+  cycles complete with zero errors.
