@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -62,6 +62,36 @@ def _live_status_refusal(record: object, recheck_id: str = "") -> str:
         f"Reason: {escape_html(reason)}"
         f"{retry}"
     )
+
+
+def _quality_refusal(record: object, event_id: str = "") -> str:
+    from gmail_agent.quality_gate import quality_errors
+
+    status = str(_value(record, "analysis_quality_status") or "QUALITY_MANUAL_REVIEW")
+    errors = quality_errors(record) or ["quality_state_not_proposal_ready"]
+    recheck = (
+        f"\nНаступна дія: <code>/quality_recheck {escape_html(event_id)}</code>."
+        if event_id
+        else "\nНаступна дія: перевірити quality state; ставку не надсилати."
+    )
+    return (
+        "🟡 <b>Відгук не доступний</b>\n\n"
+        f"Analysis quality: <b>{escape_html(status)}</b>\n"
+        "Bid-ready: <b>no</b>\n"
+        "Errors: <code>"
+        + escape_html(", ".join(errors[:8]))
+        + "</code>"
+        + recheck
+    )
+
+
+def _quality_allows_action(record: object) -> bool:
+    platform = str(_value(record, "platform") or "").casefold()
+    if "freelancehunt" not in platform:
+        return True
+    from gmail_agent.quality_gate import is_proposal_ready
+
+    return is_proposal_ready(record)
 
 
 async def _ensure_order_current_biddable(
@@ -245,6 +275,11 @@ async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> N
             _live_status_refusal(order, str(order.id)), reply_markup=None
         )
         return
+    if not _quality_allows_action(order):
+        await callback.message.edit_text(
+            _quality_refusal(order), reply_markup=None
+        )
+        return
 
     await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
 
@@ -299,6 +334,11 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
                 _live_status_refusal(order, str(order.id)), reply_markup=None
             )
             return
+        if not _quality_allows_action(order):
+            await callback.message.edit_text(
+                _quality_refusal(order), reply_markup=None
+            )
+            return
 
     async with AsyncSessionLocal() as session:
         draft = await session.get(Response, callback_data.response_id)
@@ -338,6 +378,11 @@ async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None
     if not guard.allowed:
         await callback.message.edit_text(
             _live_status_refusal(order, str(order.id)), reply_markup=None
+        )
+        return
+    if not _quality_allows_action(order):
+        await callback.message.edit_text(
+            _quality_refusal(order), reply_markup=None
         )
         return
 
@@ -396,6 +441,9 @@ async def cmd_reply(message: Message) -> None:
     guard = await _ensure_order_current_biddable(order)
     if not guard.allowed:
         await message.answer(_live_status_refusal(order, str(order.id)))
+        return
+    if not _quality_allows_action(order):
+        await message.answer(_quality_refusal(order))
         return
 
     await message.answer(f"⏳ Генерую відгук для <b>{order.title}</b>…")
@@ -489,12 +537,16 @@ async def cmd_reply_job(message: Message) -> None:
     project_event = str(job.get("event_type") or "") in {
         "PROJECT_SINGLE",
         "PROJECT_DIGEST",
+        "PROJECT_FEED",
     }
     is_freelancehunt = "freelancehunt" in str(job.get("platform") or "").casefold()
     if project_event and is_freelancehunt:
         guard = await _ensure_gmail_job_current_biddable(job_id, job, repository)
         if not guard.allowed:
             await message.answer(_live_status_refusal(job, job_id))
+            return
+        if not _quality_allows_action(job):
+            await message.answer(_quality_refusal(job, job_id))
             return
 
     saved_proposal = str(job.get("proposal_draft") or "").strip()
@@ -658,6 +710,170 @@ async def cmd_recheck_live(message: Message) -> None:
         f"Reason: {escape_html(str(_value(record, 'live_status_evidence') or guard.result.evidence))}\n"
         f"Наступна дія: {escape_html(next_action)}"
     )
+
+
+@admin_router.message(Command("quality_recheck"))
+async def cmd_quality_recheck(message: Message) -> None:
+    """Run one live refresh and at most one quality reanalysis; never bid."""
+
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2 or not raw[1].strip():
+        await message.answer(
+            "❌ Використання: <code>/quality_recheck &lt;event_id&gt;</code>"
+        )
+        return
+    event_id = raw[1].strip()
+    try:
+        from dataclasses import asdict
+
+        from gmail_agent.email_analyzer import repair_analysis
+        from gmail_agent.quality_gate import (
+            QualityStatus,
+            apply_validation,
+            is_proposal_ready,
+            validate_analysis,
+        )
+        from gmail_agent.storage import PostgresGmailRepository
+        from gmail_agent.telegram_notifier import format_job_card_parts
+
+        repository = PostgresGmailRepository(AsyncSessionLocal)
+        stored = await repository.get_job(event_id)
+        if stored is None:
+            await message.answer("❌ Подію для quality recheck не знайдено.")
+            return
+        job = asdict(stored)
+        job.setdefault("email_id", event_id)
+        guard = await _ensure_gmail_job_current_biddable(
+            event_id, job, repository, force=True, manual=True
+        )
+        if not guard.allowed:
+            await message.answer(_live_status_refusal(job, event_id))
+            return
+
+        from gmail_agent.processor import GmailJobProcessor
+
+        original = GmailJobProcessor._analysis_from_job(stored)
+        original.live_status = guard.result.status.value
+        original.live_status_checked_at = guard.result.checked_at
+        original.live_status_evidence = guard.result.evidence
+        original.biddable = True
+        reanalyzed = await repair_analysis(
+            original,
+            ["admin_requested_bounded_quality_recheck"],
+        )
+        reanalyzed.original_analysis_snapshot = GmailJobProcessor._quality_snapshot(
+            original
+        )
+        if not reanalyzed.analysis_succeeded:
+            validation = validate_analysis(reanalyzed)
+            apply_validation(reanalyzed, validation, repair_count=1)
+            await repository.update_job_fields(
+                event_id,
+                {
+                    **GmailJobProcessor._analysis_fields(reanalyzed),
+                    "status": "quality_retryable",
+                    "qualified": False,
+                },
+            )
+            await message.answer(
+                "🟡 Quality recheck provider failure; результат залишається "
+                "retryable, ставку не надсилати."
+            )
+            return
+
+        validation = validate_analysis(reanalyzed, repaired=True)
+        apply_validation(reanalyzed, validation, repair_count=1)
+        ready = is_proposal_ready(reanalyzed)
+        stored = await repository.update_job_fields(
+            event_id,
+            {
+                **GmailJobProcessor._analysis_fields(reanalyzed),
+                "status": (
+                    "quality_validated_backfill"
+                    if ready
+                    else "quality_non_executable"
+                    if validation.status == QualityStatus.NON_EXECUTABLE.value
+                    else "quality_manual_review"
+                ),
+                "qualified": ready,
+            },
+        )
+        display = (
+            GmailJobProcessor._analysis_from_job(stored)
+            if stored is not None
+            else reanalyzed
+        )
+        for part in format_job_card_parts(display):
+            await message.answer(part, disable_web_page_preview=True)
+    except Exception as exc:
+        logger.exception("Admin quality recheck failed")
+        await message.answer(
+            "❌ Quality recheck failed closed: "
+            f"<code>{escape_html(type(exc).__name__)}</code>. Ставку не надсилати."
+        )
+
+
+@admin_router.message(Command("quality_backfill"))
+async def cmd_quality_backfill(message: Message) -> None:
+    """Admin-only controlled preview/execute path for legacy active rows."""
+
+    parts = (message.text or "").strip().split()
+    if len(parts) != 3 or parts[1] not in {"preview", "execute"} or not parts[2].isdigit():
+        await message.answer(
+            "❌ Використання: <code>/quality_backfill preview|execute &lt;1..100&gt;</code>"
+        )
+        return
+    limit = int(parts[2])
+    if not 1 <= limit <= 100:
+        await message.answer("❌ limit має бути від 1 до 100.")
+        return
+    try:
+        from gmail_agent.live_status import FreelancehuntLiveStatusChecker
+        from gmail_agent.processor import GmailJobProcessor
+        from gmail_agent.storage import PostgresGmailRepository
+
+        processor = GmailJobProcessor(
+            provider=object(),
+            bot=message.bot,
+            chat_id=settings.TELEGRAM_CHAT_ID,
+            min_score=0.0,
+            repository=PostgresGmailRepository(AsyncSessionLocal),
+            live_status_checker=FreelancehuntLiveStatusChecker(),
+        )
+        if parts[1] == "preview":
+            preview = await processor.run_quality_backfill_preview(limit)
+            await message.answer(
+                "🔎 <b>Quality backfill preview — counts only</b>\n"
+                f"Bounded limit: <b>{preview.limit}</b>\n"
+                f"Candidates: <b>{preview.candidates}</b>\n"
+                f"Score missing/zero: <b>{preview.zero_score}</b>\n"
+                f"Fit missing/zero: <b>{preview.missing_fit}</b>\n"
+                f"Missing price: <b>{preview.missing_price}</b>\n"
+                f"Missing timeline: <b>{preview.missing_timeline}</b>\n"
+                f"Missing proposal: <b>{preview.missing_proposal}</b>\n"
+                f"Invalid evidence: <b>{preview.missing_or_invalid_evidence}</b>\n"
+                "No rows or Telegram cards changed."
+            )
+            return
+        stats = await processor.run_quality_backfill(
+            limit, send_replacements=False
+        )
+        await message.answer(
+            "✅ <b>Bounded quality backfill complete</b>\n"
+            f"AI analyzed: <b>{stats.ai_analyzed}</b>\n"
+            f"VALID: <b>{stats.quality_valid}</b>\n"
+            f"REPAIRED: <b>{stats.quality_repaired}</b>\n"
+            f"MANUAL_REVIEW: <b>{stats.quality_manual_review}</b>\n"
+            f"NON_EXECUTABLE: <b>{stats.quality_non_executable}</b>\n"
+            f"FAILED: <b>{stats.quality_failed}</b>\n"
+            "Replacement cards: <b>0</b> (explicit send path not requested)."
+        )
+    except Exception as exc:
+        logger.exception("Quality backfill command failed")
+        await message.answer(
+            "❌ Quality backfill failed closed: "
+            f"<code>{escape_html(type(exc).__name__)}</code>."
+        )
 
 def _fmt_dt(dt: datetime | None) -> str:
     if dt is None:
@@ -850,6 +1066,12 @@ async def cmd_status(message: Message) -> None:
                 "mailbox_alias": getattr(last, "mailbox_alias", None) or "—",
                 "latency": getattr(last, "max_detection_latency_seconds", None),
                 "event_counts": getattr(last, "event_counts", "{}") or "{}",
+                "quality_valid": getattr(last, "quality_valid", 0),
+                "quality_repaired": getattr(last, "quality_repaired", 0),
+                "quality_manual_review": getattr(last, "quality_manual_review", 0),
+                "quality_failed": getattr(last, "quality_failed", 0),
+                "repair_calls": getattr(last, "repair_calls", 0),
+                "proposal_versions_sent": getattr(last, "proposal_versions_sent", 0),
             }
     except Exception as exc:
         gmail_memory_fallback = True
@@ -874,6 +1096,12 @@ async def cmd_status(message: Message) -> None:
                 "mailbox_alias": last.get("mailbox_alias", "—"),
                 "latency": last.get("max_detection_latency_seconds"),
                 "event_counts": last.get("event_counts", "{}"),
+                "quality_valid": last.get("quality_valid", 0),
+                "quality_repaired": last.get("quality_repaired", 0),
+                "quality_manual_review": last.get("quality_manual_review", 0),
+                "quality_failed": last.get("quality_failed", 0),
+                "repair_calls": last.get("repair_calls", 0),
+                "proposal_versions_sent": last.get("proposal_versions_sent", 0),
             }
 
     if gmail_telemetry is None:
@@ -892,6 +1120,12 @@ async def cmd_status(message: Message) -> None:
             "mailbox_alias": "—",
             "latency": None,
             "event_counts": "{}",
+            "quality_valid": "—",
+            "quality_repaired": "—",
+            "quality_manual_review": "—",
+            "quality_failed": "—",
+            "repair_calls": "—",
+            "proposal_versions_sent": "—",
         }
 
     try:
@@ -932,6 +1166,10 @@ async def cmd_status(message: Message) -> None:
         f"Errors: <b>{gmail_telemetry['errors']}</b>"
         f"\nMax detection latency: <b>{latency_text}</b>"
         f"\nEvent counts: <b>{escape_html(event_counts_text)}</b>"
+        f"\nQuality VALID/REPAIRED: <b>{gmail_telemetry['quality_valid']}/{gmail_telemetry['quality_repaired']}</b>"
+        f"\nQuality MANUAL/FAILED: <b>{gmail_telemetry['quality_manual_review']}/{gmail_telemetry['quality_failed']}</b>"
+        f"\nQuality repair calls: <b>{gmail_telemetry['repair_calls']}</b>"
+        f"\nProposal versions sent: <b>{gmail_telemetry['proposal_versions_sent']}</b>"
         + telemetry_source
     )
 
@@ -1662,6 +1900,13 @@ async def cmd_gmail_history(message: Message) -> None:
             f"queue: {entry.sent_from_queue}, "
             f"duplicates: {entry.duplicates}, "
             f"errors: {entry.errors}"
+            f", quality valid/repaired/manual/failed: "
+            f"{getattr(entry, 'quality_valid', 0)}/"
+            f"{getattr(entry, 'quality_repaired', 0)}/"
+            f"{getattr(entry, 'quality_manual_review', 0)}/"
+            f"{getattr(entry, 'quality_failed', 0)}, "
+            f"repair calls: {getattr(entry, 'repair_calls', 0)}, "
+            f"proposal versions: {getattr(entry, 'proposal_versions_sent', 0)}"
         )
     await message.answer("\n".join(lines))
 

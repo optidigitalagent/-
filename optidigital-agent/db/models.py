@@ -36,6 +36,16 @@ class Order(Base):
     live_status_retry_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     live_status_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     qualified: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    analysis_quality_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    quality_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quality_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quality_repair_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    proposal_quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    analysis_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    executable: Mapped[str | None] = mapped_column(String(30), nullable=True)
 
     responses: Mapped[list["Response"]] = relationship("Response", back_populates="order")
 
@@ -108,6 +118,18 @@ class GmailScanRun(Base):
     live_status_unknown: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     ai_calls_avoided: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     max_publication_to_telegram_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    quality_valid: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    quality_repaired: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    quality_manual_review: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    quality_non_executable: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    quality_failed: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    zero_score_blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    missing_price_blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    missing_proposal_blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    invalid_evidence_blocked: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    repair_calls: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    repair_successes: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    proposal_versions_sent: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
 
 
 class GmailJob(Base):
@@ -188,6 +210,17 @@ class GmailJob(Base):
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     telegram_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     publication_to_telegram_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    analysis_quality_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    quality_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quality_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quality_repair_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    proposal_quality_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    analysis_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    original_analysis_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quality_clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    model_output_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 _MIGRATIONS = [
@@ -206,6 +239,16 @@ _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_retry_count INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS live_status_last_error TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS qualified BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS analysis_quality_status TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS quality_checked_at TIMESTAMPTZ",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS quality_errors TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS quality_repair_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposal_quality_score DOUBLE PRECISION",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS evidence_case_id TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS analysis_version TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposal_version TEXT",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS fit_score DOUBLE PRECISION",
+    "ALTER TABLE orders ADD COLUMN IF NOT EXISTS executable TEXT",
     # create_all does not add columns to an already existing table. This is an
     # additive, data-preserving migration for early gmail_scan_runs deployments.
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS relevant INTEGER NOT NULL DEFAULT 0",
@@ -268,12 +311,35 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS telegram_sent_at TIMESTAMPTZ",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS publication_to_telegram_latency_seconds DOUBLE PRECISION",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS analysis_quality_status TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_checked_at TIMESTAMPTZ",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_errors TEXT NOT NULL DEFAULT '[]'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_repair_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS proposal_quality_score DOUBLE PRECISION",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS evidence_case_id TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS analysis_version TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS proposal_version TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS original_analysis_snapshot TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_clarification_question TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS model_output_json TEXT",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS duplicate_source_pairs TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_active INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_non_actionable INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_unknown INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS ai_calls_avoided INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS max_publication_to_telegram_latency_seconds DOUBLE PRECISION",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS quality_valid INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS quality_repaired INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS quality_manual_review INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS quality_non_executable INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS quality_failed INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS zero_score_blocked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS missing_price_blocked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS missing_proposal_blocked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS invalid_evidence_blocked INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_calls INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_successes INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS proposal_versions_sent INTEGER NOT NULL DEFAULT 0",
 ]
 
 

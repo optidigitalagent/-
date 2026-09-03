@@ -10,10 +10,9 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .email_classifier import EmailType
+from .quality_gate import ANALYSIS_VERSION, finite_score
 
 if TYPE_CHECKING:
-    from openai import AsyncOpenAI
-
     from gmail_agent.digest_parser import DigestJobCandidate
 
 logger = logging.getLogger(__name__)
@@ -37,15 +36,23 @@ Truthful delivery model and evidence:
   (websites; Status Dent also SEO/local search); Art Studio 184 (website and
   operational automations); Audiobook Cleaner (ASR/cleanup/QA); Mentium
   (education AI product/MVP discovery); NFC Review Cards (NFC workflow).
+- Select exactly one evidence_case_id from: BELLA_DENT,
+  DENTAL_SUPPLIER_AI_AGENT, GMAIL_JOB_AGENT, STATUS_DENT, AMIDENTAL,
+  ART_STUDIO_184, AUDIOBOOK_CLEANER, MENTIUM, NFC_REVIEW_CARDS,
+  NO_DIRECT_CASE, DEMO_REQUIRED. selected_evidence is advisory only; the
+  application replaces it with the approved registry wording.
 - Never invent results, metrics, reviews, employees, years, client facts or
   oral Polish fluency. Label an unbuilt example as a demo.
 
 Commercial rules:
 - There is no minimum price. Do not reject a project merely for a low budget.
 - Pick CASH, REPUTATION or STRATEGIC and explain why.
-- Prefer a controlled project or milestone price, realistic delivery time and
-  explicit risks. fit_score and win_probability_signal are relative signals,
-  not promises.
+- Return two distinct finite numbers: fit_score is delivery-capability match;
+  score is overall commercial opportunity considering fit, scope, budget,
+  competition, risk, response speed and CASH/REPUTATION/STRATEGIC value.
+  Prefer a controlled project or milestone price, realistic delivery time and
+  explicit risks. Scores and win_probability_signal are relative signals, not
+  promises. Never fill a missing value with a manufactured score.
 - Match proposal/reply language to the client: uk, ru, en or pl. Polish is
   written with AI assistance.
 - Private messages are HIGH PRIORITY and must not be filtered by job score.
@@ -87,6 +94,7 @@ Return this JSON shape (empty string/null when unavailable):
   "recommended_price": "project or milestone price with currency",
   "realistic_timeline": "",
   "selected_evidence": "one approved relevant case or clearly labelled demo",
+  "evidence_case_id": "one approved evidence registry ID",
   "evidence": "facts in the source that support the assessment",
   "proposal_draft": "one strong copy-paste proposal/reply in client language",
   "needs_context": false,
@@ -107,7 +115,7 @@ class JobAnalysis:
     is_relevant: bool
     title: str
     platform: str
-    score: float
+    score: float | None
     reason: str
     budget: str
     url: str
@@ -168,10 +176,25 @@ class JobAnalysis:
     first_seen_at: datetime | None = None
     telegram_sent_at: datetime | None = None
     publication_to_telegram_latency_seconds: float | None = None
+    analysis_quality_status: str = ""
+    quality_checked_at: datetime | None = None
+    quality_errors: str = "[]"
+    quality_repair_count: int = 0
+    proposal_quality_score: float | None = None
+    evidence_case_id: str = ""
+    analysis_version: str = ""
+    proposal_version: str = ""
+    original_analysis_snapshot: str = ""
+    quality_clarification_question: str = ""
+    model_output_json: str = ""
 
     @property
     def score_display(self) -> str:
-        return f"{self.score:.1f}/10"
+        return "—" if self.score is None else f"{self.score:.1f}/10"
+
+    @property
+    def fit_score_display(self) -> str:
+        return "—" if self.fit_score is None else f"{self.fit_score:.1f}/10"
 
 
 def detect_language(text: str) -> str:
@@ -220,13 +243,6 @@ def _extract_json(raw: str) -> dict:
     return json.loads(raw)
 
 
-def _float(value: Any, default: float = 0.0) -> float:
-    try:
-        return max(0.0, min(10.0, float(value)))
-    except (TypeError, ValueError):
-        return default
-
-
 def _optional_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -256,6 +272,7 @@ async def analyze_email(
     event_type: str = EmailType.PROJECT_SINGLE.value,
     source_url: str = "",
     client_context: str = "",
+    validation_errors: list[str] | tuple[str, ...] | None = None,
 ) -> JobAnalysis:
     if client is None:
         from openai import AsyncOpenAI
@@ -271,6 +288,16 @@ async def analyze_email(
 
     analysis_succeeded = True
     try:
+        user_prompt = _format_email(
+            subject, sender, body, event_type, source_url, client_context
+        )
+        if validation_errors:
+            user_prompt += (
+                "\n\nQUALITY REPAIR — correct every deterministic validation error "
+                "without inventing facts. Return the complete JSON object.\n"
+                + "Validation errors: "
+                + json.dumps(list(validation_errors), ensure_ascii=False)
+            )
         response = await client.chat.completions.create(
             model=model,
             response_format={"type": "json_object"},
@@ -278,9 +305,7 @@ async def analyze_email(
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": _format_email(
-                        subject, sender, body, event_type, source_url, client_context
-                    ),
+                    "content": user_prompt,
                 },
             ],
             temperature=0.1,
@@ -292,7 +317,13 @@ async def analyze_email(
         data = {}
         analysis_succeeded = False
 
-    score = _float(data.get("fit_score", data.get("score", 0.0)))
+    # Missing, null, malformed and non-finite values stay invalid instead of
+    # being silently coerced to a legitimate zero.  Failed provider calls are
+    # the sole diagnostic exception and remain marked analysis_succeeded=false.
+    score = 0.0 if not analysis_succeeded else finite_score(data.get("score"))
+    fit_score = (
+        0.0 if not analysis_succeeded else finite_score(data.get("fit_score"))
+    )
     language = str(data.get("language") or detect_language(f"{subject}\n{body}"))
     if language not in {"uk", "ru", "en", "pl"}:
         language = detect_language(f"{subject}\n{body}")
@@ -328,7 +359,7 @@ async def analyze_email(
         thread_id=str(data.get("thread_id", "")),
         service_lane=str(data.get("service_lane", "")),
         executable=executable,
-        fit_score=score,
+        fit_score=fit_score,
         win_probability_signal=str(data.get("win_probability_signal", "")),
         scope_clarity=str(data.get("scope_clarity", "")),
         estimated_effort=str(data.get("estimated_effort", "")),
@@ -343,6 +374,7 @@ async def analyze_email(
             "" if executable == "no" else str(data.get("realistic_timeline", ""))
         ),
         selected_evidence=str(data.get("selected_evidence", "")),
+        evidence_case_id=str(data.get("evidence_case_id", "")).strip().upper(),
         evidence=str(data.get("evidence", "")),
         proposal_draft=(
             "" if executable == "no" else str(data.get("proposal_draft", ""))
@@ -353,6 +385,8 @@ async def analyze_email(
             if executable == "no"
             else str(data.get("next_action", ""))
         ),
+        analysis_version=ANALYSIS_VERSION,
+        model_output_json=json.dumps(data, ensure_ascii=False, sort_keys=True),
     )
 
 
@@ -410,6 +444,66 @@ async def analyze_candidate(
     if (not analysis.budget or analysis.budget == "не вказано") and candidate.budget:
         analysis.budget = candidate.budget
     return analysis
+
+
+async def repair_analysis(
+    original: JobAnalysis,
+    validation_errors: list[str] | tuple[str, ...],
+    client: "Any | None" = None,
+    model: str = "gpt-4o-mini",
+) -> JobAnalysis:
+    """Run exactly one caller-bounded repair while preserving source metadata."""
+
+    repaired = await analyze_email(
+        email_id=original.email_id,
+        subject=original.title,
+        sender=original.platform,
+        body=original.full_description,
+        client=client,
+        model=model,
+        event_type=original.event_type,
+        source_url=original.url,
+        client_context=original.client_context,
+        validation_errors=validation_errors,
+    )
+    for field_name in (
+        "source_email_id",
+        "full_description",
+        "description_completeness",
+        "category",
+        "skills",
+        "deadline",
+        "bid_count",
+        "client_name",
+        "client_profile_url",
+        "client_context",
+        "project_id",
+        "thread_id",
+        "received_at",
+        "sensitive_redacted",
+        "source_mailbox_alias",
+        "live_status",
+        "live_status_checked_at",
+        "live_status_evidence",
+        "biddable",
+        "live_status_retry_count",
+        "live_status_last_error",
+        "tags",
+        "budget_currency",
+        "discovery_source",
+        "discovery_sources",
+        "source_publication_at",
+        "source_feed_timestamp",
+        "feed_fetched_at",
+        "first_seen_at",
+    ):
+        setattr(repaired, field_name, getattr(original, field_name))
+    repaired.platform = original.platform
+    repaired.url = original.url
+    repaired.project_id = original.project_id
+    if (not repaired.budget or repaired.budget == "не вказано") and original.budget:
+        repaired.budget = original.budget
+    return repaired
 
 
 def _detect_platform(sender: str) -> str:

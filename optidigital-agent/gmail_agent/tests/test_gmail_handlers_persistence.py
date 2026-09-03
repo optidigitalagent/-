@@ -20,6 +20,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from bot.html_utils import escape_html, safe_http_url
+from gmail_agent.quality_gate import ANALYSIS_VERSION, QualityStatus
 from gmail_agent.storage import ScanRun, StoredGmailJob
 
 
@@ -100,6 +101,15 @@ def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmai
         live_status_evidence="submit a bid",
         biddable=True,
         qualified=True,
+        executable="yes",
+        fit_score=8.0,
+        analysis_quality_status=QualityStatus.VALID.value,
+        evidence_case_id="NO_DIRECT_CASE",
+        analysis_version=ANALYSIS_VERSION,
+        proposal_version="pqg-v1:synthetic",
+        proposal_draft="We can deliver this Python automation project.",
+        recommended_price="500 USD",
+        realistic_timeline="5 days",
     )
 
 
@@ -437,7 +447,7 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
         repository.get_job.assert_awaited_once_with("stable-key-1")
         output = "\n".join(call.args[0] for call in message.answer.await_args_list)
         self.assertIn("Python automation", output)
-        self.assertIn("Draft reply", output)
+        self.assertIn("We can deliver this Python automation project.", output)
 
     async def test_reply_refuses_blocked_project_even_with_saved_proposal(self):
         blocked = {

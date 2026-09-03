@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 3 — instant broad Freelancehunt discovery and first live revenue cycle**
+**Stage 4 — proposal-quality gate**
 
 ## Readiness by workstream
 
@@ -15,8 +15,9 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Дія.Підпис verification: completed, reported by the user**
 - **Operational Gmail connection to ChatGPT: confirmed**
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
-- **Fresh project digest on the new adult mailbox: not yet observed**
-- **Railway → Telegram opportunity flow: not yet activated on the new mailbox**
+- **Instant official-RSS discovery: deployed and verified**
+- **Railway → Telegram target-channel migration: completed**
+- **Proposal-quality gate: implemented locally; deployment authorization pending**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -38,17 +39,23 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `REVENUE_FLOW_IMPLEMENTATION_REQUIRED`
 - `DEPLOYED_LIVE_STATUS_HOTFIX_V2`
 - `ISSUE_7_COMPLETED`
-- `STAGE_3_ACTIVE`
-- `ISSUE_9_CURRENT_WORK_ITEM`
+- `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`
+- `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
+- `STAGE_4_ACTIVE`
+- `ISSUE_11_CURRENT_WORK_ITEM`
 
 ## Protected production baseline
 
-- Production `main`: `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5`.
-- Railway deployment: `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a`.
+- Production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`.
+- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
-- Stage 3 is active; GitHub issue #9 is the current work item.
+- Instant discovery is deployed and verified, and the Telegram channel
+  migration is complete.
+- Stage 4 is active; GitHub issue #11 is the current work item.
+- Current production cards with Score/Fit `0.0` are diagnostic legacy output,
+  not proposal-ready results.
 
 ## Completed account and profile work
 
@@ -98,8 +105,8 @@ Do not rewrite it from scratch.
 - [x] `/reply_job` uses the full persisted description, context, evidence, price, timeline and saved proposal
 - [x] Active Gmail prompts/messages use Antonov Digital branding
 - [x] Scoring uses the approved no-minimum-budget, no-preferred-lane revenue policy
-- [ ] The new adult-owned OAuth identity is not yet installed and proven in Railway
-- [x] Local adult-mailbox read-only test and one controlled Telegram TEST completed; production end-to-end remains gated
+- [x] The adult-owned OAuth identity and production ingestion baseline have been proven
+- [x] Local adult-mailbox read-only test and controlled Telegram validation completed; the deployed flow supersedes this historical gate
 
 ## Stage 2 implementation plan
 
@@ -283,3 +290,34 @@ Stage 2 is operational when:
   `da58c7bb4a6c3a4565f3590f83f7301b2e7b41c5` and Railway deployment
   `c9a3cebe-36b7-4697-9ec0-bd01dbc0c77a` (`SUCCESS`).
 - Status: `READY_FOR_INSTANT_DISCOVERY_DEPLOY`.
+
+## 2026-09-03 — Stage 4 issue #11 deployment gate
+
+- Instant discovery is now `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`, and
+  `TELEGRAM_CHANNEL_MIGRATION_COMPLETED` is the current channel state.
+- The proposal-quality gate runs after the unchanged live-status guard and
+  before qualification or Telegram delivery. Score and Fit remain separate;
+  only fresh `ACTIVE_BIDDABLE` + `executable=yes` + `QUALITY_VALID` or
+  `QUALITY_REPAIRED` can expose a proposal action.
+- Missing, null, malformed, non-finite and zero Score/Fit fail closed for
+  executable yes/maybe. Evidence is selected from the controlled Project Brain
+  registry, and proposal text is checked for placeholders, contacts,
+  unsupported claims, language, scope, specificity and commercial consistency.
+- One exact-error repair is permitted. A second deterministic failure becomes
+  manual review; provider failure remains retryable. Non-executable work stores
+  no price, timeline or usable proposal.
+- Controlled backfill is preview-first, bounded to 100, preserves source and
+  old analysis snapshots, refreshes live status, and deduplicates proposal
+  versions before any explicitly enabled replacement.
+- Read-only production preview: 52 ACTIVE_BIDDABLE legacy rows; 52 with Score
+  `<= 0`, 52 with null/zero Fit, 0 empty prices, 0 empty timelines, 0 empty
+  proposals, and 52 without the new approved evidence registry ID. No row was
+  changed.
+- Validation: 239/239 tests pass (200 protected baseline plus 39 Stage 4
+  tests); compileall and production-like Python 3.12 import pass. The additive
+  migration ran twice against isolated PostgreSQL 17 and all 33 Stage 4
+  columns were present.
+- Production remains unchanged on `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY`.

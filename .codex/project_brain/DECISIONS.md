@@ -239,3 +239,28 @@
   normal path target is at most 120 seconds.
 - Never automate a bid or client message. The adult owner performs the final
   platform action manually.
+
+## 2026-09-03 — Stage 4 proposal-quality gate
+
+- Treat `ACTIVE_BIDDABLE` as necessary but insufficient for a proposal-ready
+  card. Proposal actions additionally require `executable=yes` and persisted
+  `QUALITY_VALID` or `QUALITY_REPAIRED`.
+- Preserve `score` and `fit_score` as independent finite 0–10 values. Missing,
+  malformed and non-finite values remain invalid rather than becoming `0.0`.
+- Run deterministic validation after the live-status guard and before
+  qualification or Telegram delivery. Permit at most one AI repair using the
+  original source context and exact validation errors, then validate again.
+- Restrict evidence to the approved Project Brain registry and persist its
+  stable ID separately from approved factual wording and source-grounded
+  project evidence.
+- Fail closed across saved proposal display, view, rewrite, direct reply and
+  manual-copy/send paths. A quality recheck refreshes live status first and
+  never submits a bid or client message.
+- Backfill is preview-first, bounded to 100 rows, audit-preserving and
+  proposal-version deduplicated. Production rows remain untouched until a
+  separately authorized deployment and backfill execution.
+- Protected production remains `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`). Instant
+  discovery is deployed and verified; Telegram channel migration is complete;
+  issue #11 is the current work item.
