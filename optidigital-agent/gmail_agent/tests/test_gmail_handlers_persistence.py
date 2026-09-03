@@ -10,6 +10,7 @@ import ast
 import logging
 import sys
 import unittest
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,7 +21,13 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from bot.html_utils import escape_html, safe_http_url
-from gmail_agent.quality_gate import ANALYSIS_VERSION, QualityStatus
+from gmail_agent.quality_gate import (
+    ANALYSIS_VERSION,
+    EVIDENCE_REGISTRY,
+    QualityStatus,
+    compose_application_owned_proposal,
+    proposal_version,
+)
 from gmail_agent.storage import ScanRun, StoredGmailJob
 
 
@@ -84,7 +91,7 @@ def _message(text: str) -> MagicMock:
 
 
 def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmailJob:
-    return StoredGmailJob(
+    job = StoredGmailJob(
         stable_key=stable_key,
         source_email_id="parent-redacted",
         platform="Freelancehunt",
@@ -104,13 +111,22 @@ def _job(stable_key: str = "stable-key-1", status: str = "queued") -> StoredGmai
         executable="yes",
         fit_score=8.0,
         analysis_quality_status=QualityStatus.VALID.value,
-        evidence_case_id="NO_DIRECT_CASE",
         analysis_version=ANALYSIS_VERSION,
-        proposal_version="pqg-v1:synthetic",
+        proposal_version="",
+        score_valid=True,
+        score_raw="8.5",
+        score_state="VALID",
+        fit_score_valid=True,
+        fit_score_raw="8.0",
+        fit_score_state="VALID",
         proposal_draft="We can deliver this Python automation project.",
         recommended_price="500 USD",
         realistic_timeline="5 days",
+        evidence_case_id="NO_DIRECT_CASE",
+        selected_evidence=EVIDENCE_REGISTRY["NO_DIRECT_CASE"],
     )
+    job = replace(job, proposal_draft=compose_application_owned_proposal(job))
+    return replace(job, proposal_version=proposal_version(job))
 
 
 class TestAdminDigestCommands(unittest.IsolatedAsyncioTestCase):
@@ -426,6 +442,9 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
     async def test_reply_loads_persistent_job_after_memory_cache_is_empty(self):
         repository = MagicMock()
         repository.get_job = AsyncMock(return_value=_job())
+        repository.claim_processed = AsyncMock(return_value=True)
+        repository.upsert_processed = AsyncMock()
+        repository.delete_processed = AsyncMock()
         repository_type = MagicMock(return_value=repository)
         message = _message("/reply_job stable-key-1")
         handler = _load_handler(
@@ -444,7 +463,9 @@ class TestPersistentHistoryAndJobs(unittest.IsolatedAsyncioTestCase):
         ):
             await handler(message)
 
-        repository.get_job.assert_awaited_once_with("stable-key-1")
+        self.assertGreaterEqual(repository.get_job.await_count, 2)
+        repository.claim_processed.assert_awaited_once()
+        repository.upsert_processed.assert_awaited_once()
         output = "\n".join(call.args[0] for call in message.answer.await_args_list)
         self.assertIn("Python automation", output)
         self.assertIn("We can deliver this Python automation project.", output)

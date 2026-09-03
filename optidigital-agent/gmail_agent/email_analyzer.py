@@ -10,7 +10,15 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from .email_classifier import EmailType
-from .quality_gate import ANALYSIS_VERSION, finite_score
+from .quality_gate import (
+    ANALYSIS_VERSION,
+    SCORE_FAILED,
+    SCORE_INVALID,
+    SCORE_MISSING,
+    SCORE_VALID,
+    finite_score,
+    score_display,
+)
 
 if TYPE_CHECKING:
     from gmail_agent.digest_parser import DigestJobCandidate
@@ -96,7 +104,7 @@ Return this JSON shape (empty string/null when unavailable):
   "selected_evidence": "one approved relevant case or clearly labelled demo",
   "evidence_case_id": "one approved evidence registry ID",
   "evidence": "facts in the source that support the assessment",
-  "proposal_draft": "one strong copy-paste proposal/reply in client language",
+  "proposal_draft": "proposal body only in client language; do not mention any case, evidence, price, currency, milestone or timeline because the application appends those exact approved clauses",
   "needs_context": false,
   "next_action": "exactly one action for the adult owner"
 }
@@ -187,14 +195,44 @@ class JobAnalysis:
     original_analysis_snapshot: str = ""
     quality_clarification_question: str = ""
     model_output_json: str = ""
+    score_valid: bool | None = None
+    score_raw: str = ""
+    score_state: str = ""
+    fit_score_valid: bool | None = None
+    fit_score_raw: str = ""
+    fit_score_state: str = ""
 
     @property
     def score_display(self) -> str:
-        return "—" if self.score is None else f"{self.score:.1f}/10"
+        return score_display(
+            self.score,
+            raw=self.score_raw or None,
+            explicit_state=self.score_state,
+            explicit_valid=self.score_valid,
+            analysis_succeeded=self.analysis_succeeded,
+        )
 
     @property
     def fit_score_display(self) -> str:
-        return "—" if self.fit_score is None else f"{self.fit_score:.1f}/10"
+        return score_display(
+            self.fit_score,
+            raw=self.fit_score_raw or None,
+            explicit_state=self.fit_score_state,
+            explicit_valid=self.fit_score_valid,
+            analysis_succeeded=self.analysis_succeeded,
+        )
+
+
+def _score_semantics(value: Any, *, provider_succeeded: bool) -> tuple[float | None, bool, str, str]:
+    if not provider_succeeded:
+        return 0.0, False, "", SCORE_FAILED
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None, False, "", SCORE_MISSING
+    raw = str(value)
+    parsed = finite_score(value)
+    if parsed is None:
+        return None, False, raw, SCORE_INVALID
+    return parsed, True, raw, SCORE_VALID
 
 
 def detect_language(text: str) -> str:
@@ -273,6 +311,7 @@ async def analyze_email(
     source_url: str = "",
     client_context: str = "",
     validation_errors: list[str] | tuple[str, ...] | None = None,
+    repair_context: dict[str, Any] | None = None,
 ) -> JobAnalysis:
     if client is None:
         from openai import AsyncOpenAI
@@ -298,6 +337,21 @@ async def analyze_email(
                 + "Validation errors: "
                 + json.dumps(list(validation_errors), ensure_ascii=False)
             )
+        if repair_context:
+            user_prompt += (
+                "\nOriginal model_output_json:\n"
+                + str(repair_context.get("model_output_json") or "{}")[:16000]
+                + "\nNormalized original analysis:\n"
+                + json.dumps(
+                    repair_context.get("normalized_analysis") or {},
+                    ensure_ascii=False,
+                    default=str,
+                    sort_keys=True,
+                )[:16000]
+                + "\nApproved application-owned evidence option:\n"
+                + str(repair_context.get("approved_evidence") or "")
+                + "\nImmutable source metadata and live-status must not be changed."
+            )
         response = await client.chat.completions.create(
             model=model,
             response_format={"type": "json_object"},
@@ -320,9 +374,11 @@ async def analyze_email(
     # Missing, null, malformed and non-finite values stay invalid instead of
     # being silently coerced to a legitimate zero.  Failed provider calls are
     # the sole diagnostic exception and remain marked analysis_succeeded=false.
-    score = 0.0 if not analysis_succeeded else finite_score(data.get("score"))
-    fit_score = (
-        0.0 if not analysis_succeeded else finite_score(data.get("fit_score"))
+    score, score_valid, score_raw, score_state = _score_semantics(
+        data.get("score"), provider_succeeded=analysis_succeeded
+    )
+    fit_score, fit_score_valid, fit_score_raw, fit_score_state = _score_semantics(
+        data.get("fit_score"), provider_succeeded=analysis_succeeded
     )
     language = str(data.get("language") or detect_language(f"{subject}\n{body}"))
     if language not in {"uk", "ru", "en", "pl"}:
@@ -387,6 +443,12 @@ async def analyze_email(
         ),
         analysis_version=ANALYSIS_VERSION,
         model_output_json=json.dumps(data, ensure_ascii=False, sort_keys=True),
+        score_valid=score_valid,
+        score_raw=score_raw,
+        score_state=score_state,
+        fit_score_valid=fit_score_valid,
+        fit_score_raw=fit_score_raw,
+        fit_score_state=fit_score_state,
     )
 
 
@@ -454,6 +516,12 @@ async def repair_analysis(
 ) -> JobAnalysis:
     """Run exactly one caller-bounded repair while preserving source metadata."""
 
+    from dataclasses import asdict
+
+    from .quality_gate import approved_evidence_text
+
+    normalized = asdict(original)
+    # Source/live fields are supplied for grounding, but are immutable below.
     repaired = await analyze_email(
         email_id=original.email_id,
         subject=original.title,
@@ -465,8 +533,17 @@ async def repair_analysis(
         source_url=original.url,
         client_context=original.client_context,
         validation_errors=validation_errors,
+        repair_context={
+            "model_output_json": original.model_output_json,
+            "normalized_analysis": normalized,
+            "approved_evidence": approved_evidence_text(original.evidence_case_id),
+        },
     )
     for field_name in (
+        "title",
+        "event_type",
+        "language",
+        "budget",
         "source_email_id",
         "full_description",
         "description_completeness",
@@ -501,8 +578,11 @@ async def repair_analysis(
     repaired.platform = original.platform
     repaired.url = original.url
     repaired.project_id = original.project_id
-    if (not repaired.budget or repaired.budget == "не вказано") and original.budget:
-        repaired.budget = original.budget
+    if approved_evidence_text(original.evidence_case_id):
+        repaired.evidence_case_id = original.evidence_case_id
+        repaired.selected_evidence = approved_evidence_text(
+            original.evidence_case_id
+        )
     return repaired
 
 

@@ -322,7 +322,7 @@ class TestDeterministicQualityValidator(unittest.TestCase):
         apply_validation(analysis, validate_analysis(analysis))
         self.assertEqual(analysis.selected_evidence, EVIDENCE_REGISTRY["GMAIL_JOB_AGENT"])
         self.assertIn(analysis.analysis_quality_status, PROPOSAL_READY_QUALITY_STATUSES)
-        self.assertTrue(analysis.proposal_version.startswith("pqg-v1:"))
+        self.assertTrue(analysis.proposal_version.startswith("pqg-v2:"))
         self.assertTrue(is_proposal_ready(analysis))
 
 
@@ -586,7 +586,7 @@ class TestTelegramAndActionGuards(unittest.TestCase):
         self.assertIn("Usable proposal:</b> absent", text)
         self.assertIn("/quality_recheck", text)
         self.assertNotIn("/reply_job", text)
-        self.assertNotIn("1200 USD", text)
+        self.assertNotIn("Рекомендована ціна", text)
 
     def test_every_freelancehunt_action_path_calls_quality_guard(self):
         source = (ROOT / "bot" / "handlers.py").read_text(encoding="utf-8")
@@ -610,8 +610,17 @@ class TestTelegramAndActionGuards(unittest.TestCase):
             if isinstance(item, ast.AsyncFunctionDef) and item.name == "cmd_quality_recheck"
         )
         rendered = ast.unparse(node)
-        self.assertIn("force=True", rendered)
-        self.assertEqual(rendered.count("repair_analysis("), 1)
+        self.assertIn("recheck_quality_and_deliver", rendered)
+        processor_source = (ROOT / "gmail_agent" / "processor.py").read_text(encoding="utf-8")
+        processor_tree = ast.parse(processor_source)
+        service = next(
+            item for item in ast.walk(processor_tree)
+            if isinstance(item, ast.AsyncFunctionDef)
+            and item.name == "recheck_quality_and_deliver"
+        )
+        service_rendered = ast.unparse(service)
+        self.assertIn("force=True", service_rendered)
+        self.assertEqual(service_rendered.count("repair_analysis("), 1)
         decorator = ast.unparse(node.decorator_list[0])
         self.assertIn("admin_router", decorator)
 

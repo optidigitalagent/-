@@ -36,10 +36,15 @@ from .project_identity import (
 )
 from .quality_gate import (
     ANALYSIS_VERSION,
+    SCORE_INVALID,
+    SCORE_MISSING,
+    SCORE_VALID,
     QualityStatus,
     apply_validation,
+    finite_score,
     is_proposal_ready,
     quality_errors,
+    score_state,
     validate_analysis,
 )
 from .security import redact_security_event, redact_sensitive_content
@@ -134,6 +139,12 @@ class QualityBackfillPreview:
     missing_timeline: int
     missing_proposal: int
     missing_or_invalid_evidence: int
+    missing_score: int = 0
+    invalid_score: int = 0
+    actual_zero_score: int = 0
+    missing_fit_state: int = 0
+    invalid_fit_state: int = 0
+    actual_zero_fit: int = 0
 
 
 class GmailJobProcessor:
@@ -334,6 +345,12 @@ class GmailJobProcessor:
             original_analysis_snapshot=job.original_analysis_snapshot,
             quality_clarification_question=job.quality_clarification_question,
             model_output_json=job.model_output_json,
+            score_valid=job.score_valid,
+            score_raw=job.score_raw,
+            score_state=job.score_state,
+            fit_score_valid=job.fit_score_valid,
+            fit_score_raw=job.fit_score_raw,
+            fit_score_state=job.fit_score_state,
         )
 
     @staticmethod
@@ -402,6 +419,30 @@ class GmailJobProcessor:
             "original_analysis_snapshot": analysis.original_analysis_snapshot,
             "quality_clarification_question": analysis.quality_clarification_question,
             "model_output_json": analysis.model_output_json,
+            "score_valid": analysis.score_valid,
+            "score_raw": analysis.score_raw,
+            "score_state": analysis.score_state,
+            "fit_score_valid": analysis.fit_score_valid,
+            "fit_score_raw": analysis.fit_score_raw,
+            "fit_score_state": analysis.fit_score_state,
+        }
+
+    @staticmethod
+    def _score_storage_fields(analysis: JobAnalysis, field_name: str) -> dict[str, Any]:
+        value = getattr(analysis, field_name)
+        state = score_state(
+            value,
+            raw=getattr(analysis, f"{field_name}_raw", None),
+            explicit_state=getattr(analysis, f"{field_name}_state", ""),
+            explicit_valid=getattr(analysis, f"{field_name}_valid", None),
+            analysis_succeeded=analysis.analysis_succeeded,
+        )
+        parsed = finite_score(value)
+        return {
+            field_name: parsed if parsed is not None else 0.0,
+            f"{field_name}_valid": state == SCORE_VALID,
+            f"{field_name}_raw": str(getattr(analysis, f"{field_name}_raw", "") or ""),
+            f"{field_name}_state": state,
         }
 
     @staticmethod
@@ -415,14 +456,18 @@ class GmailJobProcessor:
             source_email_id=candidate.source_email_id,
             platform=analysis.platform or candidate.platform,
             title=analysis.title or candidate.title,
-            score=analysis.score if analysis.score is not None else 0.0,
+            **GmailJobProcessor._score_storage_fields(analysis, "score"),
             reason=analysis.reason,
             budget=analysis.budget or candidate.budget or None,
             url=candidate.url or analysis.url or None,
             urgency=analysis.urgency,
             why_relevant=analysis.why_relevant,
             status=status,
-            **GmailJobProcessor._analysis_fields(analysis),
+            **{
+                key: value
+                for key, value in GmailJobProcessor._analysis_fields(analysis).items()
+                if key not in {"score_valid", "score_raw", "score_state"}
+            },
         )
 
     @staticmethod
@@ -508,14 +553,18 @@ class GmailJobProcessor:
             source_email_id=email.id,
             platform=analysis.platform,
             title=analysis.title,
-            score=analysis.score if analysis.score is not None else 0.0,
+            **GmailJobProcessor._score_storage_fields(analysis, "score"),
             reason=analysis.reason,
             budget=analysis.budget or None,
             url=analysis.url or None,
             urgency=analysis.urgency,
             why_relevant=analysis.why_relevant,
             status=status,
-            **GmailJobProcessor._analysis_fields(analysis),
+            **{
+                key: value
+                for key, value in GmailJobProcessor._analysis_fields(analysis).items()
+                if key not in {"score_valid", "score_raw", "score_state"}
+            },
         )
 
     @staticmethod
@@ -704,9 +753,13 @@ class GmailJobProcessor:
     @staticmethod
     def _record_quality_errors(stats: ProcessorStats, errors: list[str]) -> None:
         if any(code in errors for code in (
-            "score_missing_or_invalid",
+            "score_missing",
+            "score_invalid",
+            "score_provider_failed",
             "score_zero_not_proposal_ready",
-            "fit_score_missing_or_invalid",
+            "fit_score_missing",
+            "fit_score_invalid",
+            "fit_score_provider_failed",
             "fit_score_zero_not_proposal_ready",
         )):
             stats.zero_score_blocked += 1
@@ -936,6 +989,194 @@ class GmailJobProcessor:
         )
         return result, retry_count
 
+    async def generate_validate_and_persist_proposal(
+        self,
+        stable_key: str,
+        *,
+        rewrite: bool = False,
+    ):
+        """Use the single V2 contract for every manual proposal regeneration."""
+
+        if self._repository is None:
+            raise RuntimeError("proposal generation requires PostgreSQL repository")
+        job = await self._repository.get_job(stable_key)
+        if job is None:
+            raise LookupError(stable_key)
+
+        from .proposal_service import generate_validate_and_persist_proposal
+        from .quality_gate import approved_evidence_text, proposal_body
+        from .reply_generator import generate_reply
+
+        async def refresh_live(analysis: JobAnalysis) -> JobAnalysis | None:
+            checked = await self._check_live_status(job.url or "", job, force=True)
+            if checked is None:
+                return None
+            result, retry_count = checked
+            snapshot = analysis.original_analysis_snapshot or self._quality_snapshot(analysis)
+            self._apply_live_result(analysis, result, retry_count)
+            if result.status != LiveStatus.ACTIVE_BIDDABLE:
+                status, _settled = self._nonactive_state(result, retry_count)
+                await self._repository.apply_backfill_live_result(
+                    stable_key,
+                    snapshot,
+                    {"status": status, **self._analysis_fields(analysis)},
+                )
+                return None
+            analysis.is_relevant = True
+            analysis.biddable = True
+            await self._repository.update_job_fields(
+                stable_key,
+                {
+                    "live_status": analysis.live_status,
+                    "live_status_checked_at": analysis.live_status_checked_at,
+                    "live_status_evidence": analysis.live_status_evidence,
+                    "biddable": True,
+                    "live_status_retry_count": retry_count,
+                    "live_status_last_error": analysis.live_status_last_error,
+                },
+            )
+            return analysis
+
+        async def generate(
+            analysis: JobAnalysis,
+            errors: tuple[str, ...],
+            original_candidate: str,
+        ) -> str:
+            return await generate_reply(
+                title=analysis.title,
+                description=analysis.full_description,
+                platform=analysis.platform,
+                budget=analysis.budget,
+                url=analysis.url,
+                client=self._openai_client,
+                language=analysis.language,
+                client_context=analysis.client_context,
+                # Evidence and commercial clauses are deliberately not model-owned.
+                selected_evidence="",
+                recommended_price="",
+                recommended_timeline="",
+                existing_proposal=(
+                    proposal_body(analysis.proposal_draft) if rewrite else ""
+                ),
+                rewrite=True,
+                validation_errors=errors,
+                original_candidate=original_candidate,
+                repair_context=(
+                    {
+                        "model_output_json": analysis.model_output_json,
+                        "normalized_analysis": asdict(analysis),
+                        "approved_evidence": approved_evidence_text(
+                            analysis.evidence_case_id
+                        ),
+                    }
+                    if errors
+                    else None
+                ),
+            )
+
+        async def persist(analysis: JobAnalysis, status: str) -> None:
+            fields = {
+                **self._analysis_fields(analysis),
+                "status": status,
+                "qualified": is_proposal_ready(analysis),
+            }
+            stored = await self._repository.update_job_fields(stable_key, fields)
+            if stored is None:
+                raise RuntimeError("proposal source row disappeared")
+
+        # Resolve the registry text before the model call so the selected ID,
+        # not model prose, owns the final proof point.
+        analysis = self._analysis_from_job(job)
+        analysis.selected_evidence = approved_evidence_text(analysis.evidence_case_id)
+        return await generate_validate_and_persist_proposal(
+            analysis,
+            refresh_live_status=refresh_live,
+            generate_candidate=generate,
+            persist=persist,
+        )
+
+    async def recheck_quality_and_deliver(
+        self,
+        stable_key: str,
+        stats: ProcessorStats | None = None,
+    ) -> tuple[JobAnalysis, bool]:
+        """One live refresh, one full reanalysis, then unified delivery."""
+
+        if self._repository is None:
+            raise RuntimeError("quality recheck requires PostgreSQL repository")
+        stats = stats or ProcessorStats()
+        job = await self._repository.get_job(stable_key)
+        if job is None:
+            raise LookupError(stable_key)
+        original = self._analysis_from_job(job)
+        snapshot = original.original_analysis_snapshot or self._quality_snapshot(original)
+        checked = await self._check_live_status(job.url or "", job, force=True)
+        if checked is None:
+            return original, False
+        live_result, retry_count = checked
+        self._apply_live_result(original, live_result, retry_count)
+        if live_result.status != LiveStatus.ACTIVE_BIDDABLE:
+            status, _settled = self._nonactive_state(live_result, retry_count)
+            stored = await self._repository.apply_backfill_live_result(
+                stable_key,
+                snapshot,
+                {"status": status, **self._analysis_fields(original)},
+            )
+            return (self._analysis_from_job(stored) if stored else original), False
+
+        errors = tuple(quality_errors(original)) or (
+            "admin_requested_bounded_quality_recheck",
+        )
+        reanalyzed = await repair_analysis(
+            original,
+            errors,
+            client=self._openai_client,
+        )
+        reanalyzed.original_analysis_snapshot = snapshot
+        self._apply_live_result(reanalyzed, live_result, retry_count)
+        if not reanalyzed.analysis_succeeded:
+            validation = validate_analysis(reanalyzed, repaired=True)
+            apply_validation(reanalyzed, validation, repair_count=1)
+            stored = await self._repository.update_job_fields(
+                stable_key,
+                {
+                    "status": "quality_retryable",
+                    **self._analysis_fields(reanalyzed),
+                    "qualified": False,
+                },
+            )
+            return (self._analysis_from_job(stored) if stored else reanalyzed), False
+
+        stats.ai_analyzed += 1
+        validation = validate_analysis(reanalyzed, repaired=True)
+        self._record_quality_errors(stats, list(validation.errors))
+        apply_validation(reanalyzed, validation, repair_count=1)
+        self._record_quality_status(stats, validation.status)
+        ready = is_proposal_ready(reanalyzed)
+        reanalyzed.qualified = ready
+        status = (
+            "queued"
+            if ready
+            else "quality_non_executable"
+            if validation.status == QualityStatus.NON_EXECUTABLE.value
+            else "quality_review_pending"
+        )
+        stored = await self._repository.update_job_fields(
+            stable_key,
+            {"status": status, **self._analysis_fields(reanalyzed)},
+        )
+        if stored is None:
+            raise RuntimeError("quality recheck row disappeared")
+        if validation.status == QualityStatus.NON_EXECUTABLE.value:
+            return reanalyzed, False
+        delivered = await self.deliver_validated_proposal_version(
+            self._candidate_from_job(stored),
+            stored,
+            stats,
+            live_status_already_checked=True,
+        )
+        return reanalyzed, delivered
+
     def _nonactive_state(
         self, result: LiveStatusResult, retry_count: int
     ) -> tuple[str, bool]:
@@ -1064,7 +1305,7 @@ class GmailJobProcessor:
             )
             logger.exception("Failed to persist Gmail job analysis")
 
-    async def _send_stored_job(
+    async def deliver_validated_proposal_version(
         self,
         candidate: DigestJobCandidate,
         job: StoredGmailJob,
@@ -1072,7 +1313,7 @@ class GmailJobProcessor:
         *,
         live_status_already_checked: bool = False,
     ) -> bool:
-        """Claim and send a queued job; return whether the child is handled."""
+        """The one version-aware path for every proposal-ready Telegram delivery."""
         assert self._repository is not None
         analysis = self._analysis_from_job(job)
         if (
@@ -1151,7 +1392,7 @@ class GmailJobProcessor:
                 await self._repository.update_job_status(job.stable_key, "sent")
                 stats.duplicates_skipped += 1
                 stats.ai_calls_avoided += 1
-                return True
+                return False
 
         claimed = await self._repository.claim_job(candidate.stable_key)
         if not claimed:
@@ -1239,6 +1480,86 @@ class GmailJobProcessor:
             )
         return True
 
+    async def _send_stored_job(
+        self,
+        candidate: DigestJobCandidate,
+        job: StoredGmailJob,
+        stats: ProcessorStats,
+        *,
+        live_status_already_checked: bool = False,
+    ) -> bool:
+        """Compatibility alias; new code must use the public delivery contract."""
+
+        return await self.deliver_validated_proposal_version(
+            candidate,
+            job,
+            stats,
+            live_status_already_checked=live_status_already_checked,
+        )
+
+    async def deliver_validated_proposal_text_version(
+        self,
+        stable_key: str,
+        send_text: Any,
+        *,
+        live_status_already_checked: bool = False,
+    ) -> bool:
+        """Version-deduplicated manual copy/display using the same durable ledger."""
+
+        if self._repository is None:
+            raise RuntimeError("proposal delivery requires PostgreSQL repository")
+        job = await self._repository.get_job(stable_key)
+        if job is None:
+            return False
+        analysis = self._analysis_from_job(job)
+        if not live_status_already_checked and not self._active_check_is_fresh(job):
+            checked = await self._check_live_status(job.url or "", job, force=True)
+            if checked is None:
+                return False
+            result, retry_count = checked
+            snapshot = analysis.original_analysis_snapshot or self._quality_snapshot(analysis)
+            self._apply_live_result(analysis, result, retry_count)
+            if result.status != LiveStatus.ACTIVE_BIDDABLE:
+                status, _settled = self._nonactive_state(result, retry_count)
+                await self._repository.apply_backfill_live_result(
+                    stable_key,
+                    snapshot,
+                    {"status": status, **self._analysis_fields(analysis)},
+                )
+                return False
+            await self._repository.update_job_fields(
+                stable_key, self._analysis_fields(analysis)
+            )
+        if not is_proposal_ready(analysis):
+            return False
+
+        digest = hashlib.sha256(stable_key.encode("utf-8")).hexdigest()
+        delivery_key = (
+            f"proposal-copy-version:{digest}:{analysis.proposal_version}"
+        )
+        claim = ProcessedItem(
+            stable_key=delivery_key,
+            source_email_id=analysis.source_email_id or stable_key,
+            platform=analysis.platform,
+            item_type="proposal_copy_version",
+            title=analysis.title,
+            url=analysis.url,
+            decision="sending",
+            score=analysis.score,
+        )
+        if not await self._repository.claim_processed(claim):
+            return False
+        try:
+            sent = await send_text(analysis)
+        except Exception:
+            await self._repository.delete_processed(delivery_key)
+            raise
+        if not sent:
+            await self._repository.delete_processed(delivery_key)
+            return False
+        await self._repository.upsert_processed(replace(claim, decision="sent"))
+        return True
+
     async def _drain_retry_queue(
         self,
         stats: ProcessorStats,
@@ -1285,7 +1606,7 @@ class GmailJobProcessor:
                 break
             try:
                 sent_before = stats.sent
-                attempted = await self._send_stored_job(
+                attempted = await self.deliver_validated_proposal_version(
                     self._candidate_from_job(job), job, stats
                 )
                 if stats.sent > sent_before:
@@ -1506,7 +1827,7 @@ class GmailJobProcessor:
                                 )
                             )
                             if cards_sent_this_scan < self._max_cards_per_scan:
-                                attempted = await self._send_stored_job(
+                                attempted = await self.deliver_validated_proposal_version(
                                     candidate,
                                     job,
                                     stats,
@@ -1570,7 +1891,7 @@ class GmailJobProcessor:
                     # Existing send_failed rows stay retryable; fresh rows stay queued.
                     continue
 
-                attempted = await self._send_stored_job(
+                attempted = await self.deliver_validated_proposal_version(
                     candidate,
                     job,
                     stats,
@@ -1642,6 +1963,17 @@ class GmailJobProcessor:
             return False
 
         stats.qualified += 1
+
+        if self._is_guarded_project(
+            analysis.event_type, analysis.platform, analysis.url
+        ) and analysis.analysis_version == ANALYSIS_VERSION:
+            # A Freelancehunt proposal cannot be safely delivered without the
+            # PostgreSQL package that owns quality state and version dedup.
+            stats.errors += 1
+            stats.error_details.append(
+                f"{email.id}: proposal delivery requires PostgreSQL repository"
+            )
+            return False
 
         # Legacy mode has no durable queued-job store. Leaving the email
         # unmarked makes an above-threshold item retryable on the next scan.
@@ -1999,7 +2331,7 @@ class GmailJobProcessor:
                     )
                     if not allow_send:
                         return False
-                    return await self._send_stored_job(
+                    return await self.deliver_validated_proposal_version(
                         self._candidate_from_job(job),
                         job,
                         stats,
@@ -2054,7 +2386,7 @@ class GmailJobProcessor:
 
         if not allow_send:
             return False
-        return await self._send_stored_job(
+        return await self.deliver_validated_proposal_version(
             self._candidate_from_job(job),
             job,
             stats,
@@ -2397,17 +2729,38 @@ class GmailJobProcessor:
         jobs = await self._repository.list_quality_backfill_candidates(bounded)
         from .quality_gate import EVIDENCE_REGISTRY, finite_score
 
+        score_states = [str(job.score_state or SCORE_MISSING).upper() for job in jobs]
+        fit_states = [str(job.fit_score_state or SCORE_MISSING).upper() for job in jobs]
+
         return QualityBackfillPreview(
             limit=bounded,
             candidates=len(jobs),
-            zero_score=sum(finite_score(job.score) in {None, 0.0} for job in jobs),
-            missing_fit=sum(finite_score(job.fit_score) in {None, 0.0} for job in jobs),
+            zero_score=sum(
+                state != SCORE_VALID or finite_score(job.score) == 0.0
+                for state, job in zip(score_states, jobs)
+            ),
+            missing_fit=sum(
+                state != SCORE_VALID or finite_score(job.fit_score) == 0.0
+                for state, job in zip(fit_states, jobs)
+            ),
             missing_price=sum(not (job.recommended_price or "").strip() for job in jobs),
             missing_timeline=sum(not (job.realistic_timeline or "").strip() for job in jobs),
             missing_proposal=sum(not (job.proposal_draft or "").strip() for job in jobs),
             missing_or_invalid_evidence=sum(
                 (job.evidence_case_id or "").strip().upper() not in EVIDENCE_REGISTRY
                 for job in jobs
+            ),
+            missing_score=score_states.count(SCORE_MISSING),
+            invalid_score=score_states.count(SCORE_INVALID),
+            actual_zero_score=sum(
+                state == SCORE_VALID and finite_score(job.score) == 0.0
+                for state, job in zip(score_states, jobs)
+            ),
+            missing_fit_state=fit_states.count(SCORE_MISSING),
+            invalid_fit_state=fit_states.count(SCORE_INVALID),
+            actual_zero_fit=sum(
+                state == SCORE_VALID and finite_score(job.fit_score) == 0.0
+                for state, job in zip(fit_states, jobs)
             ),
         )
 
@@ -2439,11 +2792,20 @@ class GmailJobProcessor:
                         analysis = self._apply_live_result(
                             original, live_result, retry_count
                         )
-                        await self._repository.update_job_fields(
-                            job.stable_key,
-                            {"status": "live_status_terminal", **self._analysis_fields(analysis)},
+                        status, _settled = self._nonactive_state(
+                            live_result, retry_count
                         )
-                        stats.live_status_non_actionable += 1
+                        stored_nonactive = await self._repository.apply_backfill_live_result(
+                            job.stable_key,
+                            original_snapshot,
+                            {"status": status, **self._analysis_fields(analysis)},
+                        )
+                        if stored_nonactive is None:
+                            raise RuntimeError("quality backfill row disappeared")
+                        if live_result.status == LiveStatus.LIVE_STATUS_UNKNOWN:
+                            stats.live_status_unknown += 1
+                        else:
+                            stats.live_status_non_actionable += 1
                         continue
                     stats.live_status_active += 1
                     self._apply_live_result(original, live_result, retry_count)
@@ -2469,13 +2831,11 @@ class GmailJobProcessor:
                         )
                         continue
                     stats.ai_analyzed += 1
-                    reanalyzed, provider_failed = await self._validate_and_repair_quality(
-                        reanalyzed, stats
-                    )
-                    if provider_failed:
-                        stats.errors += 1
-                        status = "quality_retryable"
-                    elif is_proposal_ready(reanalyzed):
+                    validation = validate_analysis(reanalyzed, repaired=True)
+                    self._record_quality_errors(stats, list(validation.errors))
+                    apply_validation(reanalyzed, validation, repair_count=1)
+                    self._record_quality_status(stats, validation.status)
+                    if is_proposal_ready(reanalyzed):
                         status = "queued" if send_replacements else "quality_validated_backfill"
                         reanalyzed.qualified = True
                     elif reanalyzed.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value:
@@ -2489,7 +2849,7 @@ class GmailJobProcessor:
                     if stored is None:
                         raise RuntimeError("quality backfill row disappeared")
                     if send_replacements and is_proposal_ready(reanalyzed):
-                        await self._send_stored_job(
+                        await self.deliver_validated_proposal_version(
                             self._candidate_from_job(stored),
                             stored,
                             stats,

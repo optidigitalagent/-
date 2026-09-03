@@ -1,17 +1,15 @@
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy import func, select
 
-from ai.writer import generate_response
 from config import settings
 from db import AsyncSessionLocal
 from db.crud import (
     get_setting,
-    save_response,
     set_setting,
     update_order_fields,
     update_order_status,
@@ -22,8 +20,6 @@ from .html_utils import escape_html, safe_http_url
 from .keyboards import (
     OrderCb,
     ResponseCb,
-    order_card_keyboard,
-    response_keyboard,
     score_picker_keyboard,
 )
 
@@ -92,6 +88,58 @@ def _quality_allows_action(record: object) -> bool:
     from gmail_agent.quality_gate import is_proposal_ready
 
     return is_proposal_ready(record)
+
+
+def _legacy_order_generation_refusal(order_id: int) -> str:
+    return (
+        "🟡 <b>Legacy proposal generation disabled</b>\n\n"
+        "Новий неперевірений текст не створено. Цей direct Order path не має "
+        "повного канонічного Stage 4 package.\n"
+        f"Використайте відповідний feed/Gmail event через <code>/reply_job …</code>; "
+        f"legacy order <code>#{order_id}</code> залишається лише для аудиту."
+    )
+
+
+def _response_draft_errors(draft: object, order: object) -> list[str]:
+    """Validate the exact Response text/version that would be copied."""
+
+    from gmail_agent.quality_gate import (
+        ANALYSIS_VERSION,
+        PROPOSAL_READY_QUALITY_STATUSES,
+        proposal_text_hash,
+    )
+
+    errors: list[str] = []
+    version = str(_value(draft, "proposal_version") or "")
+    if not version:
+        errors.append("response_proposal_version_missing")
+    content_hash = str(_value(draft, "proposal_content_sha256") or "")
+    if not content_hash:
+        errors.append("response_content_hash_missing")
+    elif content_hash != proposal_text_hash(str(_value(draft, "text") or "")):
+        errors.append("response_content_hash_mismatch")
+    if str(_value(draft, "analysis_quality_status") or "") not in PROPOSAL_READY_QUALITY_STATUSES:
+        errors.append("response_quality_not_validated")
+    if not isinstance(_value(draft, "quality_checked_at"), datetime):
+        errors.append("response_quality_timestamp_missing")
+    if str(_value(draft, "source_job_identity") or "") != f"order:{_value(order, 'id')}":
+        errors.append("response_source_identity_mismatch")
+    validated_live = _value(draft, "validated_live_status_at")
+    current_live = _value(order, "live_status_checked_at")
+    if not isinstance(validated_live, datetime) or not isinstance(current_live, datetime):
+        errors.append("response_live_validation_missing")
+    else:
+        left = validated_live if validated_live.tzinfo else validated_live.replace(tzinfo=timezone.utc)
+        right = current_live if current_live.tzinfo else current_live.replace(tzinfo=timezone.utc)
+        if abs((right - left).total_seconds()) > 60:
+            errors.append("response_live_validation_stale")
+    if version != str(_value(order, "proposal_version") or ""):
+        errors.append("response_version_differs_from_validated_order")
+    if str(_value(order, "analysis_version") or "") != ANALYSIS_VERSION:
+        errors.append("response_parent_analysis_version_stale")
+    if str(_value(draft, "result") or "") == "sent":
+        errors.append("response_version_already_delivered")
+    return errors
 
 
 async def _ensure_order_current_biddable(
@@ -281,31 +329,9 @@ async def cb_view_response(callback: CallbackQuery, callback_data: OrderCb) -> N
         )
         return
 
-    await callback.message.edit_text("⏳ Генерую відгук...", reply_markup=None)
-
-    order_dict = {
-        "title": order.title,
-        "description": order.description or "",
-        "budget_from": None,
-        "budget_to": order.budget,
-        "currency": "UAH",
-        "url": order.url,
-    }
-
-    text = await generate_response(order_dict)
-    if not text:
-        await callback.message.edit_text(
-            "❌ Не вдалося згенерувати відгук. Спробуй ще раз.",
-            reply_markup=order_card_keyboard(order.id, order.url),
-        )
-        return
-
-    async with AsyncSessionLocal() as session:
-        draft = await save_response(session, order.id, text, result="draft")
-
     await callback.message.edit_text(
-        f"📝 <b>Згенерований відгук:</b>\n\n{text}",
-        reply_markup=response_keyboard(order.id, draft.id),
+        _legacy_order_generation_refusal(order.id),
+        reply_markup=None,
     )
 
 
@@ -324,42 +350,65 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
     await callback.answer()
 
     async with AsyncSessionLocal() as session:
-        draft = await session.get(Response, callback_data.response_id)
         order = await session.get(Order, callback_data.order_id)
 
-    if order is not None:
-        guard = await _ensure_order_current_biddable(order)
-        if not guard.allowed:
-            await callback.message.edit_text(
-                _live_status_refusal(order, str(order.id)), reply_markup=None
-            )
-            return
-        if not _quality_allows_action(order):
-            await callback.message.edit_text(
-                _quality_refusal(order), reply_markup=None
-            )
-            return
-
-    async with AsyncSessionLocal() as session:
-        draft = await session.get(Response, callback_data.response_id)
-        order = await session.get(Order, callback_data.order_id)
-        if draft:
-            draft.result = "sent"
-            await session.commit()
-        if order:
-            await update_order_status(session, order.id, "sent")
-
-    if not draft or not order:
+    if order is None:
         await callback.answer("❌ Помилка: дані не знайдено", show_alert=True)
+        return
+    guard = await _ensure_order_current_biddable(order)
+    if not guard.allowed:
+        await callback.message.edit_text(
+            _live_status_refusal(order, str(order.id)), reply_markup=None
+        )
+        return
+
+    draft_errors: list[str] = []
+    async with AsyncSessionLocal() as session:
+        # Lock and revalidate the exact rows immediately before the state
+        # transition. This prevents a changed draft/version from winning the
+        # gap between the external live check and manual-copy authorization.
+        draft = await session.get(
+            Response, callback_data.response_id, with_for_update=True
+        )
+        locked_order = await session.get(
+            Order, callback_data.order_id, with_for_update=True
+        )
+        if draft is None:
+            draft_errors.append("response_missing")
+        if locked_order is None:
+            draft_errors.append("response_parent_missing")
+        elif not _quality_allows_action(locked_order):
+            draft_errors.append("response_parent_not_proposal_ready")
+        if draft is not None and locked_order is not None:
+            draft_errors.extend(_response_draft_errors(draft, locked_order))
+        if not draft_errors:
+            draft.result = "sent"
+            locked_order.status = "sent"
+            await session.commit()
+
+    if draft_errors:
+        await callback.message.edit_text(
+            "🟡 <b>Response draft blocked</b>\n\n"
+            "Exact draft/version is not copy-safe: <code>"
+            + escape_html(", ".join(dict.fromkeys(draft_errors)))
+            + "</code>\nOnly bounded regeneration through the canonical "
+            "feed/Gmail package is allowed.",
+            reply_markup=None,
+        )
         return
 
     await callback.message.edit_text(
         "✅ Скопіюй відгук нижче та відправ вручну на платформі.",
         reply_markup=None,
     )
+    safe_url = safe_http_url(locked_order.url)
+    link = (
+        f"\n\n🔗 <a href='{escape_html(safe_url)}'>Відкрити замовлення</a>"
+        if safe_url
+        else ""
+    )
     await callback.message.answer(
-        f"📋 <b>Відповідь для копіювання:</b>\n\n{draft.text}\n\n"
-        f"🔗 <a href='{order.url}'>Відкрити замовлення</a>"
+        f"📋 <b>Відповідь для копіювання:</b>\n\n{escape_html(draft.text)}{link}"
     )
 
 
@@ -386,28 +435,9 @@ async def cb_rewrite(callback: CallbackQuery, callback_data: ResponseCb) -> None
         )
         return
 
-    await callback.message.edit_text("⏳ Переписую відгук...", reply_markup=None)
-
-    order_dict = {
-        "title": order.title,
-        "description": order.description or "",
-        "budget_from": None,
-        "budget_to": order.budget,
-        "currency": "UAH",
-        "url": order.url,
-    }
-
-    text = await generate_response(order_dict)
-    if not text:
-        await callback.message.edit_text("❌ Не вдалося згенерувати відгук. Спробуй ще раз.")
-        return
-
-    async with AsyncSessionLocal() as session:
-        new_draft = await save_response(session, order.id, text, result="draft")
-
     await callback.message.edit_text(
-        f"📝 <b>Новий варіант відгуку:</b>\n\n{text}",
-        reply_markup=response_keyboard(order.id, new_draft.id),
+        _legacy_order_generation_refusal(order.id),
+        reply_markup=None,
     )
 
 
@@ -446,30 +476,7 @@ async def cmd_reply(message: Message) -> None:
         await message.answer(_quality_refusal(order))
         return
 
-    await message.answer(f"⏳ Генерую відгук для <b>{order.title}</b>…")
-
-    order_dict = {
-        "title":       order.title,
-        "description": order.description or "",
-        "budget_from": None,
-        "budget_to":   order.budget,
-        "currency":    "UAH",
-        "url":         order.url,
-    }
-
-    text = await generate_response(order_dict)
-    if not text:
-        await message.answer("❌ Не вдалося згенерувати відгук. Спробуй ще раз.")
-        return
-
-    async with AsyncSessionLocal() as session:
-        draft = await save_response(session, order.id, text, result="draft")
-
-    await message.answer(
-        f"📝 <b>Відгук для #{project_id}:</b>\n\n{text}\n\n"
-        f'🔗 <a href="{order.url}">Відкрити проєкт</a>',
-        reply_markup=response_keyboard(order.id, draft.id),
-    )
+    await message.answer(_legacy_order_generation_refusal(order.id))
 
 
 # ─── Gmail agent commands (/reply_job, /skip_job) ────────────────────────────
@@ -540,70 +547,99 @@ async def cmd_reply_job(message: Message) -> None:
         "PROJECT_FEED",
     }
     is_freelancehunt = "freelancehunt" in str(job.get("platform") or "").casefold()
-    if project_event and is_freelancehunt:
-        guard = await _ensure_gmail_job_current_biddable(job_id, job, repository)
-        if not guard.allowed:
-            await message.answer(_live_status_refusal(job, job_id))
-            return
-        if not _quality_allows_action(job):
-            await message.answer(_quality_refusal(job, job_id))
-            return
+    if (
+        project_event
+        and is_freelancehunt
+        and (
+            str(job.get("live_status") or "") != "ACTIVE_BIDDABLE"
+            or job.get("biddable") is not True
+        )
+    ):
+        await message.answer(_live_status_refusal(job, job_id))
+        return
+    if not (project_event and is_freelancehunt and repository is not None):
+        await message.answer(
+            "🟡 Новий proposal заблоковано: потрібен канонічний "
+            "Freelancehunt feed/Gmail package у PostgreSQL."
+        )
+        return
 
-    saved_proposal = str(job.get("proposal_draft") or "").strip()
-    if saved_proposal and not rewrite:
-        url = safe_http_url(job.get("url", ""))
+    from gmail_agent.live_status import FreelancehuntLiveStatusChecker
+    from gmail_agent.processor import GmailJobProcessor
+    from gmail_agent.proposal_service import ProposalGenerationStatus
+    from gmail_agent.quality_gate import is_proposal_ready
+    from gmail_agent.telegram_notifier import format_quality_review_card_parts
+
+    processor = GmailJobProcessor(
+        provider=object(),
+        bot=message.bot,
+        chat_id=settings.TELEGRAM_CHAT_ID,
+        min_score=0.0,
+        repository=repository,
+        live_status_checker=FreelancehuntLiveStatusChecker(),
+    )
+
+    async def send_copy(analysis) -> bool:
+        url = safe_http_url(analysis.url)
         link = (
             f'\n\n🔗 <a href="{escape_html(url)}">Відкрити подію</a>'
             if url else ""
         )
         await message.answer(
-            f"📝 <b>Збережена готова відповідь:</b>\n\n"
-            f"{escape_html(saved_proposal)}{link}\n\n"
-            f"<code>/reply_job {escape_html(job_id)} rewrite</code>"
+            f"📝 <b>Перевірена відповідь · {escape_html(analysis.proposal_version)}</b>\n\n"
+            f"{escape_html(analysis.proposal_draft)}{link}"
         )
+        return True
+
+    saved_proposal = str(job.get("proposal_draft") or "").strip()
+    if saved_proposal and not rewrite:
+        delivered = await processor.deliver_validated_proposal_text_version(
+            job_id, send_copy
+        )
+        if not delivered:
+            current = await repository.get_job(job_id)
+            if current is not None and is_proposal_ready(current):
+                await message.answer(
+                    "ℹ️ Ця точна proposal version вже була показана; повторну "
+                    "доставку заблоковано version dedup."
+                )
+            elif current is not None and current.live_status != "ACTIVE_BIDDABLE":
+                await message.answer(_live_status_refusal(current, job_id))
+            else:
+                await message.answer(_quality_refusal(current or job, job_id))
+        return
+
+    if rewrite and not _quality_allows_action(job):
+        await message.answer(_quality_refusal(job, job_id))
         return
 
     await message.answer(
-        f"⏳ {'Переписую' if rewrite else 'Генерую'} відгук для "
+        f"⏳ {'Переписую' if rewrite else 'Генерую'} і перевіряю відгук для "
         f"<b>{escape_html(job.get('title', job_id))}</b>…"
     )
-
-    import sys, os
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from gmail_agent.reply_generator import generate_reply
-
-    text = await generate_reply(
-        title=job.get("title", ""),
-        description=(
-            job.get("full_description")
-            or job.get("description")
-            or (job.get("reason", "") + "\n" + job.get("why_relevant", ""))
-        ),
-        platform=job.get("platform", ""),
-        budget=job.get("budget", "не вказано"),
-        url=job.get("url", ""),
-        language=job.get("language", "uk"),
-        client_context=job.get("client_context", ""),
-        selected_evidence=job.get("selected_evidence", ""),
-        recommended_price=job.get("recommended_price", ""),
-        recommended_timeline=job.get("realistic_timeline", ""),
-        existing_proposal=saved_proposal,
-        rewrite=rewrite,
+    result = await processor.generate_validate_and_persist_proposal(
+        job_id, rewrite=rewrite
     )
-
-    if not text:
-        await message.answer("❌ Не вдалося згенерувати відгук. Спробуй ще раз.")
+    if result.status == ProposalGenerationStatus.VALIDATED_PROPOSAL.value:
+        delivered = await processor.deliver_validated_proposal_text_version(
+            job_id, send_copy, live_status_already_checked=True
+        )
+        if not delivered:
+            await message.answer(
+                "ℹ️ Перевірена proposal version вже доставлена або перестала бути актуальною."
+            )
         return
-
-    url = job.get("url", "")
-    safe_url = safe_http_url(url)
-    link = f'\n\n🔗 <a href="{escape_html(safe_url)}">Відкрити замовлення</a>' if safe_url else ""
-    await message.answer(
-        f"📝 <b>Відгук для {escape_html(job.get('platform', ''))} — "
-        f"{escape_html(job.get('title', job_id))}:</b>\n\n"
-        f"{escape_html(text)}"
-        f"{link}"
-    )
+    if result.status == ProposalGenerationStatus.LIVE_STATUS_BLOCKED.value:
+        current = await repository.get_job(job_id)
+        await message.answer(_live_status_refusal(current or job, job_id))
+        return
+    if result.status == ProposalGenerationStatus.PROVIDER_RETRYABLE.value:
+        await message.answer(
+            "🟡 Provider failure: жоден draft не показано; стан retryable."
+        )
+        return
+    for part in format_quality_review_card_parts(result.analysis):
+        await message.answer(part, disable_web_page_preview=True)
 
 
 @router.message(Command("skip_job"))
@@ -724,87 +760,55 @@ async def cmd_quality_recheck(message: Message) -> None:
         return
     event_id = raw[1].strip()
     try:
-        from dataclasses import asdict
-
-        from gmail_agent.email_analyzer import repair_analysis
-        from gmail_agent.quality_gate import (
-            QualityStatus,
-            apply_validation,
-            is_proposal_ready,
-            validate_analysis,
-        )
+        from gmail_agent.live_status import FreelancehuntLiveStatusChecker
+        from gmail_agent.processor import GmailJobProcessor, ProcessorStats
+        from gmail_agent.quality_gate import QualityStatus, is_proposal_ready
         from gmail_agent.storage import PostgresGmailRepository
-        from gmail_agent.telegram_notifier import format_job_card_parts
 
         repository = PostgresGmailRepository(AsyncSessionLocal)
         stored = await repository.get_job(event_id)
         if stored is None:
             await message.answer("❌ Подію для quality recheck не знайдено.")
             return
-        job = asdict(stored)
-        job.setdefault("email_id", event_id)
-        guard = await _ensure_gmail_job_current_biddable(
-            event_id, job, repository, force=True, manual=True
+        stats = ProcessorStats()
+        processor = GmailJobProcessor(
+            provider=object(),
+            bot=message.bot,
+            chat_id=settings.TELEGRAM_CHAT_ID,
+            min_score=0.0,
+            repository=repository,
+            live_status_checker=FreelancehuntLiveStatusChecker(),
         )
-        if not guard.allowed:
-            await message.answer(_live_status_refusal(job, event_id))
-            return
-
-        from gmail_agent.processor import GmailJobProcessor
-
-        original = GmailJobProcessor._analysis_from_job(stored)
-        original.live_status = guard.result.status.value
-        original.live_status_checked_at = guard.result.checked_at
-        original.live_status_evidence = guard.result.evidence
-        original.biddable = True
-        reanalyzed = await repair_analysis(
-            original,
-            ["admin_requested_bounded_quality_recheck"],
-        )
-        reanalyzed.original_analysis_snapshot = GmailJobProcessor._quality_snapshot(
-            original
+        reanalyzed, delivered = await processor.recheck_quality_and_deliver(
+            event_id, stats
         )
         if not reanalyzed.analysis_succeeded:
-            validation = validate_analysis(reanalyzed)
-            apply_validation(reanalyzed, validation, repair_count=1)
-            await repository.update_job_fields(
-                event_id,
-                {
-                    **GmailJobProcessor._analysis_fields(reanalyzed),
-                    "status": "quality_retryable",
-                    "qualified": False,
-                },
-            )
             await message.answer(
-                "🟡 Quality recheck provider failure; результат залишається "
-                "retryable, ставку не надсилати."
+                "🟡 Quality recheck provider failure; жоден draft не показано, "
+                "стан retryable."
             )
             return
-
-        validation = validate_analysis(reanalyzed, repaired=True)
-        apply_validation(reanalyzed, validation, repair_count=1)
-        ready = is_proposal_ready(reanalyzed)
-        stored = await repository.update_job_fields(
-            event_id,
-            {
-                **GmailJobProcessor._analysis_fields(reanalyzed),
-                "status": (
-                    "quality_validated_backfill"
-                    if ready
-                    else "quality_non_executable"
-                    if validation.status == QualityStatus.NON_EXECUTABLE.value
-                    else "quality_manual_review"
-                ),
-                "qualified": ready,
-            },
-        )
-        display = (
-            GmailJobProcessor._analysis_from_job(stored)
-            if stored is not None
-            else reanalyzed
-        )
-        for part in format_job_card_parts(display):
-            await message.answer(part, disable_web_page_preview=True)
+        if reanalyzed.live_status != "ACTIVE_BIDDABLE":
+            await message.answer(_live_status_refusal(reanalyzed, event_id))
+            return
+        if reanalyzed.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value:
+            await message.answer("ℹ️ Quality recheck: NON_EXECUTABLE; proposal відсутній.")
+            return
+        if not is_proposal_ready(reanalyzed):
+            await message.answer(
+                "🟡 Quality recheck завершено у MANUAL_REVIEW; usable proposal "
+                + ("відсутній, source-context card доставлена." if delivered else "відсутній.")
+            )
+            return
+        if delivered:
+            await message.answer(
+                "✅ Quality recheck завершено; exact proposal version доставлена "
+                "через єдиний version-aware path."
+            )
+        elif is_proposal_ready(reanalyzed):
+            await message.answer(
+                "ℹ️ Ця proposal version вже доставлена; duplicate card не надіслано."
+            )
     except Exception as exc:
         logger.exception("Admin quality recheck failed")
         await message.answer(
@@ -846,8 +850,12 @@ async def cmd_quality_backfill(message: Message) -> None:
                 "🔎 <b>Quality backfill preview — counts only</b>\n"
                 f"Bounded limit: <b>{preview.limit}</b>\n"
                 f"Candidates: <b>{preview.candidates}</b>\n"
-                f"Score missing/zero: <b>{preview.zero_score}</b>\n"
-                f"Fit missing/zero: <b>{preview.missing_fit}</b>\n"
+                f"Score missing: <b>{preview.missing_score}</b>\n"
+                f"Score invalid: <b>{preview.invalid_score}</b>\n"
+                f"Score real zero: <b>{preview.actual_zero_score}</b>\n"
+                f"Fit missing: <b>{preview.missing_fit_state}</b>\n"
+                f"Fit invalid: <b>{preview.invalid_fit_state}</b>\n"
+                f"Fit real zero: <b>{preview.actual_zero_fit}</b>\n"
                 f"Missing price: <b>{preview.missing_price}</b>\n"
                 f"Missing timeline: <b>{preview.missing_timeline}</b>\n"
                 f"Missing proposal: <b>{preview.missing_proposal}</b>\n"

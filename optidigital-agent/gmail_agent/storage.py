@@ -13,7 +13,7 @@ from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol, runtime_checkable
 
-from sqlalchemy import and_, case, or_, select, update
+from sqlalchemy import and_, case, delete, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -139,6 +139,12 @@ class StoredGmailJob:
     original_analysis_snapshot: str = ""
     quality_clarification_question: str = ""
     model_output_json: str = ""
+    score_valid: bool = False
+    score_raw: str = ""
+    score_state: str = "MISSING"
+    fit_score_valid: bool = False
+    fit_score_raw: str = ""
+    fit_score_state: str = "MISSING"
 
 
 # Short public name for callers; the longer name makes its persistence role
@@ -194,6 +200,10 @@ class GmailRepository(Protocol):
 
     async def upsert_processed(self, item: ProcessedItem) -> ProcessedItem: ...
 
+    async def claim_processed(self, item: ProcessedItem) -> bool: ...
+
+    async def delete_processed(self, stable_key: str) -> None: ...
+
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob: ...
 
     async def get_job(self, stable_key: str) -> StoredGmailJob | None: ...
@@ -237,6 +247,13 @@ class GmailRepository(Protocol):
     async def list_quality_backfill_candidates(
         self, limit: int = 20
     ) -> list[StoredGmailJob]: ...
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None: ...
 
 
 class InMemoryGmailRepository:
@@ -325,6 +342,17 @@ class InMemoryGmailRepository:
             self._processed[item.stable_key] = stored
             return replace(stored)
 
+    async def claim_processed(self, item: ProcessedItem) -> bool:
+        async with self._lock:
+            if item.stable_key in self._processed:
+                return False
+            self._processed[item.stable_key] = replace(item)
+            return True
+
+    async def delete_processed(self, stable_key: str) -> None:
+        async with self._lock:
+            self._processed.pop(stable_key, None)
+
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob:
         async with self._lock:
             current = self._jobs.get(job.stable_key)
@@ -410,8 +438,7 @@ class InMemoryGmailRepository:
                     ),
                     original_analysis_snapshot=(
                         current.original_analysis_snapshot
-                        if keep_existing_quality
-                        else job.original_analysis_snapshot
+                        or job.original_analysis_snapshot
                     ),
                     quality_clarification_question=(
                         current.quality_clarification_question
@@ -474,6 +501,36 @@ class InMemoryGmailRepository:
                 "created_at",
             }
             values = {key: value for key, value in fields.items() if key in allowed}
+            if values.get("original_analysis_snapshot"):
+                values["original_analysis_snapshot"] = (
+                    job.original_analysis_snapshot
+                    or values["original_analysis_snapshot"]
+                )
+            if "status" in values and "status_updated_at" not in values:
+                values["status_updated_at"] = utc_now()
+            updated = replace(job, **values)
+            self._jobs[stable_key] = updated
+            return replace(updated)
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None:
+        """Atomically preserve the first audit snapshot before hiding fields."""
+
+        async with self._lock:
+            job = self._jobs.get(stable_key)
+            if job is None:
+                return None
+            allowed = set(StoredGmailJob.__dataclass_fields__) - {
+                "stable_key", "created_at", "full_description", "source_email_id"
+            }
+            values = {key: value for key, value in fields.items() if key in allowed}
+            values["original_analysis_snapshot"] = (
+                job.original_analysis_snapshot or original_snapshot
+            )
             if "status" in values and "status_updated_at" not in values:
                 values["status_updated_at"] = utc_now()
             updated = replace(job, **values)
@@ -822,6 +879,16 @@ class PostgresGmailRepository:
                 (quality_incoming, getattr(excluded, field_name)),
                 else_=getattr(self._job_model, field_name),
             )
+        incoming["original_analysis_snapshot"] = case(
+            (
+                or_(
+                    self._job_model.original_analysis_snapshot.is_(None),
+                    self._job_model.original_analysis_snapshot == "",
+                ),
+                excluded.original_analysis_snapshot,
+            ),
+            else_=self._job_model.original_analysis_snapshot,
+        )
         quality_or_legacy = or_(
             quality_incoming,
             self._job_model.analysis_quality_status.is_(None),
@@ -888,6 +955,78 @@ class PostgresGmailRepository:
         values = {key: value for key, value in fields.items() if key in allowed}
         if not values:
             return await self.get_job(stable_key)
+        if "status" in values and "status_updated_at" not in values:
+            values["status_updated_at"] = utc_now()
+        if values.get("original_analysis_snapshot"):
+            values["original_analysis_snapshot"] = case(
+                (
+                    or_(
+                        self._job_model.original_analysis_snapshot.is_(None),
+                        self._job_model.original_analysis_snapshot == "",
+                    ),
+                    values["original_analysis_snapshot"],
+                ),
+                else_=self._job_model.original_analysis_snapshot,
+            )
+        statement = (
+            update(self._job_model)
+            .where(self._job_model.stable_key == stable_key)
+            .values(**values)
+            .returning(*self._job_model.__table__.c)
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(statement)
+            row = result.mappings().one_or_none()
+            stored = _job_from_row(row) if row is not None else None
+            await session.commit()
+            return stored
+
+    async def claim_processed(self, item: ProcessedItem) -> bool:
+        statement = (
+            postgres_insert(self._processed_item_model)
+            .values(**_processed_values(item))
+            .on_conflict_do_nothing(
+                index_elements=[self._processed_item_model.stable_key]
+            )
+            .returning(self._processed_item_model.stable_key)
+        )
+        async with self._session_factory() as session:
+            result = await session.execute(statement)
+            claimed = result.scalar_one_or_none() is not None
+            await session.commit()
+            return claimed
+
+    async def delete_processed(self, stable_key: str) -> None:
+        async with self._session_factory() as session:
+            await session.execute(
+                delete(self._processed_item_model).where(
+                    self._processed_item_model.stable_key == stable_key
+                )
+            )
+            await session.commit()
+
+    async def apply_backfill_live_result(
+        self,
+        stable_key: str,
+        original_snapshot: str,
+        fields: Mapping[str, Any],
+    ) -> StoredGmailJob | None:
+        """One transaction: first snapshot wins, then active fields may hide."""
+
+        allowed = set(StoredGmailJob.__dataclass_fields__) - {
+            "stable_key", "created_at", "full_description", "source_email_id"
+        }
+        values = {key: value for key, value in fields.items() if key in allowed}
+        values["original_analysis_snapshot"] = case(
+            (
+                or_(
+                    self._job_model.original_analysis_snapshot.is_(None),
+                    self._job_model.original_analysis_snapshot == "",
+                ),
+                original_snapshot,
+            ),
+            else_=self._job_model.original_analysis_snapshot,
+        )
         if "status" in values and "status_updated_at" not in values:
             values["status_updated_at"] = utc_now()
         statement = (
@@ -1036,7 +1175,11 @@ class PostgresGmailRepository:
                     self._job_model.analysis_quality_status.not_in(
                         tuple(PROPOSAL_READY_QUALITY_STATUSES)
                     ),
+                    self._job_model.score_valid.is_(False),
+                    self._job_model.score_state != "VALID",
                     self._job_model.score <= 0,
+                    self._job_model.fit_score_valid.is_(False),
+                    self._job_model.fit_score_state != "VALID",
                     self._job_model.fit_score.is_(None),
                     self._job_model.fit_score <= 0,
                     self._job_model.recommended_price.is_(None),

@@ -780,7 +780,7 @@ class TestDirectParserUsesSharedGuard(unittest.TestCase):
             }
             self.assertIn("_ensure_order_current_biddable", calls, name)
 
-    def test_gmail_saved_and_rewrite_path_share_guard_and_manual_recheck_is_read_only(self):
+    def test_gmail_proposals_use_unified_service_and_manual_recheck_is_read_only(self):
         project_root = Path(__file__).resolve().parents[2]
         source = (project_root / "bot" / "handlers.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -794,7 +794,11 @@ class TestDirectParserUsesSharedGuard(unittest.TestCase):
             for node in ast.walk(functions["cmd_reply_job"])
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        self.assertIn("_ensure_gmail_job_current_biddable", reply_calls)
+        self.assertIn("GmailJobProcessor", reply_calls)
+        reply_source = ast.get_source_segment(source, functions["cmd_reply_job"]) or ""
+        self.assertIn("deliver_validated_proposal_text_version", reply_source)
+        self.assertIn("generate_validate_and_persist_proposal", reply_source)
+        self.assertNotIn("generate_reply", reply_source)
         recheck = functions["cmd_recheck_live"]
         recheck_source = ast.get_source_segment(source, recheck) or ""
         self.assertIn("force=True", recheck_source)

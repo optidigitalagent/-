@@ -15,6 +15,7 @@ from .quality_gate import (
     PROPOSAL_READY_QUALITY_STATUSES,
     QualityStatus,
     apply_validation,
+    finite_score,
     is_proposal_ready,
     quality_errors,
     validate_analysis,
@@ -66,12 +67,15 @@ def _urgency_emoji(urgency: str) -> str:
     return {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(urgency, "⚪")
 
 
-def _score_emoji(score: float) -> str:
-    if score >= 8:
+def _score_emoji(score: Any) -> str:
+    value = finite_score(score)
+    if value is None:
+        return "⚪"
+    if value >= 8:
         return "🔥"
-    if score >= 6:
+    if value >= 6:
         return "✅"
-    if score >= 4:
+    if value >= 4:
         return "⚠️"
     return "❌"
 
@@ -316,7 +320,7 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
         and analysis.biddable is True
         and not is_proposal_ready(analysis)
     ):
-        return [format_quality_review_card(analysis)]
+        return format_quality_review_card_parts(analysis)
 
     if analysis.event_type == EmailType.CLIENT_PRIVATE_MESSAGE.value:
         summary = _private_summary_lines(analysis)
@@ -399,8 +403,8 @@ def format_live_status_card(analysis: JobAnalysis) -> str:
     return "\n".join(lines)
 
 
-def format_quality_review_card(analysis: JobAnalysis) -> str:
-    """Render an amber active-project diagnostic with no usable proposal."""
+def format_quality_review_card_parts(analysis: JobAnalysis) -> list[str]:
+    """Render full safe source context as bounded multipart manual review."""
 
     errors = quality_errors(analysis) or ["quality_state_not_proposal_ready"]
     safe_url = safe_http_url(analysis.url)
@@ -409,11 +413,16 @@ def format_quality_review_card(analysis: JobAnalysis) -> str:
         "<b>Проєкт активний:</b> yes",
         "<b>Bid-ready:</b> no",
         f"<b>Назва:</b> {escape_html(_short(analysis.title))}",
+        f"<b>Повнота ТЗ:</b> {escape_html(_short(analysis.description_completeness))}",
+        f"<b>Бюджет:</b> {escape_html(_short(analysis.budget))}",
+        f"<b>Категорія:</b> {escape_html(_short(analysis.category))}",
+        f"<b>Live status:</b> {escape_html(_short(analysis.live_status))}",
+        f"<b>Live checked:</b> {escape_html(_received(analysis.live_status_checked_at))}",
         f"<b>Score:</b> {escape_html(analysis.score_display)}",
         f"<b>Fit:</b> {escape_html(analysis.fit_score_display)}",
         "<b>Quality errors:</b>",
     ]
-    lines.extend(f"• <code>{escape_html(_short(error, 180))}</code>" for error in errors[:12])
+    lines.extend(f"• <code>{escape_html(_short(error, 180))}</code>" for error in errors)
     if analysis.quality_clarification_question:
         lines.append(
             "<b>One clarification:</b> "
@@ -426,10 +435,24 @@ def format_quality_review_card(analysis: JobAnalysis) -> str:
         "<b>Наступна дія власниці:</b> Перевірити помилки або виконати "
         f"<code>/quality_recheck {escape_html(analysis.email_id)}</code>; ставку не надсилати.",
     ]
-    text = "\n".join(lines)
-    if len(text) > TELEGRAM_TEXT_LIMIT:
-        raise ValueError("Telegram quality-review card exceeds 4096 characters")
-    return text
+    parts = _pack_html_lines(lines)
+    for chunk in _split_text(analysis.full_description):
+        _append_html_section(parts, f"<b>Повне безпечне ТЗ:</b>\n{escape_html(chunk)}")
+    if len(parts) > 1:
+        total = len(parts)
+        parts = [
+            f"<b>Manual review {index}/{total}</b>\n{part}"
+            for index, part in enumerate(parts, 1)
+        ]
+    if any(len(part) > TELEGRAM_TEXT_LIMIT for part in parts):
+        raise ValueError("Telegram quality-review card part exceeds 4096 characters")
+    return parts
+
+
+def format_quality_review_card(analysis: JobAnalysis) -> str:
+    """Backward-compatible first part for callers expecting one string."""
+
+    return format_quality_review_card_parts(analysis)[0]
 
 
 async def send_live_status_card(bot: Any, chat_id: int, analysis: JobAnalysis) -> bool:

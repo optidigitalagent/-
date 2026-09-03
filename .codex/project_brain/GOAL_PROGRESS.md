@@ -17,7 +17,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
-- **Proposal-quality gate: implemented locally; deployment authorization pending**
+- **Proposal-quality gate V2: review blockers closed; deployment authorization pending**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -43,6 +43,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
 - `STAGE_4_ACTIVE`
 - `ISSUE_11_CURRENT_WORK_ITEM`
+- `PROPOSAL_QUALITY_GATE_V2_READY_FOR_DEPLOY_REVIEW`
 
 ## Protected production baseline
 
@@ -321,3 +322,36 @@ Stage 2 is operational when:
   `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
   `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY`.
+
+## 2026-09-03 — Stage 4 issue #11 deployment review V2
+
+- Every newly generated or rewritten canonical proposal now crosses one
+  fail-closed service boundary: forced live refresh, candidate generation,
+  deterministic validation, at most one repair, revalidation, content-bound
+  versioning, persistence and version-aware delivery.
+- Legacy direct `Order` generation is disabled. A `Response` is copyable only
+  when its exact text hash, proposal version, source identity, quality result
+  and live-validation timestamp all match under a locked final database read.
+- Evidence and commercial clauses are application-owned. The model-owned body
+  cannot introduce case/capability claims, prices, timelines or milestone
+  logic; the final exact registry evidence and structured price/timeline block
+  are inserted by the application and bound into `proposal_version`.
+- Non-active backfill writes the first complete audit snapshot and hides active
+  proposal fields in one transaction. UNKNOWN uses `live_status_pending` or
+  `live_status_unknown_exhausted`, never the generic terminal state.
+- Missing, malformed, provider-failed and real-zero Score/Fit survive storage
+  and restart as distinct states (`—`, `INVALID`, `FAILED`, `0.0/10`).
+- Validation: 276/276 tests pass, including 37 focused V2 behavioral and
+  adversarial tests plus the protected 239-test suite. Compileall, Ruff F-rule
+  checks, `git diff --check` and production-like Python 3.12 import pass.
+- The additive migration ran twice on isolated PostgreSQL 17. All seven direct
+  Response protection fields and six score-semantic fields were present;
+  conflict preservation and atomic snapshot/hide behavior passed.
+- Read-only production audit at `2026-09-03T09:45:05Z`: 73 total rows; 63
+  ACTIVE_BIDDABLE legacy rows; all 63 have Score `<= 0`, null/zero Fit and no
+  deployed approved-evidence field, while 0 have empty price, timeline or
+  proposal. The V2 score/Response columns are correctly absent before deploy.
+- Production remains unchanged on `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V2`.

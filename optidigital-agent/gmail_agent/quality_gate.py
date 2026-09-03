@@ -20,8 +20,17 @@ if TYPE_CHECKING:
     from .email_analyzer import JobAnalysis
 
 
-ANALYSIS_VERSION = "proposal-quality-gate-v1"
-PROPOSAL_VERSION_PREFIX = "pqg-v1"
+ANALYSIS_VERSION = "proposal-quality-gate-v2"
+PROPOSAL_VERSION_PREFIX = "pqg-v2"
+
+SCORE_VALID = "VALID"
+SCORE_MISSING = "MISSING"
+SCORE_INVALID = "INVALID"
+SCORE_FAILED = "FAILED"
+SCORE_STATES = frozenset({SCORE_VALID, SCORE_MISSING, SCORE_INVALID, SCORE_FAILED})
+
+APPLICATION_EVIDENCE_PREFIX = "Approved evidence: "
+APPLICATION_COMMERCIAL_PREFIX = "Commercial terms: "
 
 
 class QualityStatus(StrEnum):
@@ -135,6 +144,19 @@ _DIRECT_CASE_RE = re.compile(
     r"(?i)\b(?:our|наш(?:а|і|и)?|nasz(?:a|e)?)\s+.{0,48}"
     r"\b(?:case|project|кейс|проєкт|проект|projekt)\b"
 )
+_PAST_CAPABILITY_RE = re.compile(
+    r"(?i)\b(?:we|our team|ми|наша команда|мы|наша команда|nasz zespół)\s+"
+    r"(?:have\s+)?(?:built|created|developed|implemented|integrated|launched|delivered|"
+    r"створил\w*|розробил\w*|реалізувал\w*|впровадил\w*|інтегрувал\w*|запустил\w*|"
+    r"создал\w*|разработал\w*|реализовал\w*|внедрил\w*|интегрировал\w*|"
+    r"zbudowal\w*|stworzyl\w*|wdrozyl\w*|zintegrowal\w*)\b"
+)
+_BUDGET_RATIONALE_RE = re.compile(
+    r"(?i)\b(?:because|scope|milestone|complex|integration|risk|reason|"
+    r"тому що|обсяг|етап|складн|інтеграц|ризик|"
+    r"потому что|объ[её]м|этап|сложн|интеграц|риск|"
+    r"ponieważ|zakres|etap|złożon|integrac|ryzyko)\b"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,8 +191,122 @@ def finite_score(value: Any) -> float | None:
     return parsed
 
 
+def score_state(
+    value: Any,
+    *,
+    raw: Any = None,
+    explicit_state: str = "",
+    explicit_valid: bool | None = None,
+    analysis_succeeded: bool = True,
+) -> str:
+    """Preserve missing/invalid/failure semantics independently of float storage."""
+
+    state = str(explicit_state or "").strip().upper()
+    if state in SCORE_STATES:
+        return state
+    if analysis_succeeded is False:
+        return SCORE_FAILED
+    if explicit_valid is False:
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return SCORE_MISSING
+        return SCORE_INVALID
+    candidate = (
+        value
+        if raw is None or (isinstance(raw, str) and not raw.strip())
+        else raw
+    )
+    if candidate is None or (isinstance(candidate, str) and not candidate.strip()):
+        return SCORE_MISSING
+    return SCORE_VALID if finite_score(candidate) is not None else SCORE_INVALID
+
+
+def score_display(
+    value: Any,
+    *,
+    raw: Any = None,
+    explicit_state: str = "",
+    explicit_valid: bool | None = None,
+    analysis_succeeded: bool = True,
+) -> str:
+    state = score_state(
+        value,
+        raw=raw,
+        explicit_state=explicit_state,
+        explicit_valid=explicit_valid,
+        analysis_succeeded=analysis_succeeded,
+    )
+    if state == SCORE_MISSING:
+        return "—"
+    if state == SCORE_INVALID:
+        return "INVALID"
+    if state == SCORE_FAILED:
+        return "FAILED"
+    parsed = finite_score(value if raw is None else raw)
+    if parsed is None:
+        parsed = finite_score(value)
+    return f"{parsed:.1f}/10" if parsed is not None else "INVALID"
+
+
 def approved_evidence_text(case_id: str) -> str:
     return EVIDENCE_REGISTRY.get(str(case_id or "").strip().upper(), "")
+
+
+def _record_value(record: Any, field_name: str, default: Any = "") -> Any:
+    if isinstance(record, Mapping):
+        return record.get(field_name, default)
+    return getattr(record, field_name, default)
+
+
+def _normalized_text(value: str) -> str:
+    return " ".join((value or "").split())
+
+
+def application_owned_commercial_block(analysis: Any) -> str:
+    return (
+        f"{APPLICATION_COMMERCIAL_PREFIX}"
+        f"{_normalized_text(str(_record_value(analysis, 'recommended_price') or ''))}; "
+        "timeline: "
+        f"{_normalized_text(str(_record_value(analysis, 'realistic_timeline') or ''))}."
+    )
+
+
+def application_owned_evidence_clause(analysis: Any) -> str:
+    return APPLICATION_EVIDENCE_PREFIX + approved_evidence_text(
+        str(_record_value(analysis, "evidence_case_id") or "")
+    )
+
+
+def proposal_body(value: str) -> str:
+    """Return only the model-owned body, excluding application-owned suffixes."""
+
+    text = (value or "").strip()
+    marker = f"\n\n{APPLICATION_EVIDENCE_PREFIX}"
+    if marker in text:
+        return text.split(marker, 1)[0].strip()
+    return text
+
+
+def compose_application_owned_proposal(analysis: Any) -> str:
+    body = proposal_body(str(_record_value(analysis, "proposal_draft") or ""))
+    approved = approved_evidence_text(
+        str(_record_value(analysis, "evidence_case_id") or "")
+    )
+    if not body or not approved:
+        return body
+    return (
+        f"{body}\n\n{application_owned_evidence_clause(analysis)}\n"
+        f"{application_owned_commercial_block(analysis)}"
+    )
+
+
+def _score_state_for(analysis: "JobAnalysis", field_name: str) -> str:
+    return score_state(
+        getattr(analysis, field_name, None),
+        raw=getattr(analysis, f"{field_name}_raw", None),
+        explicit_state=getattr(analysis, f"{field_name}_state", ""),
+        explicit_valid=getattr(analysis, f"{field_name}_valid", None),
+        analysis_succeeded=getattr(analysis, "analysis_succeeded", True),
+    )
 
 
 def _question_count(text: str) -> int:
@@ -292,6 +428,139 @@ def _commercial_consistency_errors(analysis: "JobAnalysis") -> list[str]:
     return errors
 
 
+def _number(value: str) -> float | None:
+    compact = re.sub(r"\s+", "", value or "")
+    if not compact:
+        return None
+    if "," in compact and "." not in compact:
+        tail = compact.rsplit(",", 1)[-1]
+        compact = compact.replace(",", "" if len(tail) == 3 else ".")
+    else:
+        compact = compact.replace(",", "")
+    try:
+        parsed = float(compact)
+    except ValueError:
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+def _money_signature(text: str) -> tuple[float, float, str] | None:
+    match = re.search(
+        r"(?i)(\d[\d\s.,]*?)(?:\s*[-–—]\s*(\d[\d\s.,]*?))?\s*"
+        r"(UAH|USD|EUR|PLN|грн|₴|\$|€|zł)",
+        text or "",
+    )
+    if not match:
+        return None
+    low = _number(match.group(1))
+    high = _number(match.group(2) or match.group(1))
+    if low is None or high is None:
+        return None
+    aliases = {"ГРН": "UAH", "₴": "UAH", "$": "USD", "€": "EUR", "ZŁ": "PLN"}
+    currency = aliases.get(match.group(3).upper(), match.group(3).upper())
+    return min(low, high), max(low, high), currency
+
+
+def _timeline_signature(text: str) -> tuple[int, int, str] | None:
+    match = re.search(
+        r"(?i)\b(\d+)(?:\s*[-–—]\s*(\d+))?\s*"
+        r"(hours?|days?|weeks?|months?|годин\w*|дн(?:і|ів|я)|тижн\w*|місяц\w*|"
+        r"час(?:а|ов)?|дн(?:я|ей|и)|недел\w*|месяц\w*|godzin\w*|dni|dzień|tygodn\w*|miesi(?:ą|a)c\w*)\b",
+        text or "",
+    )
+    if not match:
+        return None
+    low = int(match.group(1))
+    high = int(match.group(2) or match.group(1))
+    token = match.group(3).casefold()
+    if token.startswith(("hour", "годин", "час", "godzin")):
+        unit = "hours"
+    elif token.startswith(("day", "дн", "dni", "dzień")):
+        unit = "days"
+    elif token.startswith(("week", "тижн", "недел", "tygodn")):
+        unit = "weeks"
+    else:
+        unit = "months"
+    return min(low, high), max(low, high), unit
+
+
+def _milestone_signature(text: str) -> int | None:
+    match = re.search(
+        r"(?i)\b(one|two|three|1|2|3|один|одна|два|дві|три|jeden|jedna|dwa|dwie|trzy)\s+"
+        r"(?:funded\s+)?(?:milestones?|етап\w*|этап\w*)\b",
+        text or "",
+    )
+    if not match:
+        return None
+    token = match.group(1).casefold()
+    return 1 if token in {"one", "1", "один", "одна", "jeden", "jedna"} else 2 if token in {"two", "2", "два", "дві", "dwa", "dwie"} else 3
+
+
+def _application_owned_proposal_errors(analysis: "JobAnalysis") -> list[str]:
+    proposal = analysis.proposal_draft or ""
+    body = proposal_body(proposal)
+    errors: list[str] = []
+    evidence_id = str(analysis.evidence_case_id or "").strip().upper()
+    approved = approved_evidence_text(evidence_id)
+    has_injected_suffix = f"\n\n{APPLICATION_EVIDENCE_PREFIX}" in proposal
+
+    case_labels = {
+        "bella dent", "dental supplier ai agent", "gmail job agent",
+        "status dent", "amidental", "art studio 184", "audiobook cleaner",
+        "mentium", "nfc review cards",
+    }
+    body_folded = body.casefold()
+    if any(label in body_folded for label in case_labels):
+        errors.append("proposal_contains_model_owned_case_claim")
+    if _PAST_CAPABILITY_RE.search(body) or _DIRECT_CASE_RE.search(body):
+        errors.append("proposal_contains_unapproved_capability_claim")
+
+    body_money = _money_signature(body)
+    structured_money = _money_signature(analysis.recommended_price or "")
+    if body_money is not None:
+        if structured_money is None or body_money != structured_money:
+            errors.append("proposal_price_conflicts_with_recommended_price")
+        errors.append("proposal_contains_model_owned_commercial_terms")
+    body_timeline = _timeline_signature(body)
+    structured_timeline = _timeline_signature(analysis.realistic_timeline or "")
+    if body_timeline is not None:
+        if structured_timeline is None or body_timeline != structured_timeline:
+            errors.append("proposal_timeline_conflicts_with_realistic_timeline")
+        errors.append("proposal_contains_model_owned_commercial_terms")
+    body_milestones = _milestone_signature(body)
+    structured_milestones = _milestone_signature(analysis.recommended_price or "")
+    if body_milestones is not None:
+        if body_milestones != structured_milestones:
+            errors.append("proposal_milestone_logic_conflicts_with_recommended_price")
+        errors.append("proposal_contains_model_owned_commercial_terms")
+
+    if has_injected_suffix:
+        expected = compose_application_owned_proposal(analysis)
+        if _normalized_text(proposal) != _normalized_text(expected):
+            errors.append("proposal_application_owned_suffix_mismatch")
+        if not approved or _normalized_text(analysis.selected_evidence) != _normalized_text(approved):
+            errors.append("selected_evidence_not_registry_exact")
+        if proposal.count(application_owned_evidence_clause(analysis)) != 1:
+            errors.append("evidence_clause_not_application_owned_exact")
+        if proposal.count(application_owned_commercial_block(analysis)) != 1:
+            errors.append("commercial_block_not_application_owned_exact")
+
+    budget_money = _money_signature(analysis.budget or "")
+    if budget_money and structured_money and budget_money[2] == structured_money[2]:
+        _, budget_high, _ = budget_money
+        price_low, _, _ = structured_money
+        if budget_high > 0 and price_low > budget_high * 1.5:
+            rationale = f"{analysis.reason or ''} {analysis.project_mode_reason or ''}"
+            if not _BUDGET_RATIONALE_RE.search(rationale):
+                errors.append("price_outside_budget_requires_rationale")
+
+    if evidence_id in {"NO_DIRECT_CASE", "DEMO_REQUIRED"} and (
+        _PAST_CAPABILITY_RE.search(body) or _DIRECT_CASE_RE.search(body)
+    ):
+        errors.append("proposal_claims_unapproved_direct_case")
+    return errors
+
+
 def _dedupe(values: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
@@ -342,12 +611,26 @@ def validate_analysis(
 
     score = finite_score(analysis.score)
     fit = finite_score(analysis.fit_score)
-    if score is None:
-        errors.append("score_missing_or_invalid")
+    score_semantics = _score_state_for(analysis, "score")
+    fit_semantics = _score_state_for(analysis, "fit_score")
+    if score_semantics == SCORE_MISSING:
+        errors.append("score_missing")
+    elif score_semantics == SCORE_INVALID:
+        errors.append("score_invalid")
+    elif score_semantics == SCORE_FAILED:
+        errors.append("score_provider_failed")
+    elif score is None:
+        errors.append("score_invalid")
     elif score == 0.0:
         errors.append("score_zero_not_proposal_ready")
-    if fit is None:
-        errors.append("fit_score_missing_or_invalid")
+    if fit_semantics == SCORE_MISSING:
+        errors.append("fit_score_missing")
+    elif fit_semantics == SCORE_INVALID:
+        errors.append("fit_score_invalid")
+    elif fit_semantics == SCORE_FAILED:
+        errors.append("fit_score_provider_failed")
+    elif fit is None:
+        errors.append("fit_score_invalid")
     elif fit == 0.0:
         errors.append("fit_score_zero_not_proposal_ready")
 
@@ -398,6 +681,7 @@ def validate_analysis(
         if len(proposal) > 3500:
             errors.append("proposal_not_concise")
         errors.extend(_commercial_consistency_errors(analysis))
+        errors.extend(_application_owned_proposal_errors(analysis))
 
     if not _one_action(analysis.next_action or ""):
         errors.append("next_action_must_be_exactly_one")
@@ -475,6 +759,7 @@ def apply_validation(
     if approved:
         analysis.selected_evidence = approved
     if validation.proposal_ready:
+        analysis.proposal_draft = compose_application_owned_proposal(analysis)
         analysis.proposal_version = proposal_version(analysis)
     else:
         analysis.qualified = False
@@ -493,20 +778,26 @@ def apply_validation(
     return analysis
 
 
-def proposal_version(analysis: "JobAnalysis") -> str:
+def proposal_version(analysis: Any) -> str:
     payload = {
-        "analysis_version": analysis.analysis_version or ANALYSIS_VERSION,
-        "evidence_case_id": analysis.evidence_case_id,
-        "fit_score": finite_score(analysis.fit_score),
-        "price": analysis.recommended_price,
-        "proposal": analysis.proposal_draft,
-        "score": finite_score(analysis.score),
-        "timeline": analysis.realistic_timeline,
+        "analysis_version": _record_value(analysis, "analysis_version") or ANALYSIS_VERSION,
+        "evidence_case_id": _record_value(analysis, "evidence_case_id"),
+        "fit_score": finite_score(_record_value(analysis, "fit_score", None)),
+        "price": _record_value(analysis, "recommended_price"),
+        "proposal": _record_value(analysis, "proposal_draft"),
+        "score": finite_score(_record_value(analysis, "score", None)),
+        "timeline": _record_value(analysis, "realistic_timeline"),
     }
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()[:20]
     return f"{PROPOSAL_VERSION_PREFIX}:{digest}"
+
+
+def proposal_text_hash(text: str) -> str:
+    """Bind a persisted direct Response version to the exact text copied."""
+
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
 
 
 def quality_errors(analysis: Any) -> list[str]:
@@ -536,13 +827,37 @@ def is_proposal_ready(record: Any) -> bool:
     if live_checked_at.tzinfo is None:
         live_checked_at = live_checked_at.replace(tzinfo=timezone.utc)
     live_age = (datetime.now(timezone.utc) - live_checked_at).total_seconds()
+    proposal = str(getter("proposal_draft", "") or "")
+    approved = approved_evidence_text(str(getter("evidence_case_id", "") or ""))
+    expected_proposal = compose_application_owned_proposal(record)
+    stored_version = str(getter("proposal_version", "") or "")
     return (
         getter("analysis_quality_status", "") in PROPOSAL_READY_QUALITY_STATUSES
+        and getter("analysis_version", "") == ANALYSIS_VERSION
         and getter("live_status", "") == "ACTIVE_BIDDABLE"
         and getter("biddable", None) is True
         and -5 <= live_age <= 60
         and str(getter("executable", "")).casefold() == "yes"
+        and score_state(
+            getter("score", None),
+            raw=getter("score_raw", None),
+            explicit_state=getter("score_state", ""),
+            explicit_valid=getter("score_valid", None),
+            analysis_succeeded=getter("analysis_succeeded", True),
+        ) == SCORE_VALID
+        and score_state(
+            getter("fit_score", None),
+            raw=getter("fit_score_raw", None),
+            explicit_state=getter("fit_score_state", ""),
+            explicit_valid=getter("fit_score_valid", None),
+            analysis_succeeded=getter("analysis_succeeded", True),
+        ) == SCORE_VALID
         and finite_score(getter("score", None)) not in {None, 0.0}
         and finite_score(getter("fit_score", None)) not in {None, 0.0}
-        and bool(str(getter("proposal_version", "") or "").strip())
+        and bool(approved)
+        and _normalized_text(str(getter("selected_evidence", "") or ""))
+        == _normalized_text(approved)
+        and _normalized_text(proposal) == _normalized_text(expected_proposal)
+        and stored_version.startswith(f"{PROPOSAL_VERSION_PREFIX}:")
+        and stored_version == proposal_version(record)
     )

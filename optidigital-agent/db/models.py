@@ -58,6 +58,13 @@ class Response(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     result: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    analysis_quality_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    quality_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    quality_errors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_job_identity: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    validated_live_status_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     order: Mapped["Order"] = relationship("Order", back_populates="responses")
 
@@ -221,6 +228,12 @@ class GmailJob(Base):
     original_analysis_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     quality_clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_output_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score_valid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    score_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    score_state: Mapped[str] = mapped_column(String(20), default="MISSING", server_default="MISSING", nullable=False)
+    fit_score_valid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    fit_score_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fit_score_state: Mapped[str] = mapped_column(String(20), default="MISSING", server_default="MISSING", nullable=False)
 
 
 _MIGRATIONS = [
@@ -249,6 +262,13 @@ _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS proposal_version TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS fit_score DOUBLE PRECISION",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS executable TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS proposal_version TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS proposal_content_sha256 TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS analysis_quality_status TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS quality_checked_at TIMESTAMPTZ",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS quality_errors TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS source_job_identity TEXT",
+    "ALTER TABLE responses ADD COLUMN IF NOT EXISTS validated_live_status_at TIMESTAMPTZ",
     # create_all does not add columns to an already existing table. This is an
     # additive, data-preserving migration for early gmail_scan_runs deployments.
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS relevant INTEGER NOT NULL DEFAULT 0",
@@ -322,6 +342,12 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS original_analysis_snapshot TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_clarification_question TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS model_output_json TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS score_valid BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS score_raw TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS score_state TEXT NOT NULL DEFAULT 'MISSING'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_valid BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_raw TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_state TEXT NOT NULL DEFAULT 'MISSING'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS duplicate_source_pairs TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_active INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_non_actionable INTEGER NOT NULL DEFAULT 0",

@@ -2,41 +2,38 @@
 
 ## Current status
 
-`READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY`
+`READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V2`
 
-Instant discovery is deployed and verified, and the Telegram target-channel
-migration is complete. The protected production baseline is:
-
-- state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`;
-- GitHub issue #7: completed;
-- production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`;
-- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`;
-- deployment state: `SUCCESS / RUNNING`.
-
-Stage 4 is active and GitHub issue #11 is the current work item. The isolated
-branch `feature/proposal-quality-gate-v1` adds deterministic proposal-quality
-validation after the existing live-status guard, separates commercial Score
-from execution Fit, permits at most one bounded repair, and fails closed on
-every proposal/action path. Current production Score/Fit `0.0` cards are not
-proposal-ready.
+Stage 4 issue #11 remains the current work item. Draft PR #12 on
+`feature/proposal-quality-gate-v1` now closes the deployment-review blockers:
+every generated/rewrite proposal is freshly live-checked, deterministically
+validated, repaired at most once, content-versioned, persisted and delivered
+through durable version dedup. Evidence and commercial clauses are
+application-owned; legacy direct generation fails closed; backfill preserves a
+first-write audit snapshot; and Score/Fit missing, invalid, failure and real
+zero semantics survive restart.
 
 Validation evidence:
 
-- 239/239 tests pass, including 39 focused Stage 4 quality-gate tests;
-- all 33 Stage 4 additive columns were present after two consecutive
-  migrations against an isolated PostgreSQL 17 database;
-- the read-only production audit at `2026-09-03T08:03:00Z` found 55
-  ACTIVE_BIDDABLE legacy rows with Score `<= 0`, null/zero Fit and no
-  controlled evidence registry ID;
-- price, timeline and proposal were non-empty in those 55 rows, demonstrating
-  why field presence alone is insufficient;
-- production remains unchanged on the protected baseline above.
+- 276/276 tests pass: the protected 239-test suite plus 37 focused V2
+  behavioral/adversarial tests;
+- compileall, Ruff F-rule checks, `git diff --check` and a production-like
+  Python 3.12 import pass;
+- the additive migration ran twice on isolated PostgreSQL 17, with seven
+  Response protection and six Score/Fit semantic columns present;
+- PostgreSQL conflict preservation, atomic snapshot/hide and score-state
+  reload checks pass;
+- read-only production audit at `2026-09-03T09:45:05Z` found 73 total rows and
+  63 ACTIVE_BIDDABLE legacy rows: 63 Score `<= 0`, 63 null/zero Fit, 63 without
+  a deployed evidence registry field, and 0 empty price/timeline/proposal;
+- production remains unchanged on `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
 
-No merge, production deployment, Railway variable change, OAuth/Telegram
-secret change, bid or client message is authorized by the Stage 4
-implementation work.
+No merge, deployment, Railway variable change, OAuth/Telegram secret change,
+bid, client message or production replacement card was performed.
 
 ## Exactly one next action
 
-Review Draft PR for issue #11 and, if accepted, provide a separate explicit
-proposal-quality-gate deployment authorization.
+Review updated Draft PR #12 and, if accepted, provide a separate explicit
+proposal-quality-gate V2 deployment authorization.
