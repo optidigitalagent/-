@@ -331,3 +331,31 @@
 - Production merge/deploy, variables, OAuth, Telegram secrets, backfill,
   replacement cards, bids, messages, contracts and payments remain separately
   authorized stop-gate actions.
+
+## 2026-09-03 — Stage 5A correction cycle V2 contract
+
+- Authorize state writes by the actual Telegram sender's configured numeric ID,
+  never by the command name or username. Owner-only confirmation commands and
+  Artem/Vadim fact decisions remain separate; missing settings fail closed.
+- Treat the current Stage 4 proposal version, content SHA-256 and canonical
+  `MoneyTerms`/`TimelineTerms` as one indivisible bid-confirmation package.
+- Allocate reply versions atomically and publish drafts through a locked latest-
+  incoming check. A stale draft becomes `OUTGOING_SUPERSEDED` and cannot create
+  a confirmation or `WAITING_CLIENT` transition.
+- Scope every human answer to one request, incoming turn, intent and subject
+  fingerprint. Render commitments from structured application-owned decisions;
+  do not reuse broad opportunity-wide capability facts.
+- Reuse Stage 4's public contact and unsupported-claim guards and its exact
+  localized evidence registry. Access, selection and contract replies are
+  fixed fail-closed text and perform no platform action.
+- Keep `LOST`, `CLOSED`, formal `SELECTED` and `HANDOFF_READY` terminal. Client
+  readiness and contract signals stop at review states in Release 5A.
+- Context imports are bounded, credential-redacted, actor-bound and stored as
+  `OWNER_COPIED_THREAD` with `UNKNOWN_DIRECTION` unless separately confirmed.
+- Use the existing minute scheduler for one persistent five-minute
+  unacknowledged-turn reminder during 08:00–21:00 Europe/Kyiv. This is an owner
+  alert, not a Release 5B client follow-up.
+- Preserve Stage 4 delivery when 5A storage is temporarily unavailable and keep
+  both opportunity persistence and sanitized dialogue handling retryable.
+- Release 5B client follow-ups and Release 5C delivery handoff remain deferred;
+  production changes require separate explicit authorization.

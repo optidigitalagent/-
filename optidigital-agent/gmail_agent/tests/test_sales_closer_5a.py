@@ -147,7 +147,13 @@ class SalesCloserCase(unittest.IsolatedAsyncioTestCase):
     async def bid(self, project_id: str = "910001", **kwargs):
         opportunity = await self.seed(project_id, **kwargs)
         opportunity, _confirmation, _created = await self.service.mark_bid_sent(
-            opportunity.id, "1200 USD", "5 days", confirmed_at=NOW - timedelta(minutes=5)
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+            confirmed_at=NOW - timedelta(minutes=5),
         )
         return opportunity
 
@@ -163,7 +169,13 @@ class TestOpportunityAndBid(SalesCloserCase):
     async def test_mark_bid_sent_records_exact_commercial_terms_and_version(self):
         opportunity = await self.seed()
         saved, confirmation, created = await self.service.mark_bid_sent(
-            opportunity.id, "1175 USD", "6 days", confirmed_at=NOW
+            opportunity.id,
+            opportunity.proposal_version,
+            "1175 USD",
+            "6 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+            confirmed_at=NOW,
         )
         self.assertTrue(created)
         self.assertEqual(saved.actual_submitted_price, "1175 USD")
@@ -174,16 +186,33 @@ class TestOpportunityAndBid(SalesCloserCase):
     async def test_duplicate_mark_bid_sent_is_idempotent_and_conflict_closed(self):
         opportunity = await self.seed()
         _saved, first, created = await self.service.mark_bid_sent(
-            opportunity.id, "1200 USD", "5 days"
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
         )
         _saved, second, duplicated = await self.service.mark_bid_sent(
-            opportunity.id, "1200 USD", "5 days"
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
         )
         self.assertTrue(created)
         self.assertFalse(duplicated)
         self.assertEqual(first.id, second.id)
         with self.assertRaises(SalesCloserError):
-            await self.service.mark_bid_sent(opportunity.id, "900 USD", "5 days")
+            await self.service.mark_bid_sent(
+                opportunity.id,
+                opportunity.proposal_version,
+                "900 USD",
+                "5 days",
+                actor_role="ADULT_OWNER",
+                actor_telegram_user_id=101,
+            )
 
 
 class TestResolutionDedupAndContext(SalesCloserCase):
@@ -267,7 +296,7 @@ class TestIntentAndHumanFlow(SalesCloserCase):
         self.assertEqual(result.incoming_turn.intent, ClientIntent.TECHNICAL_QUESTION.value)
         self.assertEqual(result.opportunity.state, OpportunityState.NEEDS_HUMAN_INPUT.value)
         self.assertIsNotNone(result.human_request)
-        self.assertIn("Вадим", result.human_request.question)
+        self.assertIn("YES | NO | NEED_DOCS", result.human_request.question)
         self.generator.assert_not_awaited()
 
     async def test_human_answer_resumes_exactly_one_reply_version(self):
@@ -276,12 +305,18 @@ class TestIntentAndHumanFlow(SalesCloserCase):
             _email("910001", "Can you support the HubSpot CRM API integration?")
         )
         result = await self.service.answer_human_request(
-            waiting.human_request.id, "Yes, Vadim confirms this API is supported."
+            waiting.human_request.id,
+            "YES",
+            actor_role="VADIM",
+            actor_telegram_user_id=303,
         )
         self.assertEqual(result.reply_turn.reply_version, "r1")
         self.assertEqual(result.human_request.status, "ANSWERED")
         duplicate = await self.service.answer_human_request(
-            waiting.human_request.id, "Yes, Vadim confirms this API is supported."
+            waiting.human_request.id,
+            "YES",
+            actor_role="VADIM",
+            actor_telegram_user_id=303,
         )
         self.assertTrue(duplicate.duplicate)
 
@@ -309,7 +344,10 @@ class TestIntentAndHumanFlow(SalesCloserCase):
             _email("910001", "Please also add one more dashboard as an extra feature.")
         )
         result = await self.service.answer_human_request(
-            waiting.human_request.id, "Estimate the dashboard as a separate paid milestone."
+            waiting.human_request.id,
+            "SEPARATE_PAID_ESTIMATE",
+            actor_role="ARTEM",
+            actor_telegram_user_id=202,
         )
         self.assertIsNotNone(result.reply_turn)
         self.assertNotIn("free", result.reply_turn.content.casefold())
@@ -319,9 +357,8 @@ class TestIntentAndHumanFlow(SalesCloserCase):
         result = await self.service.process_client_message(
             _email("910001", "Please show a portfolio example or case study.")
         )
-        context = self.generator.await_args.args[0]
-        self.assertEqual(context["evidence_case_id"], "GMAIL_JOB_AGENT")
-        self.assertIn("Approved evidence", context["approved_evidence"])
+        self.generator.assert_not_awaited()
+        self.assertIn("Gmail", result.reply_turn.content)
         self.assertIsNotNone(result.reply_turn)
 
     async def test_call_request_waits_for_availability(self):
@@ -343,7 +380,12 @@ class TestIntentAndHumanFlow(SalesCloserCase):
                 _email(project, body, email_id=f"selected-{index}")
             )
             self.assertEqual(result.incoming_turn.intent, intent.value)
-            self.assertEqual(result.opportunity.state, OpportunityState.SELECTED.value)
+            expected_state = (
+                OpportunityState.SELECTION_REVIEW.value
+                if intent == ClientIntent.CLIENT_READY_TO_SELECT
+                else OpportunityState.CONTRACT_REVIEW.value
+            )
+            self.assertEqual(result.opportunity.state, expected_state)
 
     async def test_rejection_becomes_lost(self):
         await self.bid()
@@ -477,7 +519,11 @@ class TestConfirmationRestartAndUx(SalesCloserCase):
             _email("910001", "Please clarify authentication.")
         )
         saved, confirmation, created = await self.service.mark_reply_sent(
-            result.opportunity.id, result.reply_turn.reply_version, confirmed_at=NOW
+            result.opportunity.id,
+            result.reply_turn.reply_version,
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+            confirmed_at=NOW,
         )
         self.assertTrue(created)
         self.assertEqual(confirmation.content_sha256, result.reply_turn.content_sha256)
@@ -490,7 +536,12 @@ class TestConfirmationRestartAndUx(SalesCloserCase):
         result = await self.service.process_client_message(
             _email("910001", "Please clarify authentication.")
         )
-        await self.service.mark_reply_sent(result.opportunity.id, "r1")
+        await self.service.mark_reply_sent(
+            result.opportunity.id,
+            "r1",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+        )
         restarted = SalesCloserService(
             InMemorySalesRepository(self.state), reply_generator=_reply_generator, now=lambda: NOW
         )

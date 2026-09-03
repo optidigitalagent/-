@@ -8,6 +8,7 @@ and Freelancehunt are never mutated.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -19,8 +20,16 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from gmail_agent.gmail_provider import EmailMessage
-from gmail_agent.sales_closer import SalesCloserService, SalesReplyCandidate
-from gmail_agent.sales_storage import OpportunityState, PostgresSalesRepository
+from gmail_agent.sales_closer import (
+    SalesCloserError,
+    SalesCloserService,
+    SalesReplyCandidate,
+)
+from gmail_agent.sales_storage import (
+    IllegalTransitionError,
+    OpportunityState,
+    PostgresSalesRepository,
+)
 from gmail_agent.telegram_notifier import send_sales_response_card
 
 TEST_DATABASE_URL = os.environ.get("SALES_CLOSER_TEST_DATABASE_URL", "").strip()
@@ -75,17 +84,16 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
             await connection.execute(text(f'DROP SCHEMA "{self.schema}" CASCADE'))
         await cleanup.dispose()
 
-    async def test_validated_bid_dialogue_confirmation_restart(self):
-        repository = PostgresSalesRepository(self.sessions)
-        service = SalesCloserService(repository, reply_generator=_generator, now=lambda: NOW)
+    @staticmethod
+    def _job(project_id: str) -> SimpleNamespace:
         proposal = "We can deliver the confirmed API integration scope."
-        job = SimpleNamespace(
-            stable_key="freelancehunt:project:990005001",
+        return SimpleNamespace(
+            stable_key=f"freelancehunt:project:{project_id}",
             analysis_quality_status="QUALITY_VALID",
-            title="Synthetic PostgreSQL Stage 5A project",
-            project_id="990005001",
+            title=f"Synthetic PostgreSQL Stage 5A project {project_id}",
+            project_id=project_id,
             thread_id="",
-            url="https://freelancehunt.com/project/synthetic/990005001.html",
+            url=f"https://freelancehunt.com/project/synthetic/{project_id}.html",
             discovery_source="synthetic_test",
             client_name="Synthetic Client",
             full_description="Build a synthetic API integration with authentication and tests.",
@@ -101,47 +109,88 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
             selected_evidence="Approved evidence: Gmail Job Agent used API integration and PostgreSQL.",
             evidence_case_id="GMAIL_JOB_AGENT",
             proposal_draft=proposal,
-            proposal_version="pqg-v3-synthetic-e2e",
+            proposal_version=f"pqg-v3-{project_id}",
             proposal_content_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
             live_status="ACTIVE_BIDDABLE",
         )
+
+    @staticmethod
+    def _email(project_id: str, body: str, email_id: str) -> EmailMessage:
+        url = f"https://freelancehunt.com/project/synthetic/{project_id}.html"
+        return EmailMessage(
+            id=email_id,
+            subject="New private message from Synthetic Client",
+            sender="Freelancehunt <notify@freelancehunt.com>",
+            body=f"{body}\n{url}",
+            text_body=f"{body}\n{url}",
+            links=[url],
+            received_at=NOW - timedelta(seconds=60),
+            raw_headers={"Message-ID": f"<{email_id}@freelancehunt.com>"},
+        )
+
+    async def test_validated_bid_dialogue_confirmation_restart(self):
+        repository = PostgresSalesRepository(self.sessions)
+        service = SalesCloserService(repository, reply_generator=_generator, now=lambda: NOW)
+        job = self._job("990005001")
         opportunity = await service.ensure_from_validated_job(job)
         opportunity, bid_confirmation, created = await service.mark_bid_sent(
             opportunity.id,
+            opportunity.proposal_version,
             "1200 USD",
             "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
             confirmed_at=NOW - timedelta(minutes=3),
         )
         self.assertTrue(created)
         self.assertEqual(bid_confirmation.proposal_version, job.proposal_version)
 
-        email = EmailMessage(
-            id="synthetic-gmail-private-1",
-            subject="New private message from Synthetic Client",
-            sender="Freelancehunt <notify@freelancehunt.com>",
-            body=(
-                "Please clarify the authentication details.\n"
-                "https://freelancehunt.com/project/synthetic/990005001.html"
-            ),
-            text_body=(
-                "Please clarify the authentication details.\n"
-                "https://freelancehunt.com/project/synthetic/990005001.html"
-            ),
-            links=["https://freelancehunt.com/project/synthetic/990005001.html"],
-            received_at=NOW - timedelta(seconds=60),
-            raw_headers={"Message-ID": "<synthetic-private-1@freelancehunt.com>"},
+        email = self._email(
+            "990005001",
+            "Can you support the HubSpot API integration?",
+            "synthetic-gmail-private-1",
         )
-        result = await service.process_client_message(email)
+        waiting = await service.process_client_message(email)
+        self.assertIsNotNone(waiting.human_request)
+        result = await service.answer_human_request(
+            waiting.human_request.id,
+            "YES",
+            actor_role="VADIM",
+            actor_telegram_user_id=303,
+        )
         self.assertEqual(result.reply_turn.reply_version, "r1")
         telegram = SimpleNamespace(send_message=AsyncMock())
         self.assertTrue(await send_sales_response_card(telegram, 1, result))
         telegram.send_message.assert_awaited()
         await service.mark_notified(result.incoming_turn.id)
+
+        newer = await service.process_client_message(
+            self._email(
+                "990005001",
+                "Please clarify the authentication endpoint list.",
+                "synthetic-gmail-private-newer",
+            )
+        )
+        self.assertEqual(newer.reply_turn.reply_version, "r2")
+        with self.assertRaisesRegex(
+            SalesCloserError, rf"{newer.incoming_turn.id}.*?/regenerate_lead"
+        ):
+            await service.mark_reply_sent(
+                opportunity.id,
+                "r1",
+                actor_role="ADULT_OWNER",
+                actor_telegram_user_id=101,
+                confirmed_at=NOW,
+            )
         opportunity, sent_confirmation, sent_created = await service.mark_reply_sent(
-            opportunity.id, "r1", confirmed_at=NOW
+            opportunity.id,
+            "r2",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+            confirmed_at=NOW,
         )
         self.assertTrue(sent_created)
-        self.assertEqual(sent_confirmation.content_sha256, result.reply_turn.content_sha256)
+        self.assertEqual(sent_confirmation.content_sha256, newer.reply_turn.content_sha256)
         self.assertEqual(opportunity.state, OpportunityState.WAITING_CLIENT.value)
 
         restarted = SalesCloserService(
@@ -149,38 +198,107 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
         )
         persisted, transitions, turns, requests = await restarted.lead_timeline(opportunity.id)
         self.assertEqual(persisted.state, OpportunityState.WAITING_CLIENT.value)
-        self.assertEqual([turn.direction for turn in turns], ["INCOMING", "OUTGOING_CONFIRMED"])
-        self.assertEqual(len(requests), 0)
-        self.assertEqual(transitions[-1].new_state, OpportunityState.WAITING_CLIENT.value)
+        self.assertEqual(
+            [turn.direction for turn in turns],
+            ["INCOMING", "OUTGOING_SUPERSEDED", "INCOMING", "OUTGOING_CONFIRMED"],
+        )
+        self.assertEqual(len(requests), 1)
+        self.assertTrue(
+            any(
+                transition.new_state == OpportunityState.WAITING_CLIENT.value
+                and transition.actor_role == "ADULT_OWNER"
+                for transition in transitions
+            )
+        )
 
         # Nullable unique identifiers must not collide across opportunities.
-        second_values = vars(job).copy()
-        second_values.update(
-            stable_key="freelancehunt:project:990005002",
-            project_id="990005002",
-            url="https://freelancehunt.com/project/synthetic/990005002.html",
-            proposal_version="pqg-v3-synthetic-e2e-2",
-        )
-        second = await restarted.ensure_from_validated_job(SimpleNamespace(**second_values))
+        second = await restarted.ensure_from_validated_job(self._job("990005002"))
         second, _confirmation, _created = await restarted.mark_bid_sent(
-            second.id, "1200 USD", "5 days"
+            second.id,
+            second.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
         )
-        second_email = EmailMessage(
-            id="synthetic-gmail-private-2",
-            subject="New private message from Another Client",
-            sender="Freelancehunt <notify@freelancehunt.com>",
-            body=(
-                "Please clarify the authentication details.\n"
-                "https://freelancehunt.com/project/synthetic/990005002.html"
-            ),
-            text_body=(
-                "Please clarify the authentication details.\n"
-                "https://freelancehunt.com/project/synthetic/990005002.html"
-            ),
-            links=["https://freelancehunt.com/project/synthetic/990005002.html"],
-            received_at=NOW,
-            raw_headers={"Message-ID": "<synthetic-private-2@freelancehunt.com>"},
+        second_email = self._email(
+            "990005002",
+            "Please clarify the authentication details.",
+            "synthetic-gmail-private-2",
         )
         second_result = await restarted.process_client_message(second_email)
         self.assertEqual(second_result.opportunity.id, second.id)
         self.assertEqual(second_result.reply_turn.reply_version, "r1")
+
+    async def test_concurrent_turns_allocate_unique_versions(self):
+        repository = PostgresSalesRepository(self.sessions)
+
+        async def yielding_generator(context, client, errors):
+            await asyncio.sleep(0)
+            return await _generator(context, client, errors)
+
+        service = SalesCloserService(
+            repository, reply_generator=yielding_generator, now=lambda: NOW
+        )
+        opportunity = await service.ensure_from_validated_job(self._job("990005010"))
+        opportunity, _confirmation, _created = await service.mark_bid_sent(
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+        )
+        results = await asyncio.gather(
+            service.process_client_message(
+                self._email(
+                    "990005010", "Please clarify authentication A.", "pg-race-a"
+                )
+            ),
+            service.process_client_message(
+                self._email(
+                    "990005010", "Please clarify authentication B.", "pg-race-b"
+                )
+            ),
+        )
+        turns = await repository.list_turns(opportunity.id)
+        self.assertEqual(
+            {turn.reply_version for turn in turns if turn.reply_version}, {"r1", "r2"}
+        )
+        self.assertEqual(sum(turn.direction == "OUTGOING_DRAFT" for turn in turns), 1)
+        self.assertEqual(
+            sum(turn.direction == "OUTGOING_SUPERSEDED" for turn in turns), 1
+        )
+        self.assertEqual({result.opportunity.id for result in results}, {opportunity.id})
+
+    async def test_concurrent_terminal_transitions_fail_closed(self):
+        repository = PostgresSalesRepository(self.sessions)
+        service = SalesCloserService(repository, now=lambda: NOW)
+        opportunity = await service.ensure_from_validated_job(self._job("990005020"))
+        await repository.transition(
+            opportunity.id,
+            OpportunityState.CLOSED.value,
+            source="synthetic",
+            reason="terminal",
+            actor="system",
+        )
+        outcomes = await asyncio.gather(
+            repository.transition(
+                opportunity.id,
+                OpportunityState.NEGOTIATING.value,
+                source="synthetic",
+                reason="illegal concurrent reopen A",
+                actor="system",
+            ),
+            repository.transition(
+                opportunity.id,
+                OpportunityState.WAITING_CLIENT.value,
+                source="synthetic",
+                reason="illegal concurrent reopen B",
+                actor="system",
+            ),
+            return_exceptions=True,
+        )
+        self.assertTrue(all(isinstance(item, IllegalTransitionError) for item in outcomes))
+        persisted = await repository.get_opportunity(opportunity.id)
+        self.assertEqual(persisted.state, OpportunityState.CLOSED.value)

@@ -29,6 +29,12 @@ _TOKEN_RE = re.compile(
     r"(?i)(\b(?:reset[_ -]?token|access[_ -]?token|refresh[_ -]?token|"
     r"verification[_ -]?token|secret)\b\s*[:=]\s*)([^\s<>]{8,})"
 )
+_CREDENTIAL_RE = re.compile(
+    r"(?im)(\b(?:password|passwd|pwd|api[_ -]?key|api[_ -]?secret|"
+    r"client[_ -]?secret|recovery[_ -]?code|парол(?:ь|я)|код\s+восстановления|"
+    r"секрет(?:ный)?\s+ключ|hasło|kod\s+odzyskiwania|tajny\s+klucz)\b"
+    r"\s*[:=]\s*)([^\s,;<>]{3,})"
+)
 
 
 def _is_sensitive_url(url: str) -> bool:
@@ -66,6 +72,9 @@ def redact_sensitive_content(text: str, *, security_event: bool = False) -> tupl
     changed = changed or updated != value
     value = updated
     updated = _TOKEN_RE.sub(r"\1[TOKEN REDACTED]", value)
+    changed = changed or updated != value
+    value = updated
+    updated = _CREDENTIAL_RE.sub(r"\1[CREDENTIAL REDACTED]", value)
     changed = changed or updated != value
     return updated, changed
 

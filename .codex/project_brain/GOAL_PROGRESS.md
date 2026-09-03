@@ -18,7 +18,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
 - **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
-- **AI Sales Closer Release 5A: implementation and deployment gate complete**
+- **AI Sales Closer Release 5A: Draft PR #16 correction cycle V2 ready for review**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -46,7 +46,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `ISSUE_11_COMPLETED`
 - `STAGE_5_ACTIVE`
 - `ISSUE_15_CURRENT_WORK_ITEM`
-- `READY_FOR_SALES_CLOSER_5A_DEPLOY`
+- `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`
 
 ## Protected production baseline
 
@@ -449,3 +449,49 @@ Stage 2 is operational when:
 - No production, Railway variable, OAuth, Telegram secret, Gmail, bid,
   message, contract, payment, backfill or replacement-card mutation occurred.
 - Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY`.
+
+## 2026-09-03 — Stage 5A Draft PR #16 correction cycle V2
+
+- Stage 4 is deployed and verified, issue #11 is completed, and the protected
+  production baseline remains `main` `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`
+  with Railway deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`
+  (`SUCCESS / RUNNING`).
+- Write-state Telegram commands now resolve the actual sender by configured
+  numeric user ID into `ADULT_OWNER`, `ARTEM`, `VADIM` or
+  `READ_ONLY_MEMBER`. Missing role configuration and unauthorized actors fail
+  closed; `/whoami`, `/pipeline`, `/lead` and notification cards remain
+  read-only.
+- Bid confirmation re-locks the opportunity and verifies the exact current
+  proposal version, SHA-256, state and canonical Stage 4 commercial terms.
+  Reply confirmation locks the opportunity and turns, rejects stale/hash-
+  changed drafts, and stores the actual actor audit fields.
+- Concurrent incoming turns use a PostgreSQL atomic sequence and a locked
+  draft-publication boundary, so versions remain unique and only the draft for
+  the latest incoming turn remains active.
+- Human decisions are bound to request, source turn, intent and subject
+  fingerprint. Application-owned clauses enforce technical, scope, price,
+  timeline, availability, proof, access, selection and contract decisions.
+- The explicit transition matrix prevents automatic reopening of terminal
+  states. Selection readiness becomes `SELECTION_REVIEW`, contract evidence
+  becomes `CONTRACT_REVIEW`, and no classification creates formal `SELECTED`.
+- `/sync_lead_context` accepts one bounded plain-text owner/Artem copy, redacts
+  credentials and reset material, rejects cross-opportunity identity, stores
+  `UNKNOWN_DIRECTION`, and performs at most one validated generation.
+- `/ack_lead` persists the actual actor. Each notified client turn owns one
+  restart-safe five-minute working-window escalation; answer, sync or confirmed
+  reply acknowledges it.
+- A temporary 5A persistence failure cannot suppress a validated Stage 4 card:
+  the card is labelled, sent once and leaves `sales_tracking_pending` for
+  retry. Dialogue failure emits one sanitized no-reply fallback and leaves the
+  Gmail event retryable.
+- Validation: 68 focused 5A tests plus 34 parameterized subtests pass. The full
+  ordered `unittest` suite runs 381 tests successfully, with nine opt-in
+  PostgreSQL skips when no disposable URL is supplied. Three real isolated
+  PostgreSQL 17 tests pass; the full additive migration list runs twice,
+  concurrent reply versions are unique, terminal races fail closed, and the
+  synthetic sales loop survives restart. Python 3.12.14 imports, compileall,
+  changed-file Ruff F rules, Telegram HTML/size checks and diff checks pass.
+- No merge, deploy, production migration/backfill, Railway variable, OAuth,
+  Telegram secret, card replacement, bid, client message, contract or payment
+  action occurred. Release 5B follow-ups and Release 5C handoff remain deferred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`.

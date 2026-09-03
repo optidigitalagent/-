@@ -149,6 +149,10 @@ adult-owner action. Stage 4 and issue #11 are deployed and verified.
 
 Release 5A persists one exact opportunity per project/thread, prepares the
 validated bid package and contextual client replies, and records only explicit
-manual-send confirmations. Release 5B will add timed follow-ups; Release 5C
-will add selected-project delivery handoff. Neither deferred release is active
-in 5A.
+manual-send confirmations from configured Telegram user-ID roles. Correction
+cycle V2 binds bid and reply confirmations to the exact current versions and
+hashes, keeps human decisions turn-scoped, reuses Stage 4 safety/evidence,
+supports sanitized context recovery, and sends at most one five-minute
+unacknowledged-response reminder. Release 5B will add timed client follow-ups;
+Release 5C will add selected-project delivery handoff. Neither deferred release
+is active in 5A.

@@ -21,7 +21,7 @@ from .quality_gate import (
     validate_analysis,
 )
 from .sales_closer import SalesProcessResult, opportunity_id_for_analysis
-from .sales_storage import HumanInformationRequest, SalesOpportunity
+from .sales_storage import ConversationTurn, HumanInformationRequest, SalesOpportunity
 
 logger = logging.getLogger(__name__)
 
@@ -381,11 +381,13 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
         EmailType.PROJECT_FEED.value,
     }:
         opportunity_id = opportunity_id_for_analysis(analysis)
+        proposal_version = str(analysis.proposal_version or "").strip() or "UNAVAILABLE"
         commands = (
             f"<b>Validated proposal retrieval:</b> <code>/reply_job {escape_html(analysis.email_id)}</code>\n"
             "<b>Наступна дія власниці (одна):</b> перевірити й вручну подати точний "
             "відгук у Freelancehunt, потім зафіксувати фактичні умови:\n"
-            f"<code>/mark_bid_sent {escape_html(opportunity_id)} | &lt;price&gt; | &lt;timeline&gt;</code>"
+            f"<code>/mark_bid_sent {escape_html(opportunity_id)} "
+            f"{escape_html(proposal_version)} | &lt;price&gt; | &lt;timeline&gt;</code>"
         )
     else:
         next_action = analysis.next_action or (
@@ -397,6 +399,13 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
             f"<code>/skip_job {escape_html(analysis.email_id)}</code>"
         )
     _append_html_section(parts, commands)
+
+    if getattr(analysis, "sales_tracking_unavailable", False):
+        _append_html_section(
+            parts,
+            "⚠️ <b>SALES TRACKING TEMPORARILY UNAVAILABLE:</b> the Stage 4 card remains valid, "
+            "but 5A opportunity persistence must retry before confirmation.",
+        )
 
     if len(parts) > 1:
         total = len(parts)
@@ -561,6 +570,7 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
         f"<b>Risks:</b> {escape_html(_short(incoming.risks or opportunity.risks, 700))}",
         f"<b>Missing facts:</b> {escape_html(_short(incoming.missing_facts))}",
         f"<b>Detection latency:</b> {escape_html(_latency(incoming.response_latency_seconds))}",
+        f"<b>Acknowledge:</b> <code>/ack_lead {escape_html(incoming.id)}</code>",
         (
             "<b>SLA ≤2 min:</b> MET"
             if incoming.response_latency_seconds is None
@@ -617,6 +627,75 @@ async def send_sales_response_card(
         return False
 
 
+def format_sales_escalation_card(turn: ConversationTurn) -> str:
+    return (
+        "🚨 <b>UNACKNOWLEDGED CLIENT RESPONSE — 5 MINUTES</b>\n"
+        f"Opportunity: <code>{escape_html(turn.opportunity_id)}</code>\n"
+        f"Incoming turn: <code>{escape_html(turn.id)}</code>\n"
+        f"Intent: <b>{escape_html(turn.intent)}</b>\n"
+        f"Summary: {escape_html(_short(turn.russian_summary or turn.actual_ask, 700))}\n"
+        f"Acknowledge now: <code>/ack_lead {escape_html(turn.id)}</code>"
+    )
+
+
+async def send_sales_escalation_card(
+    bot: Any, chat_id: int, turn: ConversationTurn
+) -> bool:
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=format_sales_escalation_card(turn),
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send sales escalation: turn=%s", turn.id)
+        return False
+
+
+def format_sales_fallback_card(
+    *, email_id: str, subject: str, safe_excerpt: str, thread_url: str = ""
+) -> str:
+    lines = [
+        "🔴 <b>CLIENT RESPONSE — SALES TRACKING UNAVAILABLE</b>",
+        f"Gmail message: <code>{escape_html(email_id)}</code>",
+        f"Subject: {escape_html(_short(subject, 500))}",
+        f"Sanitized excerpt: {escape_html(_short(safe_excerpt, 900))}",
+        "<b>State:</b> durable retry pending; no platform action was performed.",
+        "<b>Next action (one):</b> Open the exact Freelancehunt thread and review manually.",
+    ]
+    link = safe_http_url(thread_url)
+    if link and "freelancehunt." in link.casefold():
+        lines.insert(4, f'🔗 <a href="{escape_html(link)}">Open Freelancehunt thread</a>')
+    return "\n".join(lines)
+
+
+async def send_sales_fallback_card(
+    bot: Any,
+    chat_id: int,
+    *,
+    email_id: str,
+    subject: str,
+    safe_excerpt: str,
+    thread_url: str = "",
+) -> bool:
+    try:
+        await bot.send_message(
+            chat_id=chat_id,
+            text=format_sales_fallback_card(
+                email_id=email_id,
+                subject=subject,
+                safe_excerpt=safe_excerpt,
+                thread_url=thread_url,
+            ),
+            disable_web_page_preview=True,
+        )
+        return True
+    except Exception:
+        logger.exception("Failed to send sales fallback: email_id=%s", email_id)
+        return False
+
+
 def format_pipeline_counts(counts: dict[str, int]) -> str:
     labels = (
         ("PROPOSAL_READY", "proposal ready"),
@@ -626,6 +705,8 @@ def format_pipeline_counts(counts: dict[str, int]) -> str:
         ("NEEDS_HUMAN_INPUT", "needs human input"),
         ("NEGOTIATING", "negotiating"),
         ("WAITING_CLIENT", "waiting client"),
+        ("SELECTION_REVIEW", "selection review"),
+        ("CONTRACT_REVIEW", "contract review"),
         ("SELECTED", "selected"),
         ("LOST", "lost"),
     )
@@ -678,6 +759,8 @@ def format_lead_timeline(
         "NEEDS_HUMAN_INPUT": "Answer the one open human-information request.",
         "NEGOTIATING": "Adult owner manually sends the exact validated reply and confirms its version.",
         "WAITING_CLIENT": "Wait for the client; no automatic follow-up runs in 5A.",
+        "SELECTION_REVIEW": "Adult owner urgently reviews selection; no acceptance was performed.",
+        "CONTRACT_REVIEW": "Adult owner urgently reviews contract terms; no acceptance was performed.",
         "SELECTED": "Review the contract step manually; Release 5C handoff is not active.",
         "LOST": "No action; the opportunity is retained for audit.",
     }.get(opportunity.state, "Review the current state manually.")
