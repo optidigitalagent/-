@@ -355,3 +355,38 @@ Stage 2 is operational when:
   `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`, Railway deployment
   `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`).
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V2`.
+
+## 2026-09-03 — Stage 4 issue #11 deployment review V3
+
+- Final proposal composition is fully application-owned after the model body:
+  exact evidence and commercial clauses, milestone wording, timeline wording,
+  `NO_DIRECT_CASE`, and `DEMO_REQUIRED` are approved constants for uk/ru/en/pl.
+- Commercial terms now cross strict full-string allowlist parsers into typed
+  `MoneyTerms` and `TimelineTerms`, persist as canonical JSON, and are rendered
+  only from parsed values. Suffix injection, contradictory terms, malformed
+  ranges, invalid values, contacts, and arbitrary tails fail closed.
+- The exact localized final text is revalidated before its SHA-256 and
+  `pqg-v3` version are computed. Save/reload must reproduce the same text,
+  language, evidence, canonical terms, hash, version, and readiness decision.
+- Multilingual first-person past-work/experience claims and generic URLs,
+  domains, handles, phones, email obfuscation, social networks, messengers, and
+  mixed-script bypasses are rejected across the body and model-owned fields.
+- Unsolicited cards retain durable proposal-version dedup and stale-lease
+  recovery. Explicit `/reply_job` retrieval always performs a fresh live check,
+  may repeat the same validated text without a new version, and records each
+  successful retrieval separately. Direct Response state becomes sent only
+  after Telegram accepts the copy message.
+- Validation: 302/302 tests pass, including 26 focused V3 tests. Compileall,
+  Ruff F rules, diff check, and Python 3.12.14 production-like imports pass.
+- Isolated PostgreSQL 17 accepted the additive migration twice. The three V3
+  columns were present, and a persisted canonical proposal package passed an
+  exact round-trip readiness check after reload.
+- Current read-only production audit: 77 total rows, 67 ACTIVE_BIDDABLE; 67
+  legacy zero Score, 67 null/zero Fit, 67 without deployed evidence fields,
+  and one empty proposal. The V2/V3 columns remain absent, as expected before
+  deployment. The transaction was read-only and rolled back.
+- Production remains unchanged on `main`
+  `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`; Railway deployment
+  `43a219b0-14e9-4f94-a108-b1a12e20039a` is `SUCCESS` with one of one replica
+  running.
+- Status: `READY_FOR_PROPOSAL_QUALITY_GATE_DEPLOY_V3`.

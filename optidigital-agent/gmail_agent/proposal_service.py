@@ -12,6 +12,7 @@ from .quality_gate import (
     QualityStatus,
     QualityValidation,
     apply_validation,
+    is_proposal_ready,
     validate_analysis,
 )
 
@@ -99,6 +100,13 @@ async def generate_validate_and_persist_proposal(
     initial = validate_analysis(first)
     if initial.proposal_ready:
         apply_validation(first, initial)
+        if not is_proposal_ready(first):
+            await persist(first, "quality_manual_review")
+            return ProposalGenerationResult(
+                ProposalGenerationStatus.MANUAL_REVIEW.value,
+                first,
+                tuple(json.loads(first.quality_errors or "[]")),
+            )
         first.qualified = True
         await persist(first, "queued")
         return ProposalGenerationResult(
@@ -140,7 +148,7 @@ async def generate_validate_and_persist_proposal(
     )
     second = validate_analysis(repaired, repaired=True)
     apply_validation(repaired, second, repair_count=1)
-    if second.proposal_ready:
+    if second.proposal_ready and is_proposal_ready(repaired):
         repaired.qualified = True
         await persist(repaired, "queued")
         return ProposalGenerationResult(

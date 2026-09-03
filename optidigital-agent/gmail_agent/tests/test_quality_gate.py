@@ -24,6 +24,7 @@ from gmail_agent.quality_gate import (
     ANALYSIS_VERSION,
     EVIDENCE_REGISTRY,
     PROPOSAL_READY_QUALITY_STATUSES,
+    PROPOSAL_VERSION_PREFIX,
     QualityStatus,
     apply_validation,
     finite_score,
@@ -322,7 +323,7 @@ class TestDeterministicQualityValidator(unittest.TestCase):
         apply_validation(analysis, validate_analysis(analysis))
         self.assertEqual(analysis.selected_evidence, EVIDENCE_REGISTRY["GMAIL_JOB_AGENT"])
         self.assertIn(analysis.analysis_quality_status, PROPOSAL_READY_QUALITY_STATUSES)
-        self.assertTrue(analysis.proposal_version.startswith("pqg-v2:"))
+        self.assertTrue(analysis.proposal_version.startswith(f"{PROPOSAL_VERSION_PREFIX}:"))
         self.assertTrue(is_proposal_ready(analysis))
 
 

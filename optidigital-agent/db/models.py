@@ -225,6 +225,9 @@ class GmailJob(Base):
     evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     analysis_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
     proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    money_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timeline_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     original_analysis_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
     quality_clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_output_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -339,6 +342,9 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS evidence_case_id TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS analysis_version TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS proposal_version TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS proposal_content_sha256 TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS money_terms_json TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS timeline_terms_json TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS original_analysis_snapshot TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS quality_clarification_question TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS model_output_json TEXT",

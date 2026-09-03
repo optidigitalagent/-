@@ -589,7 +589,7 @@ class TestUnifiedVersionDelivery(unittest.IsolatedAsyncioTestCase):
             await processor.run_quality_backfill(1, send_replacements=True)
         self.assertEqual(send.await_count, 1)
 
-    async def test_same_version_repeat_and_restart_deliver_once(self):
+    async def test_same_version_explicit_manual_retrieval_repeats_after_restart(self):
         state = {}
         repo = InMemoryGmailRepository(state)
         await repo.save_job(stored())
@@ -597,8 +597,8 @@ class TestUnifiedVersionDelivery(unittest.IsolatedAsyncioTestCase):
         first = GmailJobProcessor(object(), MagicMock(), 1, repository=repo, live_status_checker=ActiveChecker())
         self.assertTrue(await first.deliver_validated_proposal_text_version("freelancehunt:1900002", send, live_status_already_checked=True))
         restarted = GmailJobProcessor(object(), MagicMock(), 1, repository=InMemoryGmailRepository(state), live_status_checker=ActiveChecker())
-        self.assertFalse(await restarted.deliver_validated_proposal_text_version("freelancehunt:1900002", send, live_status_already_checked=True))
-        self.assertEqual(send.await_count, 1)
+        self.assertTrue(await restarted.deliver_validated_proposal_text_version("freelancehunt:1900002", send, live_status_already_checked=True))
+        self.assertEqual(send.await_count, 2)
 
     async def test_false_send_retries_to_one_eventual_delivery(self):
         repo = InMemoryGmailRepository()

@@ -381,10 +381,11 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
             draft_errors.append("response_parent_not_proposal_ready")
         if draft is not None and locked_order is not None:
             draft_errors.extend(_response_draft_errors(draft, locked_order))
-        if not draft_errors:
-            draft.result = "sent"
-            locked_order.status = "sent"
-            await session.commit()
+        draft_text = str(_value(draft, "text") or "") if draft is not None else ""
+        draft_version = (
+            str(_value(draft, "proposal_version") or "") if draft is not None else ""
+        )
+        order_url = str(_value(locked_order, "url") or "") if locked_order is not None else ""
 
     if draft_errors:
         await callback.message.edit_text(
@@ -401,15 +402,46 @@ async def cb_send_manual(callback: CallbackQuery, callback_data: ResponseCb) -> 
         "✅ Скопіюй відгук нижче та відправ вручну на платформі.",
         reply_markup=None,
     )
-    safe_url = safe_http_url(locked_order.url)
+    safe_url = safe_http_url(order_url)
     link = (
         f"\n\n🔗 <a href='{escape_html(safe_url)}'>Відкрити замовлення</a>"
         if safe_url
         else ""
     )
     await callback.message.answer(
-        f"📋 <b>Відповідь для копіювання:</b>\n\n{escape_html(draft.text)}{link}"
+        f"📋 <b>Відповідь для копіювання:</b>\n\n{escape_html(draft_text)}{link}"
     )
+
+    # Telegram accepted the copy message. Only now may the exact unchanged
+    # Response and its parent move to sent.
+    async with AsyncSessionLocal() as session:
+        delivered_draft = await session.get(
+            Response, callback_data.response_id, with_for_update=True
+        )
+        delivered_order = await session.get(
+            Order, callback_data.order_id, with_for_update=True
+        )
+        post_send_errors: list[str] = []
+        if delivered_draft is None or delivered_order is None:
+            post_send_errors.append("response_or_parent_missing_after_delivery")
+        else:
+            post_send_errors.extend(
+                _response_draft_errors(delivered_draft, delivered_order)
+            )
+            if str(delivered_draft.text or "") != draft_text:
+                post_send_errors.append("response_text_changed_during_delivery")
+            if str(delivered_draft.proposal_version or "") != draft_version:
+                post_send_errors.append("response_version_changed_during_delivery")
+        if not post_send_errors:
+            delivered_draft.result = "sent"
+            delivered_draft.sent_at = datetime.now(timezone.utc)
+            delivered_order.status = "sent"
+            await session.commit()
+        else:
+            logger.error(
+                "Response delivered but sent state was not committed: %s",
+                ",".join(dict.fromkeys(post_send_errors)),
+            )
 
 
 @router.callback_query(ResponseCb.filter(F.action == "rewrite"))
@@ -600,8 +632,8 @@ async def cmd_reply_job(message: Message) -> None:
             current = await repository.get_job(job_id)
             if current is not None and is_proposal_ready(current):
                 await message.answer(
-                    "ℹ️ Ця точна proposal version вже була показана; повторну "
-                    "доставку заблоковано version dedup."
+                    "🟡 Перевірена proposal version не була доставлена; "
+                    "повторіть явну команду /reply_job."
                 )
             elif current is not None and current.live_status != "ACTIVE_BIDDABLE":
                 await message.answer(_live_status_refusal(current, job_id))
@@ -626,7 +658,7 @@ async def cmd_reply_job(message: Message) -> None:
         )
         if not delivered:
             await message.answer(
-                "ℹ️ Перевірена proposal version вже доставлена або перестала бути актуальною."
+                "🟡 Перевірена proposal version не була доставлена або перестала бути актуальною."
             )
         return
     if result.status == ProposalGenerationStatus.LIVE_STATUS_BLOCKED.value:

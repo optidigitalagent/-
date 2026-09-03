@@ -61,11 +61,17 @@ Commercial rules:
   Prefer a controlled project or milestone price, realistic delivery time and
   explicit risks. Scores and win_probability_signal are relative signals, not
   promises. Never fill a missing value with a manufactured score.
+- recommended_price must be only `1200 USD`, `1000-1200 USD`, or
+  `1200 USD as one milestone` (one/two/three only; UAH/USD/EUR/PLN).
+- realistic_timeline must be only `5 days` or `4-6 weeks` using
+  hours/days/weeks/months. Do not append rationale, alternatives or comments.
 - Match proposal/reply language to the client: uk, ru, en or pl. Polish is
   written with AI assistance.
 - Private messages are HIGH PRIORITY and must not be filtered by job score.
 - Do not send bids or platform messages; produce a copy-paste draft for the
   adult account owner.
+- Do not include any URL, domain, email, phone, handle, social network,
+  messenger or off-platform call to action in model-authored fields.
 
 Return this JSON shape (empty string/null when unavailable):
 {
@@ -192,6 +198,9 @@ class JobAnalysis:
     evidence_case_id: str = ""
     analysis_version: str = ""
     proposal_version: str = ""
+    proposal_content_sha256: str = ""
+    money_terms_json: str = ""
+    timeline_terms_json: str = ""
     original_analysis_snapshot: str = ""
     quality_clarification_question: str = ""
     model_output_json: str = ""
@@ -536,7 +545,9 @@ async def repair_analysis(
         repair_context={
             "model_output_json": original.model_output_json,
             "normalized_analysis": normalized,
-            "approved_evidence": approved_evidence_text(original.evidence_case_id),
+            "approved_evidence": approved_evidence_text(
+                original.evidence_case_id, original.language
+            ),
         },
     )
     for field_name in (
@@ -578,10 +589,10 @@ async def repair_analysis(
     repaired.platform = original.platform
     repaired.url = original.url
     repaired.project_id = original.project_id
-    if approved_evidence_text(original.evidence_case_id):
+    if approved_evidence_text(original.evidence_case_id, original.language):
         repaired.evidence_case_id = original.evidence_case_id
         repaired.selected_evidence = approved_evidence_text(
-            original.evidence_case_id
+            original.evidence_case_id, original.language
         )
     return repaired
 

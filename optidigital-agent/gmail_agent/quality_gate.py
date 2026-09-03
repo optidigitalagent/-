@@ -11,17 +11,29 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, Mapping
+from typing import TYPE_CHECKING, Any, Self
+
+from .commercial_terms import (
+    MoneyTerms,
+    PricingMode,
+    TimelineTerms,
+    TimelineUnit,
+    money_terms_from_json,
+    parse_money_terms,
+    parse_timeline_terms,
+    timeline_terms_from_json,
+)
 
 if TYPE_CHECKING:
     from .email_analyzer import JobAnalysis
 
 
-ANALYSIS_VERSION = "proposal-quality-gate-v2"
-PROPOSAL_VERSION_PREFIX = "pqg-v2"
+ANALYSIS_VERSION = "proposal-quality-gate-v3"
+PROPOSAL_VERSION_PREFIX = "pqg-v3"
 
 SCORE_VALID = "VALID"
 SCORE_MISSING = "MISSING"
@@ -29,8 +41,22 @@ SCORE_INVALID = "INVALID"
 SCORE_FAILED = "FAILED"
 SCORE_STATES = frozenset({SCORE_VALID, SCORE_MISSING, SCORE_INVALID, SCORE_FAILED})
 
-APPLICATION_EVIDENCE_PREFIX = "Approved evidence: "
-APPLICATION_COMMERCIAL_PREFIX = "Commercial terms: "
+APPLICATION_EVIDENCE_PREFIXES: Mapping[str, str] = {
+    "uk": "Підтверджений досвід: ",
+    "ru": "Подтверждённый опыт: ",
+    "en": "Approved evidence: ",
+    "pl": "Potwierdzone doświadczenie: ",
+}
+APPLICATION_COMMERCIAL_PREFIXES: Mapping[str, str] = {
+    "uk": "Комерційні умови: ",
+    "ru": "Коммерческие условия: ",
+    "en": "Commercial terms: ",
+    "pl": "Warunki komercyjne: ",
+}
+
+# Backward-compatible English names remain public for the protected V2 tests.
+APPLICATION_EVIDENCE_PREFIX = APPLICATION_EVIDENCE_PREFIXES["en"]
+APPLICATION_COMMERCIAL_PREFIX = APPLICATION_COMMERCIAL_PREFIXES["en"]
 
 
 class QualityStatus(StrEnum):
@@ -46,69 +72,134 @@ PROPOSAL_READY_QUALITY_STATUSES = frozenset(
 )
 
 
+class LocalizedEvidence(str):
+    """A nested language registry entry with a string-compatible English view."""
+
+    def __new__(cls, values: Mapping[str, str] | str) -> Self:
+        if isinstance(values, str):
+            instance = super().__new__(cls, values)
+            instance._values = {"en": values}
+            return instance
+        instance = super().__new__(cls, values["en"])
+        instance._values = dict(values)
+        return instance
+
+    def __getitem__(self, key: Any) -> str:
+        if isinstance(key, str):
+            return self._values[key]
+        return super().__getitem__(key)
+
+    def get(self, language: str, default: str = "") -> str:
+        return self._values.get(language, default)
+
+
+def _evidence(*, uk: str, ru: str, en: str, pl: str) -> LocalizedEvidence:
+    return LocalizedEvidence({"uk": uk, "ru": ru, "en": en, "pl": pl})
+
+
 # Exact approved factual claims from the canonical Project Brain portfolio
-# registry.  These are application-owned strings, never model-owned claims.
-EVIDENCE_REGISTRY: Mapping[str, str] = {
-    "BELLA_DENT": (
-        "Bella Dent — website, lead automation, Telegram bots, PostgreSQL and "
-        "Cloudinary; supported by live-system and implementation history."
+# registry. EVIDENCE_REGISTRY[case_id][language] is application-owned.
+EVIDENCE_REGISTRY: Mapping[str, LocalizedEvidence] = {
+    "BELLA_DENT": _evidence(
+        uk="Bella Dent — сайт, автоматизація лідів, Telegram-боти, PostgreSQL і Cloudinary; підтверджено історією робочої системи та реалізації.",
+        ru="Bella Dent — сайт, автоматизация лидов, Telegram-боты, PostgreSQL и Cloudinary; подтверждено историей рабочей системы и реализации.",
+        en="Bella Dent — website, lead automation, Telegram bots, PostgreSQL and Cloudinary; supported by live-system and implementation history.",
+        pl="Bella Dent — strona internetowa, automatyzacja leadów, boty Telegram, PostgreSQL i Cloudinary; potwierdzone historią działającego systemu i realizacji.",
     ),
-    "DENTAL_SUPPLIER_AI_AGENT": (
-        "Dental Supplier AI Agent — AI agent, Telegram, supplier comparison "
-        "and reporting; supported by private code and architecture."
+    "DENTAL_SUPPLIER_AI_AGENT": _evidence(
+        uk="Dental Supplier AI Agent — AI-агент, Telegram, порівняння постачальників і звітність; підтверджено приватним кодом та архітектурою.",
+        ru="Dental Supplier AI Agent — AI-агент, Telegram, сравнение поставщиков и отчётность; подтверждено приватным кодом и архитектурой.",
+        en="Dental Supplier AI Agent — AI agent, Telegram, supplier comparison and reporting; supported by private code and architecture.",
+        pl="Dental Supplier AI Agent — agent AI, Telegram, porównywanie dostawców i raportowanie; potwierdzone prywatnym kodem i architekturą.",
     ),
-    "GMAIL_JOB_AGENT": (
-        "Gmail Job Agent — Gmail ingestion, AI qualification, Telegram, "
-        "Railway and PostgreSQL; supported by working code and production history."
+    "GMAIL_JOB_AGENT": _evidence(
+        uk="Gmail Job Agent — обробка Gmail, AI-кваліфікація, Telegram, Railway і PostgreSQL; підтверджено робочим кодом та історією production-системи.",
+        ru="Gmail Job Agent — обработка Gmail, AI-квалификация, Telegram, Railway и PostgreSQL; подтверждено рабочим кодом и историей production-системы.",
+        en="Gmail Job Agent — Gmail ingestion, AI qualification, Telegram, Railway and PostgreSQL; supported by working code and production history.",
+        pl="Gmail Job Agent — obsługa Gmail, kwalifikacja AI, Telegram, Railway i PostgreSQL; potwierdzone działającym kodem i historią systemu produkcyjnego.",
     ),
-    "STATUS_DENT": (
-        "Status Dent — website, SEO and local search; supported by a live site "
-        "and Google Search Console work."
+    "STATUS_DENT": _evidence(
+        uk="Status Dent — сайт, SEO та локальний пошук; підтверджено робочим сайтом і роботою в Google Search Console.",
+        ru="Status Dent — сайт, SEO и локальный поиск; подтверждено рабочим сайтом и работой в Google Search Console.",
+        en="Status Dent — website, SEO and local search; supported by a live site and Google Search Console work.",
+        pl="Status Dent — strona internetowa, SEO i wyszukiwanie lokalne; potwierdzone działającą stroną i pracą w Google Search Console.",
     ),
-    "AMIDENTAL": (
-        "Amidental — website, forms and deployment; supported by a live site "
-        "and design work."
+    "AMIDENTAL": _evidence(
+        uk="Amidental — сайт, форми та розгортання; підтверджено робочим сайтом і матеріалами дизайну.",
+        ru="Amidental — сайт, формы и развёртывание; подтверждено рабочим сайтом и материалами дизайна.",
+        en="Amidental — website, forms and deployment; supported by a live site and design work.",
+        pl="Amidental — strona internetowa, formularze i wdrożenie; potwierdzone działającą stroną i materiałami projektowymi.",
     ),
-    "ART_STUDIO_184": (
-        "Art Studio 184 — website, automation, pricing and HR tools; supported "
-        "by project history and assets."
+    "ART_STUDIO_184": _evidence(
+        uk="Art Studio 184 — сайт, автоматизація, інструменти ціноутворення та HR; підтверджено історією проєкту й матеріалами.",
+        ru="Art Studio 184 — сайт, автоматизация, инструменты ценообразования и HR; подтверждено историей проекта и материалами.",
+        en="Art Studio 184 — website, automation, pricing and HR tools; supported by project history and assets.",
+        pl="Art Studio 184 — strona internetowa, automatyzacja oraz narzędzia cenowe i HR; potwierdzone historią projektu i materiałami.",
     ),
-    "AUDIOBOOK_CLEANER": (
-        "Audiobook Cleaner — audio AI, ASR cleanup and QA pipeline; supported "
-        "by CLI, tests and human feedback."
+    "AUDIOBOOK_CLEANER": _evidence(
+        uk="Audiobook Cleaner — аудіо AI, очищення ASR та QA-пайплайн; підтверджено CLI, тестами й відгуками користувачів.",
+        ru="Audiobook Cleaner — аудио AI, очистка ASR и QA-пайплайн; подтверждено CLI, тестами и отзывами пользователей.",
+        en="Audiobook Cleaner — audio AI, ASR cleanup and QA pipeline; supported by CLI, tests and human feedback.",
+        pl="Audiobook Cleaner — AI dla dźwięku, oczyszczanie ASR i proces QA; potwierdzone przez CLI, testy i opinie użytkowników.",
     ),
-    "MENTIUM": (
-        "Mentium — education AI product and MVP discovery; supported by "
-        "platform and discovery history."
+    "MENTIUM": _evidence(
+        uk="Mentium — освітній AI-продукт і дослідження MVP; підтверджено історією платформи та дослідження.",
+        ru="Mentium — образовательный AI-продукт и исследование MVP; подтверждено историей платформы и исследования.",
+        en="Mentium — education AI product and MVP discovery; supported by platform and discovery history.",
+        pl="Mentium — edukacyjny produkt AI i badanie MVP; potwierdzone historią platformy i badań.",
     ),
-    "NFC_REVIEW_CARDS": (
-        "NFC Review Cards — NFC product workflow and reviews; supported by "
-        "physical-product and sales activity."
+    "NFC_REVIEW_CARDS": _evidence(
+        uk="NFC Review Cards — процес роботи NFC-продукту та клієнтська активність; підтверджено фізичним продуктом і продажами.",
+        ru="NFC Review Cards — процесс работы NFC-продукта и клиентская активность; подтверждено физическим продуктом и продажами.",
+        en="NFC Review Cards — NFC product workflow and reviews; supported by physical-product and sales activity.",
+        pl="NFC Review Cards — proces działania produktu NFC i aktywność klientów; potwierdzone fizycznym produktem i sprzedażą.",
     ),
-    "NO_DIRECT_CASE": (
-        "No directly matching production case is claimed; the approach is "
-        "based only on the stated capabilities and source requirements."
+    "NO_DIRECT_CASE": _evidence(
+        uk="Не заявляємо про прямо відповідний production-кейс; підхід ґрунтується лише на зазначених компетенціях і вимогах джерела.",
+        ru="Не заявляем о прямо соответствующем production-кейсе; подход основан только на указанных компетенциях и требованиях источника.",
+        en="No directly matching production case is claimed; the approach is based only on the stated capabilities and source requirements.",
+        pl="Nie deklarujemy bezpośrednio odpowiadającego wdrożenia produkcyjnego; podejście opiera się wyłącznie na wskazanych kompetencjach i wymaganiach źródłowych.",
     ),
-    "DEMO_REQUIRED": (
-        "A project-specific demo or prototype is required before any production "
-        "result or deployment claim can be made."
+    "DEMO_REQUIRED": _evidence(
+        uk="Потрібен демонстраційний зразок або прототип для цього проєкту, перш ніж заявляти про production-результат чи розгортання.",
+        ru="Для этого проекта нужен демонстрационный образец или прототип, прежде чем заявлять о production-результате или развёртывании.",
+        en="A project-specific demo or prototype is required before any production result or deployment claim can be made.",
+        pl="Przed zadeklarowaniem wyniku produkcyjnego lub wdrożenia potrzebna jest demonstracja albo prototyp przygotowany dla tego projektu.",
     ),
 }
 
 
 _PLACEHOLDER_RE = re.compile(
     r"(?i)(?:\[(?:name|price|link|client|company|budget|timeline)[^\]]*\]|"
-    r"\{\{?[^{}]+\}?\}|\bTBD\b|\bTBC\b|\bN/?A\b|<insert\b|lorem ipsum)"
+    r"\{\{?[^{}]+\}?\}|\bTBD\b|\bTBC\b|\b(?-i:N/?A)\b|<insert\b|lorem ipsum)"
 )
 _EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_OBFUSCATED_EMAIL_RE = re.compile(
+    r"(?i)\b[a-z0-9._%+-]+\s*(?:\[|\(|\{)?\s*at\s*(?:\]|\)|\})?\s*"
+    r"[a-z0-9-]+(?:\s*(?:\[|\(|\{)?\s*dot\s*(?:\]|\)|\})?\s*[a-z0-9-]+)+\b"
+)
+_URL_RE = re.compile(
+    r"(?i)(?:\b[a-z][a-z0-9+.-]{1,31}://|\bwww\.|\bt\.me/)"
+)
+_BARE_DOMAIN_RE = re.compile(
+    r"(?i)(?<![@\w])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+    r"(?:[a-z]{2,24}|xn--[a-z0-9-]{2,59})\b"
+)
 _TELEGRAM_RE = re.compile(
-    r"(?i)(?:\bt\.me/|(?<![\w.])@[a-z][a-z0-9_]{4,}|"
+    r"(?i)(?:\bt\.me/|(?<![\w.])@[a-z][a-z0-9_.-]{2,}|"
     r"\b(?:message|contact|write|напиш\w*|пиш\w*)\b.{0,24}\btelegram\b)"
 )
 _PHONE_RE = re.compile(r"(?<!\d)(?:\+?\d[\s().-]*){9,15}(?!\d)")
 _OFF_PLATFORM_RE = re.compile(
-    r"(?i)\b(?:whatsapp|viber|signal|skype|email me|write me at|"
-    r"напиш(?:іть|ите)\s+(?:мені|мне)\s+(?:у|в)|пишіть\s+на)\b"
+    r"(?i)\b(?:whatsapp|viber|signal|discord|slack|linkedin|skype|"
+    r"instagram|facebook|email me|write me at|contact (?:me|us) (?:on|via|at)|"
+    r"find (?:me|us) (?:on|via)|(?:review|see|view) (?:my|our) (?:work|portfolio) (?:on|at)|"
+    r"напиш(?:іть|ите)\s+(?:мені|мне|нам)\s+(?:у|в|на)|пишіть\s+на|"
+    r"знайд(?:іть|ите)\s+(?:мене|нас)\s+(?:через|у|в)|"
+    r"посмотр(?:ите|еть)\s+(?:мо[её]|наше)\s+портфолио\s+(?:на|в)|"
+    r"перегляньте\s+(?:моє|наше)\s+портфоліо\s+(?:на|у)|"
+    r"napisz\w*\s+(?:do mnie|do nas|na)|znajdź\w*\s+nas|"
+    r"zobacz\w*\s+(?:moje|nasze)\s+portfolio)\b"
 )
 _UNSUPPORTED_CLAIM_RE = re.compile(
     r"(?i)(?:\b\d+(?:[.,]\d+)?\s*%|"
@@ -145,11 +236,27 @@ _DIRECT_CASE_RE = re.compile(
     r"\b(?:case|project|кейс|проєкт|проект|projekt)\b"
 )
 _PAST_CAPABILITY_RE = re.compile(
-    r"(?i)\b(?:we|our team|ми|наша команда|мы|наша команда|nasz zespół)\s+"
-    r"(?:have\s+)?(?:built|created|developed|implemented|integrated|launched|delivered|"
-    r"створил\w*|розробил\w*|реалізувал\w*|впровадил\w*|інтегрувал\w*|запустил\w*|"
-    r"создал\w*|разработал\w*|реализовал\w*|внедрил\w*|интегрировал\w*|"
-    r"zbudowal\w*|stworzyl\w*|wdrozyl\w*|zintegrowal\w*)\b"
+    r"(?ix)\b(?:"
+    r"we\s+(?:(?:have|have\s+already|already|previously)\s+)?(?:successfully\s+)?"
+    r"(?:built|created|developed|implemented|integrated|launched|delivered|completed)|"
+    r"we['’]ve\s+(?:successfully\s+)?(?:built|created|developed|implemented|integrated|launched|delivered|completed)|"
+    r"our\s+(?:team|engineers?|developers?)\s+(?:has\s+|have\s+)?(?:successfully\s+|previously\s+|already\s+)?"
+    r"(?:built|created|developed|implemented|integrated|launched|delivered|completed)|"
+    r"our\s+(?:experience|track\s+record|portfolio)\s+(?:includes?|covers?|shows?)|"
+    r"ми\s+(?:(?:вже|раніше|успішно)\s+)*(?:реалізували|розробляли|розробили|впровадили|створили|запустили|інтегрували|виконали)|"
+    r"наша\s+команда\s+(?:(?:вже|раніше|успішно)\s+)*(?:реалізувала|розробляла|розробила|впровадила|створила|запустила|інтегрувала|виконала)|"
+    r"маємо\s+досвід(?:\s+створення|\s+розробки|\s+впровадження|\s+у|\s+в)?|"
+    r"наш\s+досвід\s+(?:включає|охоплює)|"
+    r"мы\s+(?:(?:уже|ранее|успешно)\s+)*(?:реализовали|разрабатывали|разработали|внедрили|создали|запустили|интегрировали|выполнили)|"
+    r"наша\s+команда\s+(?:(?:уже|ранее|успешно)\s+)*(?:реализовала|разрабатывала|разработала|внедрила|создала|запустила|интегрировала|выполнила)|"
+    r"у\s+нас\s+есть\s+опыт(?:\s+создания|\s+разработки|\s+внедрения|\s+в)?|"
+    r"наш\s+опыт\s+(?:включает|охватывает)|"
+    r"nasz\s+zesp[oó]ł\s+(?:(?:już|wcześniej|z\s+powodzeniem)\s+)*(?:wdrożył|opracował|zbudował|stworzył|zrealizował|uruchomił|zintegrował)|"
+    r"wcześniej\s+(?:opracowaliśmy|wdrożyliśmy|zbudowaliśmy|stworzyliśmy|zrealizowaliśmy)|"
+    r"mamy\s+doświadczenie\s+(?:w|tworzeniu|opracowywaniu|wdrażaniu)|"
+    r"zrealizowaliśmy\s+(?:już\s+)?(?:podobny\s+)?projekt|"
+    r"nasze\s+doświadczenie\s+(?:obejmuje|zawiera)"
+    r")\b"
 )
 _BUDGET_RATIONALE_RE = re.compile(
     r"(?i)\b(?:because|scope|milestone|complex|integration|risk|reason|"
@@ -247,8 +354,9 @@ def score_display(
     return f"{parsed:.1f}/10" if parsed is not None else "INVALID"
 
 
-def approved_evidence_text(case_id: str) -> str:
-    return EVIDENCE_REGISTRY.get(str(case_id or "").strip().upper(), "")
+def approved_evidence_text(case_id: str, language: str = "en") -> str:
+    entry = EVIDENCE_REGISTRY.get(str(case_id or "").strip().upper())
+    return entry.get(language, "") if entry is not None else ""
 
 
 def _record_value(record: Any, field_name: str, default: Any = "") -> Any:
@@ -261,18 +369,111 @@ def _normalized_text(value: str) -> str:
     return " ".join((value or "").split())
 
 
-def application_owned_commercial_block(analysis: Any) -> str:
-    return (
-        f"{APPLICATION_COMMERCIAL_PREFIX}"
-        f"{_normalized_text(str(_record_value(analysis, 'recommended_price') or ''))}; "
-        "timeline: "
-        f"{_normalized_text(str(_record_value(analysis, 'realistic_timeline') or ''))}."
+def _commercial_terms(analysis: Any) -> tuple[MoneyTerms | None, TimelineTerms | None]:
+    raw_money = parse_money_terms(
+        str(_record_value(analysis, "recommended_price") or "")
     )
+    raw_timeline = parse_timeline_terms(
+        str(_record_value(analysis, "realistic_timeline") or "")
+    )
+    money_json = str(_record_value(analysis, "money_terms_json") or "")
+    timeline_json = str(_record_value(analysis, "timeline_terms_json") or "")
+    if money_json:
+        stored_money = money_terms_from_json(money_json)
+        raw_money = stored_money if stored_money == raw_money else None
+    if timeline_json:
+        stored_timeline = timeline_terms_from_json(timeline_json)
+        raw_timeline = stored_timeline if stored_timeline == raw_timeline else None
+    return raw_money, raw_timeline
+
+
+def _plural_index(low: int, high: int) -> str:
+    return "one" if low == high == 1 else "many"
+
+
+def _amount_text(terms: MoneyTerms) -> str:
+    value = terms.canonical_model_text().split(" as ", 1)[0]
+    return value
+
+
+_TIMELINE_WORDS: Mapping[str, Mapping[TimelineUnit, Mapping[str, str]]] = {
+    "uk": {
+        TimelineUnit.HOURS: {"one": "година", "many": "годин"},
+        TimelineUnit.DAYS: {"one": "день", "many": "днів"},
+        TimelineUnit.WEEKS: {"one": "тиждень", "many": "тижнів"},
+        TimelineUnit.MONTHS: {"one": "місяць", "many": "місяців"},
+    },
+    "ru": {
+        TimelineUnit.HOURS: {"one": "час", "many": "часов"},
+        TimelineUnit.DAYS: {"one": "день", "many": "дней"},
+        TimelineUnit.WEEKS: {"one": "неделя", "many": "недель"},
+        TimelineUnit.MONTHS: {"one": "месяц", "many": "месяцев"},
+    },
+    "en": {
+        TimelineUnit.HOURS: {"one": "hour", "many": "hours"},
+        TimelineUnit.DAYS: {"one": "day", "many": "days"},
+        TimelineUnit.WEEKS: {"one": "week", "many": "weeks"},
+        TimelineUnit.MONTHS: {"one": "month", "many": "months"},
+    },
+    "pl": {
+        TimelineUnit.HOURS: {"one": "godzina", "many": "godzin"},
+        TimelineUnit.DAYS: {"one": "dzień", "many": "dni"},
+        TimelineUnit.WEEKS: {"one": "tydzień", "many": "tygodni"},
+        TimelineUnit.MONTHS: {"one": "miesiąc", "many": "miesięcy"},
+    },
+}
+
+_MILESTONE_WORDING: Mapping[str, Mapping[int, str]] = {
+    "uk": {1: "оплата одним етапом", 2: "оплата двома етапами", 3: "оплата трьома етапами"},
+    "ru": {1: "оплата одним этапом", 2: "оплата двумя этапами", 3: "оплата тремя этапами"},
+    "en": {1: "payment in one milestone", 2: "payment in two milestones", 3: "payment in three milestones"},
+    "pl": {1: "płatność w jednym etapie", 2: "płatność w dwóch etapach", 3: "płatność w trzech etapach"},
+}
+
+_PRICE_WORDING: Mapping[str, str] = {
+    "uk": "вартість — {amount}",
+    "ru": "стоимость — {amount}",
+    "en": "price — {amount}",
+    "pl": "cena — {amount}",
+}
+
+_TIMELINE_WORDING: Mapping[str, str] = {
+    "uk": "строк — {timeline}",
+    "ru": "срок — {timeline}",
+    "en": "timeline — {timeline}",
+    "pl": "termin — {timeline}",
+}
+
+
+def _localized_timeline(terms: TimelineTerms, language: str) -> str:
+    amount = str(terms.min_value)
+    if terms.max_value != terms.min_value:
+        amount += f"–{terms.max_value}"
+    form = _plural_index(terms.min_value, terms.max_value)
+    return f"{amount} {_TIMELINE_WORDS[language][terms.unit][form]}"
+
+
+def application_owned_commercial_block(analysis: Any) -> str:
+    language = str(_record_value(analysis, "language") or "")
+    money, timeline = _commercial_terms(analysis)
+    if language not in APPLICATION_COMMERCIAL_PREFIXES or money is None or timeline is None:
+        return ""
+    clauses = [_PRICE_WORDING[language].format(amount=_amount_text(money))]
+    if money.pricing_mode == PricingMode.MILESTONE:
+        clauses.append(_MILESTONE_WORDING[language][int(money.milestone_count or 0)])
+    clauses.append(
+        _TIMELINE_WORDING[language].format(
+            timeline=_localized_timeline(timeline, language)
+        )
+    )
+    return APPLICATION_COMMERCIAL_PREFIXES[language] + "; ".join(clauses) + "."
 
 
 def application_owned_evidence_clause(analysis: Any) -> str:
-    return APPLICATION_EVIDENCE_PREFIX + approved_evidence_text(
-        str(_record_value(analysis, "evidence_case_id") or "")
+    language = str(_record_value(analysis, "language") or "")
+    prefix = APPLICATION_EVIDENCE_PREFIXES.get(language, "")
+    return prefix + approved_evidence_text(
+        str(_record_value(analysis, "evidence_case_id") or ""), language
     )
 
 
@@ -280,26 +481,29 @@ def proposal_body(value: str) -> str:
     """Return only the model-owned body, excluding application-owned suffixes."""
 
     text = (value or "").strip()
-    marker = f"\n\n{APPLICATION_EVIDENCE_PREFIX}"
-    if marker in text:
-        return text.split(marker, 1)[0].strip()
+    markers = [f"\n\n{prefix}" for prefix in APPLICATION_EVIDENCE_PREFIXES.values()]
+    positions = [text.find(marker) for marker in markers if marker in text]
+    if positions:
+        return text[:min(positions)].strip()
     return text
 
 
 def compose_application_owned_proposal(analysis: Any) -> str:
     body = proposal_body(str(_record_value(analysis, "proposal_draft") or ""))
+    language = str(_record_value(analysis, "language") or "")
     approved = approved_evidence_text(
-        str(_record_value(analysis, "evidence_case_id") or "")
+        str(_record_value(analysis, "evidence_case_id") or ""), language
     )
-    if not body or not approved:
+    commercial = application_owned_commercial_block(analysis)
+    if not body or not approved or not commercial:
         return body
     return (
         f"{body}\n\n{application_owned_evidence_clause(analysis)}\n"
-        f"{application_owned_commercial_block(analysis)}"
+        f"{commercial}"
     )
 
 
-def _score_state_for(analysis: "JobAnalysis", field_name: str) -> str:
+def _score_state_for(analysis: JobAnalysis, field_name: str) -> str:
     return score_state(
         getattr(analysis, field_name, None),
         raw=getattr(analysis, f"{field_name}_raw", None),
@@ -344,7 +548,51 @@ def _language_matches(language: str, proposal: str) -> bool:
     return False
 
 
-def _project_specific(analysis: "JobAnalysis") -> bool:
+_LANGUAGE_MARKERS: Mapping[str, tuple[str, ...]] = {
+    "uk": ("проєкт", "можемо", "потріб", "вартість", "підтверд", "реалізуємо", "етап", "досвід"),
+    "ru": ("проект", "можем", "нужно", "стоимость", "подтвержд", "реализуем", "этап", "опыт"),
+    "en": ("the", "we", "your", "project", "can", "will", "price", "timeline", "approved", "evidence", "commercial", "deliver"),
+    "pl": ("możemy", "projekt", "państwa", "termin", "cena", "potwierd", "wdroż", "etap", "warunki", "doświadczenie"),
+}
+
+_ALLOWED_PROPER_NAMES = (
+    "Bella Dent", "Dental Supplier AI Agent", "Gmail Job Agent", "Status Dent",
+    "Amidental", "Art Studio 184", "Audiobook Cleaner", "Mentium",
+    "NFC Review Cards", "Telegram", "PostgreSQL", "Cloudinary", "Gmail",
+    "Railway", "Google Search Console", "AI", "ASR", "QA", "CLI", "MVP",
+    "API", "CRM", "production", "HR", "SEO", "NFC",
+)
+
+
+def _without_allowed_names(text: str) -> str:
+    value = str(text or "")
+    for name in sorted(_ALLOWED_PROPER_NAMES, key=len, reverse=True):
+        value = re.sub(re.escape(name), " ", value, flags=re.IGNORECASE)
+    return value
+
+
+def _final_language_matches(language: str, proposal: str) -> bool:
+    if language not in _LANGUAGE_MARKERS or not _language_matches(language, proposal):
+        return False
+    value = _without_allowed_names(proposal).casefold()
+    target_hits = sum(
+        len(re.findall(rf"(?<!\w){re.escape(marker)}", value))
+        for marker in _LANGUAGE_MARKERS[language]
+    )
+    foreign_hits = {
+        candidate: sum(
+            len(re.findall(rf"(?<!\w){re.escape(marker)}", value))
+            for marker in markers
+        )
+        for candidate, markers in _LANGUAGE_MARKERS.items()
+        if candidate != language
+    }
+    # Proper names and technology labels are removed above. Two or more
+    # explanatory markers from another language make the final text mixed.
+    return target_hits > 0 and all(count < 2 for count in foreign_hits.values())
+
+
+def _project_specific(analysis: JobAnalysis) -> bool:
     proposal_text = " ".join((analysis.proposal_draft or "").casefold().split())
     title_text = " ".join((analysis.title or "").casefold().split())
     if len(title_text) >= 6 and title_text in proposal_text:
@@ -363,7 +611,7 @@ def _project_specific(analysis: "JobAnalysis") -> bool:
     return bool((proposal_words & source_words) - generic)
 
 
-def _source_grounded(text: str, analysis: "JobAnalysis") -> bool:
+def _source_grounded(text: str, analysis: JobAnalysis) -> bool:
     claim_text = " ".join((text or "").casefold().split())
     title_text = " ".join((analysis.title or "").casefold().split())
     if len(title_text) >= 6 and title_text in claim_text:
@@ -383,24 +631,62 @@ def _source_grounded(text: str, analysis: "JobAnalysis") -> bool:
     return bool((claim_words & source_words) - generic)
 
 
-def _safe_text_errors(analysis: "JobAnalysis") -> list[str]:
+_CONFUSABLES = str.maketrans(
+    {
+        "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "х": "x",
+        "у": "y", "і": "i", "ј": "j", "к": "k", "м": "m", "т": "t",
+        "в": "b", "н": "h", "А": "A", "Е": "E", "О": "O", "Р": "P",
+        "С": "C", "Х": "X", "У": "Y", "І": "I", "Ј": "J", "К": "K",
+        "М": "M", "Т": "T", "В": "B", "Н": "H",
+    }
+)
+
+_MODEL_OWNED_TEXT_FIELDS = (
+    "reason", "why_relevant", "service_lane", "win_probability_signal",
+    "scope_clarity", "estimated_effort", "delivery_risk",
+    "client_payment_risk", "project_mode_reason", "recommended_price",
+    "realistic_timeline", "selected_evidence", "evidence", "proposal_draft",
+    "next_action",
+)
+
+
+def _contains_external_contact(text: str) -> bool:
+    value = str(text or "")
+    normalized = value.translate(_CONFUSABLES)
+    return bool(
+        _EMAIL_RE.search(value)
+        or _OBFUSCATED_EMAIL_RE.search(normalized)
+        or _URL_RE.search(normalized)
+        or _BARE_DOMAIN_RE.search(normalized)
+        or _TELEGRAM_RE.search(normalized)
+        or _PHONE_RE.search(value)
+        or _OFF_PLATFORM_RE.search(normalized)
+    )
+
+
+def _safe_text_errors(analysis: JobAnalysis) -> list[str]:
     proposal = analysis.proposal_draft or ""
     errors: list[str] = []
     if _PLACEHOLDER_RE.search(proposal):
         errors.append("proposal_contains_placeholder")
-    if (
-        _EMAIL_RE.search(proposal)
-        or _TELEGRAM_RE.search(proposal)
-        or _PHONE_RE.search(proposal)
-        or _OFF_PLATFORM_RE.search(proposal)
-    ):
+    if _contains_external_contact(proposal):
         errors.append("proposal_contains_external_contact")
     if _UNSUPPORTED_CLAIM_RE.search(proposal):
         errors.append("proposal_contains_unsupported_claim")
+    for field_name in _MODEL_OWNED_TEXT_FIELDS:
+        value = str(getattr(analysis, field_name, "") or "")
+        if field_name != "proposal_draft" and _PLACEHOLDER_RE.search(value):
+            errors.append("structured_field_contains_placeholder")
+        if field_name != "proposal_draft" and _contains_external_contact(value):
+            errors.append("structured_field_contains_external_contact")
+        if field_name != "proposal_draft" and (
+            _PAST_CAPABILITY_RE.search(value) or _DIRECT_CASE_RE.search(value)
+        ):
+            errors.append("structured_field_contains_unapproved_capability_claim")
     return errors
 
 
-def _commercial_consistency_errors(analysis: "JobAnalysis") -> list[str]:
+def _commercial_consistency_errors(analysis: JobAnalysis) -> list[str]:
     errors: list[str] = []
     budget = analysis.budget or ""
     price = analysis.recommended_price or ""
@@ -413,10 +699,15 @@ def _commercial_consistency_errors(analysis: "JobAnalysis") -> list[str]:
         errors.append("recommended_price_currency_conflicts_with_budget")
 
     effort_match = re.search(r"(?i)(\d+)(?:\s*[-–—]\s*(\d+))?\s*(?:hours?|годин\w*|час\w*|godzin\w*)", analysis.estimated_effort or "")
-    day_match = re.search(r"(?i)(\d+)(?:\s*[-–—]\s*(\d+))?\s*(?:days?|дн(?:і|ів|я)|дн(?:я|ей|и)|dni|dzień)", analysis.realistic_timeline or "")
+    timeline_terms = parse_timeline_terms(analysis.realistic_timeline or "")
+    day_match = (
+        (timeline_terms.min_value, timeline_terms.max_value)
+        if timeline_terms is not None and timeline_terms.unit == TimelineUnit.DAYS
+        else None
+    )
     if effort_match and day_match:
         effort_high = int(effort_match.group(2) or effort_match.group(1))
-        days_high = int(day_match.group(2) or day_match.group(1))
+        days_high = day_match[1]
         if days_high > 0 and effort_high > days_high * 16:
             errors.append("effort_timeline_inconsistent")
 
@@ -496,13 +787,16 @@ def _milestone_signature(text: str) -> int | None:
     return 1 if token in {"one", "1", "один", "одна", "jeden", "jedna"} else 2 if token in {"two", "2", "два", "дві", "dwa", "dwie"} else 3
 
 
-def _application_owned_proposal_errors(analysis: "JobAnalysis") -> list[str]:
+def _application_owned_proposal_errors(analysis: JobAnalysis) -> list[str]:
     proposal = analysis.proposal_draft or ""
     body = proposal_body(proposal)
     errors: list[str] = []
     evidence_id = str(analysis.evidence_case_id or "").strip().upper()
-    approved = approved_evidence_text(evidence_id)
-    has_injected_suffix = f"\n\n{APPLICATION_EVIDENCE_PREFIX}" in proposal
+    approved = approved_evidence_text(evidence_id, analysis.language)
+    has_injected_suffix = any(
+        f"\n\n{prefix}" in proposal
+        for prefix in APPLICATION_EVIDENCE_PREFIXES.values()
+    )
 
     case_labels = {
         "bella dent", "dental supplier ai agent", "gmail job agent",
@@ -516,25 +810,40 @@ def _application_owned_proposal_errors(analysis: "JobAnalysis") -> list[str]:
         errors.append("proposal_contains_unapproved_capability_claim")
 
     body_money = _money_signature(body)
-    structured_money = _money_signature(analysis.recommended_price or "")
+    money_terms = parse_money_terms(analysis.recommended_price or "")
+    structured_money = (
+        (float(money_terms.min_amount), float(money_terms.max_amount), money_terms.currency.value)
+        if money_terms is not None
+        else None
+    )
     if body_money is not None:
         if structured_money is None or body_money != structured_money:
             errors.append("proposal_price_conflicts_with_recommended_price")
         errors.append("proposal_contains_model_owned_commercial_terms")
     body_timeline = _timeline_signature(body)
-    structured_timeline = _timeline_signature(analysis.realistic_timeline or "")
+    timeline_terms = parse_timeline_terms(analysis.realistic_timeline or "")
+    structured_timeline = (
+        (timeline_terms.min_value, timeline_terms.max_value, timeline_terms.unit.value.casefold())
+        if timeline_terms is not None
+        else None
+    )
     if body_timeline is not None:
         if structured_timeline is None or body_timeline != structured_timeline:
             errors.append("proposal_timeline_conflicts_with_realistic_timeline")
         errors.append("proposal_contains_model_owned_commercial_terms")
     body_milestones = _milestone_signature(body)
-    structured_milestones = _milestone_signature(analysis.recommended_price or "")
+    structured_milestones = money_terms.milestone_count if money_terms else None
     if body_milestones is not None:
         if body_milestones != structured_milestones:
             errors.append("proposal_milestone_logic_conflicts_with_recommended_price")
         errors.append("proposal_contains_model_owned_commercial_terms")
 
     if has_injected_suffix:
+        if not (
+            str(getattr(analysis, "money_terms_json", "") or "")
+            and str(getattr(analysis, "timeline_terms_json", "") or "")
+        ):
+            errors.append("proposal_contains_raw_application_suffix")
         expected = compose_application_owned_proposal(analysis)
         if _normalized_text(proposal) != _normalized_text(expected):
             errors.append("proposal_application_owned_suffix_mismatch")
@@ -561,12 +870,55 @@ def _application_owned_proposal_errors(analysis: "JobAnalysis") -> list[str]:
     return errors
 
 
+def _canonical_commercial_errors(analysis: Any) -> list[str]:
+    errors: list[str] = []
+    money = parse_money_terms(str(_record_value(analysis, "recommended_price") or ""))
+    timeline = parse_timeline_terms(str(_record_value(analysis, "realistic_timeline") or ""))
+    if money is None:
+        errors.append("recommended_price_not_full_string_canonical")
+    if timeline is None:
+        errors.append("realistic_timeline_not_full_string_canonical")
+
+    money_json = str(_record_value(analysis, "money_terms_json") or "")
+    timeline_json = str(_record_value(analysis, "timeline_terms_json") or "")
+    if money_json and money_terms_from_json(money_json) != money:
+        errors.append("money_terms_json_mismatch")
+    if timeline_json and timeline_terms_from_json(timeline_json) != timeline:
+        errors.append("timeline_terms_json_mismatch")
+    return errors
+
+
+def final_composed_proposal_errors(analysis: Any, proposal: str) -> tuple[str, ...]:
+    """Revalidate the exact final text before hashing, versioning or delivery."""
+
+    errors: list[str] = []
+    expected = compose_application_owned_proposal(analysis)
+    if not expected or _normalized_text(proposal) != _normalized_text(expected):
+        errors.append("final_proposal_composition_mismatch")
+    if _contains_external_contact(proposal):
+        errors.append("final_proposal_contains_external_contact")
+    if _PLACEHOLDER_RE.search(proposal):
+        errors.append("final_proposal_contains_placeholder")
+    if _UNSUPPORTED_CLAIM_RE.search(proposal_body(proposal)):
+        errors.append("final_proposal_contains_unsupported_claim")
+    if not _final_language_matches(
+        str(_record_value(analysis, "language") or ""), proposal
+    ):
+        errors.append("final_proposal_language_mismatch")
+    errors.extend(_canonical_commercial_errors(analysis))
+    if proposal.count(application_owned_evidence_clause(analysis)) != 1:
+        errors.append("final_evidence_clause_not_exact")
+    if proposal.count(application_owned_commercial_block(analysis)) != 1:
+        errors.append("final_commercial_block_not_exact")
+    return _dedupe(errors)
+
+
 def _dedupe(values: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
 def validate_analysis(
-    analysis: "JobAnalysis",
+    analysis: JobAnalysis,
     *,
     repaired: bool = False,
     now: datetime | None = None,
@@ -660,12 +1012,17 @@ def validate_analysis(
     price = analysis.recommended_price or ""
     if not _PRICE_RE.search(price):
         errors.append("recommended_price_missing_amount_or_currency")
+    if parse_money_terms(price) is None:
+        errors.append("recommended_price_not_full_string_canonical")
     timeline = analysis.realistic_timeline or ""
     if not timeline.strip() or not _TIMELINE_RE.search(timeline):
         errors.append("realistic_timeline_missing_or_unparseable")
+    if parse_timeline_terms(timeline) is None:
+        errors.append("realistic_timeline_not_full_string_canonical")
+    errors.extend(_canonical_commercial_errors(analysis))
 
     evidence_id = str(analysis.evidence_case_id or "").strip().upper()
-    approved = approved_evidence_text(evidence_id)
+    approved = approved_evidence_text(evidence_id, analysis.language)
     if not approved:
         errors.append("invalid_evidence_case_id")
 
@@ -682,6 +1039,8 @@ def validate_analysis(
             errors.append("proposal_not_concise")
         errors.extend(_commercial_consistency_errors(analysis))
         errors.extend(_application_owned_proposal_errors(analysis))
+        final_candidate = compose_application_owned_proposal(analysis)
+        errors.extend(final_composed_proposal_errors(analysis, final_candidate))
 
     if not _one_action(analysis.next_action or ""):
         errors.append("next_action_must_be_exactly_one")
@@ -739,11 +1098,11 @@ def _first_question(text: str) -> str:
 
 
 def apply_validation(
-    analysis: "JobAnalysis",
+    analysis: JobAnalysis,
     validation: QualityValidation,
     *,
     repair_count: int = 0,
-) -> "JobAnalysis":
+) -> JobAnalysis:
     """Persist the deterministic decision on the mutable analysis object."""
 
     analysis.analysis_quality_status = validation.status
@@ -755,18 +1114,48 @@ def apply_validation(
     analysis.analysis_version = analysis.analysis_version or ANALYSIS_VERSION
     if analysis.evidence_case_id:
         analysis.evidence_case_id = analysis.evidence_case_id.strip().upper()
-    approved = approved_evidence_text(analysis.evidence_case_id)
+    approved = approved_evidence_text(analysis.evidence_case_id, analysis.language)
     if approved:
         analysis.selected_evidence = approved
     if validation.proposal_ready:
-        analysis.proposal_draft = compose_application_owned_proposal(analysis)
-        analysis.proposal_version = proposal_version(analysis)
+        money = parse_money_terms(analysis.recommended_price or "")
+        timeline = parse_timeline_terms(analysis.realistic_timeline or "")
+        if money is None or timeline is None:
+            final_errors = ("canonical_commercial_terms_missing_after_validation",)
+        else:
+            # Raw model strings stop here. Persist and render canonical values.
+            analysis.money_terms_json = money.to_json()
+            analysis.timeline_terms_json = timeline.to_json()
+            analysis.recommended_price = money.canonical_model_text()
+            analysis.realistic_timeline = timeline.canonical_model_text()
+            final_text = compose_application_owned_proposal(analysis)
+            final_errors = final_composed_proposal_errors(analysis, final_text)
+        if final_errors:
+            analysis.analysis_quality_status = QualityStatus.MANUAL_REVIEW.value
+            analysis.quality_errors = json.dumps(list(final_errors), ensure_ascii=False)
+            analysis.proposal_quality_score = _quality_score(final_errors)
+            analysis.qualified = False
+            analysis.proposal_version = ""
+            analysis.proposal_content_sha256 = ""
+            analysis.recommended_price = ""
+            analysis.realistic_timeline = ""
+            analysis.money_terms_json = ""
+            analysis.timeline_terms_json = ""
+            analysis.proposal_draft = ""
+            analysis.next_action = "Review the quality errors; do not submit a bid."
+        else:
+            analysis.proposal_draft = final_text
+            analysis.proposal_content_sha256 = proposal_text_hash(final_text)
+            analysis.proposal_version = proposal_version(analysis)
     else:
         analysis.qualified = False
         analysis.proposal_version = ""
+        analysis.proposal_content_sha256 = ""
         # Manual/non-executable states must never leak a usable bid package.
         analysis.recommended_price = ""
         analysis.realistic_timeline = ""
+        analysis.money_terms_json = ""
+        analysis.timeline_terms_json = ""
         analysis.proposal_draft = ""
         if validation.status == QualityStatus.NON_EXECUTABLE.value:
             analysis.next_action = "Do not bid."
@@ -783,9 +1172,14 @@ def proposal_version(analysis: Any) -> str:
         "analysis_version": _record_value(analysis, "analysis_version") or ANALYSIS_VERSION,
         "evidence_case_id": _record_value(analysis, "evidence_case_id"),
         "fit_score": finite_score(_record_value(analysis, "fit_score", None)),
+        "language": _record_value(analysis, "language"),
+        "money_terms": _record_value(analysis, "money_terms_json"),
         "price": _record_value(analysis, "recommended_price"),
         "proposal": _record_value(analysis, "proposal_draft"),
+        "proposal_content_sha256": _record_value(analysis, "proposal_content_sha256"),
         "score": finite_score(_record_value(analysis, "score", None)),
+        "selected_evidence": _record_value(analysis, "selected_evidence"),
+        "timeline_terms": _record_value(analysis, "timeline_terms_json"),
         "timeline": _record_value(analysis, "realistic_timeline"),
     }
     digest = hashlib.sha256(
@@ -828,9 +1222,14 @@ def is_proposal_ready(record: Any) -> bool:
         live_checked_at = live_checked_at.replace(tzinfo=timezone.utc)
     live_age = (datetime.now(timezone.utc) - live_checked_at).total_seconds()
     proposal = str(getter("proposal_draft", "") or "")
-    approved = approved_evidence_text(str(getter("evidence_case_id", "") or ""))
+    language = str(getter("language", "") or "")
+    approved = approved_evidence_text(
+        str(getter("evidence_case_id", "") or ""), language
+    )
     expected_proposal = compose_application_owned_proposal(record)
     stored_version = str(getter("proposal_version", "") or "")
+    content_hash = str(getter("proposal_content_sha256", "") or "")
+    final_errors = final_composed_proposal_errors(record, proposal)
     return (
         getter("analysis_quality_status", "") in PROPOSAL_READY_QUALITY_STATUSES
         and getter("analysis_version", "") == ANALYSIS_VERSION
@@ -858,6 +1257,8 @@ def is_proposal_ready(record: Any) -> bool:
         and _normalized_text(str(getter("selected_evidence", "") or ""))
         == _normalized_text(approved)
         and _normalized_text(proposal) == _normalized_text(expected_proposal)
+        and not final_errors
+        and content_hash == proposal_text_hash(proposal)
         and stored_version.startswith(f"{PROPOSAL_VERSION_PREFIX}:")
         and stored_version == proposal_version(record)
     )

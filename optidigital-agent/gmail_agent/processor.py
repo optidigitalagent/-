@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+from uuid import uuid4
 
 from .dedup import EmailDedup
 from .digest_parser import DigestJobCandidate, parse_freelancehunt_digest
@@ -342,6 +343,9 @@ class GmailJobProcessor:
             evidence_case_id=job.evidence_case_id,
             analysis_version=job.analysis_version,
             proposal_version=job.proposal_version,
+            proposal_content_sha256=job.proposal_content_sha256,
+            money_terms_json=job.money_terms_json,
+            timeline_terms_json=job.timeline_terms_json,
             original_analysis_snapshot=job.original_analysis_snapshot,
             quality_clarification_question=job.quality_clarification_question,
             model_output_json=job.model_output_json,
@@ -416,6 +420,9 @@ class GmailJobProcessor:
             "evidence_case_id": analysis.evidence_case_id,
             "analysis_version": analysis.analysis_version,
             "proposal_version": analysis.proposal_version,
+            "proposal_content_sha256": analysis.proposal_content_sha256,
+            "money_terms_json": analysis.money_terms_json,
+            "timeline_terms_json": analysis.timeline_terms_json,
             "original_analysis_snapshot": analysis.original_analysis_snapshot,
             "quality_clarification_question": analysis.quality_clarification_question,
             "model_output_json": analysis.model_output_json,
@@ -859,7 +866,11 @@ class GmailJobProcessor:
             analysis.qualified = False
             analysis.recommended_price = ""
             analysis.realistic_timeline = ""
+            analysis.money_terms_json = ""
+            analysis.timeline_terms_json = ""
             analysis.proposal_draft = ""
+            analysis.proposal_content_sha256 = ""
+            analysis.proposal_version = ""
             analysis.next_action = (
                 "Дочекатися автоматичної повторної перевірки або виконати read-only /recheck_live."
                 if (
@@ -995,7 +1006,7 @@ class GmailJobProcessor:
         *,
         rewrite: bool = False,
     ):
-        """Use the single V2 contract for every manual proposal regeneration."""
+        """Use the current quality-gate contract for manual regeneration."""
 
         if self._repository is None:
             raise RuntimeError("proposal generation requires PostgreSQL repository")
@@ -1066,7 +1077,7 @@ class GmailJobProcessor:
                         "model_output_json": analysis.model_output_json,
                         "normalized_analysis": asdict(analysis),
                         "approved_evidence": approved_evidence_text(
-                            analysis.evidence_case_id
+                            analysis.evidence_case_id, analysis.language
                         ),
                     }
                     if errors
@@ -1087,7 +1098,9 @@ class GmailJobProcessor:
         # Resolve the registry text before the model call so the selected ID,
         # not model prose, owns the final proof point.
         analysis = self._analysis_from_job(job)
-        analysis.selected_evidence = approved_evidence_text(analysis.evidence_case_id)
+        analysis.selected_evidence = approved_evidence_text(
+            analysis.evidence_case_id, analysis.language
+        )
         return await generate_validate_and_persist_proposal(
             analysis,
             refresh_live_status=refresh_live,
@@ -1380,7 +1393,10 @@ class GmailJobProcessor:
                         "qualified": False,
                         "recommended_price": "",
                         "realistic_timeline": "",
+                        "money_terms_json": "",
+                        "timeline_terms_json": "",
                         "proposal_draft": "",
+                        "proposal_content_sha256": "",
                         "proposal_version": "",
                     },
                 )
@@ -1504,7 +1520,7 @@ class GmailJobProcessor:
         *,
         live_status_already_checked: bool = False,
     ) -> bool:
-        """Version-deduplicated manual copy/display using the same durable ledger."""
+        """Explicit repeatable retrieval of one already validated exact version."""
 
         if self._repository is None:
             raise RuntimeError("proposal delivery requires PostgreSQL repository")
@@ -1512,7 +1528,7 @@ class GmailJobProcessor:
         if job is None:
             return False
         analysis = self._analysis_from_job(job)
-        if not live_status_already_checked and not self._active_check_is_fresh(job):
+        if not live_status_already_checked:
             checked = await self._check_live_status(job.url or "", job, force=True)
             if checked is None:
                 return False
@@ -1534,30 +1550,27 @@ class GmailJobProcessor:
             return False
 
         digest = hashlib.sha256(stable_key.encode("utf-8")).hexdigest()
-        delivery_key = (
-            f"proposal-copy-version:{digest}:{analysis.proposal_version}"
-        )
-        claim = ProcessedItem(
-            stable_key=delivery_key,
-            source_email_id=analysis.source_email_id or stable_key,
-            platform=analysis.platform,
-            item_type="proposal_copy_version",
-            title=analysis.title,
-            url=analysis.url,
-            decision="sending",
-            score=analysis.score,
-        )
-        if not await self._repository.claim_processed(claim):
-            return False
-        try:
-            sent = await send_text(analysis)
-        except Exception:
-            await self._repository.delete_processed(delivery_key)
-            raise
+        sent = await send_text(analysis)
         if not sent:
-            await self._repository.delete_processed(delivery_key)
             return False
-        await self._repository.upsert_processed(replace(claim, decision="sent"))
+        # Manual retrieval is an explicit owner request, not an unsolicited
+        # delivery. Every successful repeat is recorded as its own event and
+        # never consumes the proposal-version card dedup key.
+        await self._repository.upsert_processed(
+            ProcessedItem(
+                stable_key=(
+                    f"proposal-retrieval:{digest}:{analysis.proposal_version}:"
+                    f"{uuid4().hex}"
+                ),
+                source_email_id=analysis.source_email_id or stable_key,
+                platform=analysis.platform,
+                item_type="proposal_retrieval",
+                title=analysis.title,
+                url=analysis.url,
+                decision="sent",
+                score=analysis.score,
+            )
+        )
         return True
 
     async def _drain_retry_queue(

@@ -264,3 +264,24 @@
   `43a219b0-14e9-4f94-a108-b1a12e20039a` (`SUCCESS / RUNNING`). Instant
   discovery is deployed and verified; Telegram channel migration is complete;
   issue #11 is the current work item.
+
+## 2026-09-03 — Proposal-quality gate V3 correction contract
+
+- Treat the model's commercial strings as untrusted input. Accept only a full
+  allowlist parse into canonical `MoneyTerms` and `TimelineTerms`; compose the
+  final price, milestone, and timeline text from those typed values.
+- Keep every explanatory evidence/commercial sentence application-owned and
+  localized for uk/ru/en/pl. Runtime AI translation cannot authorize final
+  delivery wording.
+- Revalidate the complete localized proposal after composition, then compute
+  the exact content hash, then the `pqg-v3` version. No mutable proposal field
+  may change after version calculation.
+- Fail closed on multilingual model-authored past-work claims and on generic
+  off-platform contacts or links in every model-owned text field.
+- Keep unsolicited delivery exactly-once per proposal version through the
+  existing durable claim/lease contract. Treat explicit owner retrieval as a
+  repeatable read action with a forced fresh live check and separate telemetry;
+  it must neither generate a new version nor consume unsolicited dedup state.
+- A direct Response remains draft/retryable until Telegram confirms the exact
+  copy message. Re-lock and revalidate the same text/version before persisting
+  the sent state.

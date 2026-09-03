@@ -136,6 +136,9 @@ class StoredGmailJob:
     evidence_case_id: str = ""
     analysis_version: str = ""
     proposal_version: str = ""
+    proposal_content_sha256: str = ""
+    money_terms_json: str = ""
+    timeline_terms_json: str = ""
     original_analysis_snapshot: str = ""
     quality_clarification_question: str = ""
     model_output_json: str = ""
@@ -435,6 +438,21 @@ class InMemoryGmailRepository:
                         current.proposal_version
                         if keep_existing_quality
                         else job.proposal_version
+                    ),
+                    proposal_content_sha256=(
+                        current.proposal_content_sha256
+                        if keep_existing_quality
+                        else job.proposal_content_sha256
+                    ),
+                    money_terms_json=(
+                        current.money_terms_json
+                        if keep_existing_quality
+                        else job.money_terms_json
+                    ),
+                    timeline_terms_json=(
+                        current.timeline_terms_json
+                        if keep_existing_quality
+                        else job.timeline_terms_json
                     ),
                     original_analysis_snapshot=(
                         current.original_analysis_snapshot
@@ -871,6 +889,9 @@ class PostgresGmailRepository:
             "evidence_case_id",
             "analysis_version",
             "proposal_version",
+            "proposal_content_sha256",
+            "money_terms_json",
+            "timeline_terms_json",
             "original_analysis_snapshot",
             "quality_clarification_question",
             "model_output_json",
