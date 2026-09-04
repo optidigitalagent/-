@@ -204,6 +204,10 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertEqual(newer.reply_turn.reply_version, "r2")
+        await repository.update_opportunity_fields(
+            opportunity.id,
+            {"state": OpportunityState.CLIENT_REPLIED.value},
+        )
         with self.assertRaisesRegex(
             SalesCloserError, rf"{newer.incoming_turn.id}.*?/regenerate_lead"
         ):
@@ -214,12 +218,44 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
                 actor_telegram_user_id=101,
                 confirmed_at=NOW,
             )
-        opportunity, sent_confirmation, sent_created = await service.mark_reply_sent(
+        restarted_after_stale = SalesCloserService(
+            PostgresSalesRepository(self.sessions),
+            reply_generator=_generator,
+            now=lambda: NOW,
+        )
+        stale_opportunity, _transitions, stale_turns, _requests = (
+            await restarted_after_stale.lead_timeline(opportunity.id)
+        )
+        stale_r1 = next(turn for turn in stale_turns if turn.reply_version == "r1")
+        latest_incoming = next(
+            turn for turn in reversed(stale_turns) if turn.direction == "INCOMING"
+        )
+        self.assertEqual(stale_r1.direction, "OUTGOING_SUPERSEDED")
+        self.assertEqual(stale_opportunity.state, OpportunityState.CLIENT_REPLIED.value)
+        self.assertIsNone(latest_incoming.acknowledged_at)
+        async with self.engine.connect() as connection:
+            reply_confirmation_count = (
+                await connection.execute(
+                    text(
+                        "SELECT count(*) FROM owner_action_confirmations "
+                        "WHERE action = 'REPLY_SENT'"
+                    )
+                )
+            ).scalar_one()
+        self.assertEqual(reply_confirmation_count, 0)
+
+        await PostgresSalesRepository(self.sessions).update_opportunity_fields(
+            opportunity.id,
+            {"state": OpportunityState.NEGOTIATING.value},
+        )
+        opportunity, sent_confirmation, sent_created = (
+            await restarted_after_stale.mark_reply_sent(
             opportunity.id,
             "r2",
             actor_role="ADULT_OWNER",
             actor_telegram_user_id=101,
             confirmed_at=NOW,
+            )
         )
         self.assertTrue(sent_created)
         self.assertEqual(sent_confirmation.content_sha256, newer.reply_turn.content_sha256)

@@ -149,6 +149,23 @@ class StaleReplyError(RuntimeError):
         )
 
 
+class ReplyValidationStatus(StrEnum):
+    CURRENT_AND_ALLOWED = "CURRENT_AND_ALLOWED"
+    STALE = "STALE"
+    CURRENT_BUT_STATE_FORBIDDEN = "CURRENT_BUT_STATE_FORBIDDEN"
+    HASH_MISMATCH = "HASH_MISMATCH"
+    VERSION_NOT_FOUND = "VERSION_NOT_FOUND"
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyValidationResult:
+    status: ReplyValidationStatus
+    opportunity: SalesOpportunity
+    draft: ConversationTurn | None
+    latest_incoming: ConversationTurn | None
+    latest_active_draft: ConversationTurn | None
+
+
 @dataclass(slots=True)
 class SalesOpportunity:
     id: str
@@ -677,12 +694,11 @@ class InMemorySalesRepository:
             if value.opportunity_id == opportunity_id
         ]
         turns.sort(key=lambda value: (value.created_at, value.id))
-        latest_incoming = next(
-            (value for value in reversed(turns) if value.direction == "INCOMING"), None
-        )
-        draft = next((value for value in turns if value.reply_version == reply_version), None)
-        if draft is None:
-            raise ValueError("exact reply version not found")
+        validation = evaluate_reply_confirmation(item, reply_version, turns)
+        if validation.draft is None:
+            raise_for_reply_validation(validation)
+            raise AssertionError("unreachable reply validation state")
+        draft = validation.draft
         key = f"REPLY_SENT:{opportunity_id}:{reply_version}:{draft.content_sha256}"
         existing = await self.get_confirmation_by_key(key)
         if existing:
@@ -694,7 +710,13 @@ class InMemorySalesRepository:
             ):
                 raise ValueError("reply confirmation conflicts with the persisted confirmation")
             return replace(item), existing, False
-        _verify_current_reply(item, draft, latest_incoming, turns)
+        if validation.status is ReplyValidationStatus.STALE:
+            stored_draft = self.state["turns"][draft.id]
+            if stored_draft.direction == "OUTGOING_DRAFT":
+                stored_draft.direction = "OUTGOING_SUPERSEDED"
+            raise_for_reply_validation(validation)
+        raise_for_reply_validation(validation)
+        latest_incoming = validation.latest_incoming
         latency = _reply_latency(latest_incoming, confirmed_at)
         confirmation = OwnerActionConfirmation(
             id=uuid4().hex,
@@ -1427,14 +1449,12 @@ class PostgresSalesRepository:
                 )
             ).scalars().all()
             turns = [_turn_from_row(row) for row in turn_rows]
-            latest_incoming = next(
-                (turn for turn in reversed(turns) if turn.direction == "INCOMING"), None
-            )
-            draft = next(
-                (turn for turn in turns if turn.reply_version == reply_version), None
-            )
-            if draft is None:
-                raise ValueError("exact reply version not found")
+            opportunity = _opportunity_from_row(opportunity_row)
+            validation = evaluate_reply_confirmation(opportunity, reply_version, turns)
+            if validation.draft is None:
+                raise_for_reply_validation(validation)
+                raise AssertionError("unreachable reply validation state")
+            draft = validation.draft
             key = f"REPLY_SENT:{opportunity_id}:{reply_version}:{draft.content_sha256}"
             existing_row = (
                 await session.execute(
@@ -1461,16 +1481,14 @@ class PostgresSalesRepository:
                     existing,
                     False,
                 )
-            try:
-                _verify_current_reply(
-                    _opportunity_from_row(opportunity_row), draft, latest_incoming, turns
-                )
-            except StaleReplyError:
+            if validation.status is ReplyValidationStatus.STALE:
                 stale_row = next(row for row in turn_rows if row.id == draft.id)
                 if stale_row.direction == "OUTGOING_DRAFT":
                     stale_row.direction = "OUTGOING_SUPERSEDED"
                 await session.commit()
-                raise
+                raise_for_reply_validation(validation)
+            raise_for_reply_validation(validation)
+            latest_incoming = validation.latest_incoming
             latency = _reply_latency(latest_incoming, confirmed_at)
             confirmation = OwnerActionConfirmation(
                 id=uuid4().hex,
@@ -2317,25 +2335,42 @@ def _verify_confirmation_identity_audit(
         raise ValueError("unknown confirmation operator mode")
 
 
-def _verify_current_reply(
+def evaluate_reply_confirmation(
     opportunity: SalesOpportunity,
-    draft: ConversationTurn,
-    latest_incoming: ConversationTurn | None,
+    requested_reply_version: str,
     turns: list[ConversationTurn],
-) -> None:
-    allowed_states = {
-        OpportunityState.NEGOTIATING.value,
-        OpportunityState.SELECTION_REVIEW.value,
-        OpportunityState.CONTRACT_REVIEW.value,
-    }
-    if opportunity.state not in allowed_states:
-        raise ValueError(f"reply cannot be confirmed from state {opportunity.state}")
-    current_drafts = [turn for turn in turns if turn.direction == "OUTGOING_DRAFT"]
+) -> ReplyValidationResult:
+    """Return one deterministic, side-effect-free reply validation decision."""
+
+    ordered_turns = sorted(turns, key=lambda turn: (turn.created_at, turn.id))
+    draft = next(
+        (
+            turn
+            for turn in ordered_turns
+            if turn.reply_version == requested_reply_version
+        ),
+        None,
+    )
+    latest_incoming = next(
+        (turn for turn in reversed(ordered_turns) if turn.direction == "INCOMING"),
+        None,
+    )
+    current_drafts = [
+        turn for turn in ordered_turns if turn.direction == "OUTGOING_DRAFT"
+    ]
     latest_draft = max(
         current_drafts,
         key=lambda turn: int((turn.reply_version or "r0").removeprefix("r") or 0),
         default=None,
     )
+    if draft is None:
+        return ReplyValidationResult(
+            ReplyValidationStatus.VERSION_NOT_FOUND,
+            opportunity,
+            None,
+            latest_incoming,
+            latest_draft,
+        )
     is_stale = (
         latest_incoming is None
         or draft.direction != "OUTGOING_DRAFT"
@@ -2347,13 +2382,52 @@ def _verify_current_reply(
         or latest_draft.id != draft.id
     )
     if is_stale:
-        draft.direction = "OUTGOING_SUPERSEDED"
-        raise StaleReplyError(
-            latest_incoming.id if latest_incoming else "unavailable", opportunity.id
+        status = ReplyValidationStatus.STALE
+    elif hashlib.sha256(draft.content.encode("utf-8")).hexdigest() != draft.content_sha256:
+        status = ReplyValidationStatus.HASH_MISMATCH
+    else:
+        allowed_states = {
+            OpportunityState.NEGOTIATING.value,
+            OpportunityState.SELECTION_REVIEW.value,
+            OpportunityState.CONTRACT_REVIEW.value,
+        }
+        status = (
+            ReplyValidationStatus.CURRENT_AND_ALLOWED
+            if opportunity.state in allowed_states
+            else ReplyValidationStatus.CURRENT_BUT_STATE_FORBIDDEN
         )
-    actual_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
-    if actual_hash != draft.content_sha256:
+    return ReplyValidationResult(
+        status,
+        opportunity,
+        draft,
+        latest_incoming,
+        latest_draft,
+    )
+
+
+def raise_for_reply_validation(result: ReplyValidationResult) -> None:
+    """Raise the canonical error for a non-confirmable reply decision."""
+
+    if result.status is ReplyValidationStatus.CURRENT_AND_ALLOWED:
+        return
+    if result.status is ReplyValidationStatus.VERSION_NOT_FOUND:
+        raise ValueError("exact reply version not found")
+    if result.status is ReplyValidationStatus.STALE:
+        raise StaleReplyError(
+            (
+                result.latest_incoming.id
+                if result.latest_incoming is not None
+                else "unavailable"
+            ),
+            result.opportunity.id,
+        )
+    if result.status is ReplyValidationStatus.HASH_MISMATCH:
         raise ValueError("reply content hash changed after validation")
+    if result.status is ReplyValidationStatus.CURRENT_BUT_STATE_FORBIDDEN:
+        raise ValueError(
+            f"reply cannot be confirmed from state {result.opportunity.state}"
+        )
+    raise AssertionError(f"unknown reply validation status: {result.status}")
 
 
 def _reply_latency(

@@ -2,32 +2,28 @@
 
 ## Current status
 
-`READY_FOR_SINGLE_SHARED_OPERATOR_DEPLOY`
+`READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`
 
-Draft PR #18 is the only GitHub issue #17 hotfix work item. It adds mutually
-exclusive `SEPARATE_ROLES` and `SINGLE_SHARED_OPERATOR` modes, fail-closed
-configuration, neutral shared-account authorization, exact `OWNER_CONFIRMS`
-adult-owner attestation, explicit `ARTEM`/`VADIM` fact-source attestation, and
-restart-safe audit metadata while preserving the existing separate-role model
-and every Stage 4/5A guard.
+The issue #17 reapply branch now includes the narrow stale-reply precedence
+correction on top of the exact approved shared-operator tree. One deterministic
+contract is shared by preview, in-memory confirmation and PostgreSQL
+confirmation; only actual stale confirmation persists `OUTGOING_SUPERSEDED`.
 
 Validation evidence:
 
-- 42 new shared-operator regression cases include the required synthetic E2E;
-- the full isolated PostgreSQL 17 suite passes 467 tests with six unrelated
-  opt-in skips;
-- the additive migration list applies twice and shared confirmation/fact audit
-  survives repository restart;
+- 81 focused V2/shared-operator tests pass;
+- full discovery passes 474 tests with 12 opt-in PostgreSQL skips;
+- six real PostgreSQL 17 tests pass with migrations twice and restart proof;
 - Python 3.12.14 production-like import, compileall, changed-file Ruff F rules
   and `git diff --check` pass.
 
-Production remains unchanged on `main`
-`030128fa958c5243bfe3f1f28005813e2a8605a4`, Railway deployment
-`4664e3e1-ff90-458c-92cc-2d0f6ba05acd` (`SUCCESS / RUNNING`). No merge,
+Production remains unchanged on rollback `main`
+`6baaa462ef70e40d45e9c144e269eff71786f35b`, Railway deployment
+`480c3170-f354-4e4d-909d-c7a0e771e5d3` (`SUCCESS / RUNNING`). No merge,
 deployment, variable, secret, OAuth, production migration/backfill, real
 Telegram card or platform action was performed. Release 5B/5C remain deferred.
 
 ## Exactly one next action
 
-Review Draft PR #18 and, if accepted, provide separate explicit
-merge/deployment authorization.
+Review the new stale-reply correction Draft PR and, if accepted, provide the
+separate zero-overlap merge/deployment authorization.

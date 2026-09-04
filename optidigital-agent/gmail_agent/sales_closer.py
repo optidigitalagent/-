@@ -54,6 +54,8 @@ from .sales_storage import (
     SalesOpportunity,
     SalesRepository,
     TERMINAL_STATES,
+    evaluate_reply_confirmation,
+    raise_for_reply_validation,
     utc_now,
 )
 from .security import redact_sensitive_content
@@ -1467,35 +1469,14 @@ class SalesCloserService:
         if opportunity is None:
             raise SalesCloserError("opportunity not found")
         turns = await self.repository.list_turns(opportunity_id)
-        draft = next(
-            (turn for turn in turns if turn.reply_version == reply_version), None
-        )
-        if draft is None:
-            raise SalesCloserError("exact reply version not found")
-        latest_incoming = next(
-            (turn for turn in reversed(turns) if turn.direction == "INCOMING"), None
-        )
-        current_drafts = [
-            turn for turn in turns if turn.direction == "OUTGOING_DRAFT"
-        ]
-        latest_draft = max(
-            current_drafts,
-            key=lambda turn: int(
-                (turn.reply_version or "r0").removeprefix("r") or 0
-            ),
-            default=None,
-        )
-        if (
-            latest_incoming is None
-            or draft.direction != "OUTGOING_DRAFT"
-            or draft.source_reference_id != latest_incoming.id
-            or latest_draft is None
-            or latest_draft.id != draft.id
-        ):
-            raise SalesCloserError("reply version is stale; regenerate the latest reply")
-        if hashlib.sha256(draft.content.encode("utf-8")).hexdigest() != draft.content_sha256:
-            raise SalesCloserError("reply content hash changed after validation")
-        return opportunity, draft
+        validation = evaluate_reply_confirmation(opportunity, reply_version, turns)
+        try:
+            raise_for_reply_validation(validation)
+        except (ValueError, RuntimeError) as exc:
+            raise SalesCloserError(str(exc)) from exc
+        if validation.draft is None:
+            raise AssertionError("validated reply draft is missing")
+        return opportunity, validation.draft
 
     async def pending_cards(self) -> list[SalesProcessResult]:
         turns = await self.repository.list_pending_incoming_turns(self._now())

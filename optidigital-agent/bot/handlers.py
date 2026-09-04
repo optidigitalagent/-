@@ -1067,6 +1067,24 @@ async def cmd_mark_reply_sent(message: Message) -> None:
             **_actor_audit_kwargs(actor),
         )
     except Exception as exc:
+        from gmail_agent.sales_storage import StaleReplyError
+
+        cause: BaseException | None = exc
+        stale_error = None
+        while cause is not None:
+            if isinstance(cause, StaleReplyError):
+                stale_error = cause
+                break
+            cause = cause.__cause__
+        if stale_error is not None:
+            logger.info("Stage 5A stale reply confirmation rejected")
+            await message.answer(
+                "Старый ответ больше нельзя подтверждать:\n"
+                "после его создания пришло новое сообщение клиента.\n\n"
+                "Актуальное действие:\n"
+                f"<code>{escape_html(stale_error.regeneration_command)}</code>"
+            )
+            return
         logger.exception("Stage 5A reply confirmation failed")
         await message.answer(f"❌ Reply confirmation rejected: {escape_html(exc)}")
         return

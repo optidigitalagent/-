@@ -758,6 +758,23 @@ class TestSharedOperatorStaticSafety(unittest.TestCase):
         self.assertNotIn("User ID:", whoami)
         self.assertNotIn("int(user.id)</code>", whoami)
 
+    def test_stale_reply_handler_is_actionable_and_does_not_log_traceback(self):
+        source = (Path(__file__).parents[2] / "bot" / "handlers.py").read_text(
+            encoding="utf-8"
+        )
+        start = source.index("async def cmd_mark_reply_sent")
+        end = source.index('@router.message(Command("ack_lead"))', start)
+        handler = source[start:end]
+        self.assertIn("Старый ответ больше нельзя подтверждать", handler)
+        self.assertIn("после его создания пришло новое сообщение клиента", handler)
+        self.assertIn("stale_error.regeneration_command", handler)
+        stale_branch = handler[
+            handler.index("if stale_error is not None") : handler.index(
+                'logger.exception("Stage 5A reply confirmation failed")'
+            )
+        ]
+        self.assertNotIn("logger.exception", stale_branch)
+
     def test_bid_handler_separates_attestation_from_price_and_timeline(self):
         source = (Path(__file__).parents[2] / "bot" / "handlers.py").read_text(
             encoding="utf-8"

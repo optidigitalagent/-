@@ -443,3 +443,27 @@
   variables/secrets, production migrations/backfills and all real platform
   actions require separate authorization.
 - Status: `READY_FOR_SINGLE_SHARED_OPERATOR_DEPLOY`.
+
+## 2026-09-04 — Shared-operator stale-reply precedence correction
+
+- Use one side-effect-free deterministic reply-validation result for preview,
+  in-memory confirmation and PostgreSQL confirmation. Its exhaustive outcomes
+  are `CURRENT_AND_ALLOWED`, `STALE`, `CURRENT_BUT_STATE_FORBIDDEN`,
+  `HASH_MISMATCH` and `VERSION_NOT_FOUND`.
+- Resolve the exact requested version, latest incoming turn and latest active
+  draft before checking opportunity state. An older draft always returns
+  `StaleReplyError` with the latest incoming-turn ID and exact
+  `/regenerate_lead <opportunity_id>` action, including when the opportunity is
+  currently `CLIENT_REPLIED`, `NEEDS_HUMAN_INPUT`, `NEEDS_CONTEXT`,
+  `NEGOTIATING`, `SELECTION_REVIEW` or `CONTRACT_REVIEW`.
+- Preview uses the same validation decision but never mutates storage. Actual
+  confirmation persists only the stale draft's `OUTGOING_SUPERSEDED` marker;
+  it creates no owner confirmation, does not acknowledge the latest incoming
+  turn and does not move the opportunity to `WAITING_CLIENT`.
+- PostgreSQL locks the opportunity and turns, commits the stale marker alone,
+  and raises the canonical stale error. Current drafts retain the existing
+  state, hash, version, role and `OWNER_CONFIRMS` protections.
+- The Telegram handler returns a bounded actionable stale message without a
+  traceback or SQL details. No Freelancehunt write capability is added.
+- Merge, deployment, Railway variable changes and production migrations remain
+  outside this correction authorization.
