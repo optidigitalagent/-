@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     TELEGRAM_TOKEN: str
     TELEGRAM_CHAT_ID: int
     ADMIN_CHAT_ID: Optional[int] = None
+    TELEGRAM_ADULT_OWNER_USER_ID: Optional[int] = None
+    TELEGRAM_ARTEM_USER_ID: Optional[int] = None
+    TELEGRAM_VADIM_USER_ID: Optional[int] = None
     OPENAI_API_KEY: Optional[str] = None
     FREELANCEHUNT_TOKEN: Optional[str] = None
     DATABASE_URL: str

@@ -41,7 +41,12 @@ TERMINAL_JOB_STATUSES = frozenset(
         "quality_non_executable",
     }
 )
-DEFAULT_CLAIMABLE_STATUSES = ("queued", "send_failed", "quality_review_pending")
+DEFAULT_CLAIMABLE_STATUSES = (
+    "queued",
+    "send_failed",
+    "quality_review_pending",
+    "sales_tracking_pending",
+)
 DEFAULT_SENDING_LEASE = timedelta(minutes=15)
 _IDENTITY_RECONCILIATION_MARKER = "stage3_freelancehunt_identity_v1"
 _LEGACY_CARD_STATUSES = frozenset(
@@ -821,6 +826,12 @@ class PostgresGmailRepository:
         self._scan_run_model = GmailScanRun
         self._order_model = Order
         self._setting_model = Setting
+
+    @property
+    def session_factory(self) -> AsyncSessionFactory:
+        """Expose the same transaction boundary to additive domain repositories."""
+
+        return self._session_factory
 
     async def reconcile_freelancehunt_identities(self) -> int:
         """Alias already-handled Gmail/parser rows to the Stage 3 project key.

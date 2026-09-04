@@ -304,3 +304,114 @@
 - Keep issue #11 open. Merge, Railway deployment, production migration,
   backfill, replacement cards, variables, secrets, bids, and client messages
   require separate authorization.
+
+## 2026-09-03 — Stage 5A sales-closer contract
+
+- One sales opportunity is keyed by exact project ID, thread ID, safe project
+  URL or proven reply-reference mapping. Client name is only a last,
+  non-authoritative hint and may resolve only one active candidate.
+- Every opportunity state change records timestamp, source, previous/new state,
+  reason and one allowed actor: `system`, `adult_owner` or `Artem`.
+- A bid is `BID_SUBMITTED` only after the adult owner confirms actual price,
+  timeline and the exact validated proposal version. A reply is sent only after
+  the adult owner confirms the exact reply version/hash. Telegram commands
+  record these actions but never perform them on Freelancehunt.
+- Trusted `CLIENT_PRIVATE_MESSAGE` events use a dedicated, score-bypassing
+  dialogue path. Gmail message ID and canonical turn identity both deduplicate;
+  conflicting identifiers fail closed into a separate `NEEDS_CONTEXT` record.
+- AI sees the complete source description, exact submitted proposal and terms,
+  confirmed dialogue, constraints, decisions, open questions, human facts,
+  approved evidence and current state. Unconfirmed drafts are never promises.
+- Deterministic validation is authoritative and permits at most one bounded AI
+  repair. Unsupported commitments, mismatched commercial terms, invented
+  evidence, contacts, language mismatch, unrelated text, contradictions,
+  missing context and free scope expansion are blocked.
+- Release 5A persists the Release 5B timing fields with follow-ups disabled.
+  No follow-up scheduler or Release 5C delivery handoff is part of this change.
+- Production merge/deploy, variables, OAuth, Telegram secrets, backfill,
+  replacement cards, bids, messages, contracts and payments remain separately
+  authorized stop-gate actions.
+
+## 2026-09-03 — Stage 5A correction cycle V2 contract
+
+- Authorize state writes by the actual Telegram sender's configured numeric ID,
+  never by the command name or username. Owner-only confirmation commands and
+  Artem/Vadim fact decisions remain separate; missing settings fail closed.
+- Treat the current Stage 4 proposal version, content SHA-256 and canonical
+  `MoneyTerms`/`TimelineTerms` as one indivisible bid-confirmation package.
+- Allocate reply versions atomically and publish drafts through a locked latest-
+  incoming check. A stale draft becomes `OUTGOING_SUPERSEDED` and cannot create
+  a confirmation or `WAITING_CLIENT` transition.
+- Scope every human answer to one request, incoming turn, intent and subject
+  fingerprint. Render commitments from structured application-owned decisions;
+  do not reuse broad opportunity-wide capability facts.
+- Reuse Stage 4's public contact and unsupported-claim guards and its exact
+  localized evidence registry. Access, selection and contract replies are
+  fixed fail-closed text and perform no platform action.
+- Keep `LOST`, `CLOSED`, formal `SELECTED` and `HANDOFF_READY` terminal. Client
+  readiness and contract signals stop at review states in Release 5A.
+- Context imports are bounded, credential-redacted, actor-bound and stored as
+  `OWNER_COPIED_THREAD` with `UNKNOWN_DIRECTION` unless separately confirmed.
+- Use the existing minute scheduler for one persistent five-minute
+  unacknowledged-turn reminder during 08:00–21:00 Europe/Kyiv. This is an owner
+  alert, not a Release 5B client follow-up.
+- Preserve Stage 4 delivery when 5A storage is temporarily unavailable and keep
+  both opportunity persistence and sanitized dialogue handling retryable.
+- Release 5B client follow-ups and Release 5C delivery handoff remain deferred;
+  production changes require separate explicit authorization.
+
+## 2026-09-03 — Stage 5A correction cycle V3 contract
+
+- Parse real Freelancehunt private-message notifications through one dedicated,
+  fail-closed contract. Store only the isolated client-authored message as the
+  incoming turn; wrapper, profile, CTA, footer, tracking and sensitive links
+  are routing metadata rather than client content.
+- Detect wrapper language from the notification marker and client language only
+  from the isolated message. Platform support/onboarding messages never create
+  sales opportunities, drafts or funnel transitions.
+- Resolve by exact authoritative identifiers first. When project ID is absent,
+  permit one exact normalized conversation-title match among active states and
+  atomically bind its thread ID/URL. No fuzzy title match is permitted; zero,
+  multiple or conflicting matches require context.
+- Classify intent only from client-authored text. Price evidence has precedence;
+  rejection requires an explicit terminal phrase; access requires explicit
+  grant/share/use semantics plus a resource, credential, role or permission.
+- An explicit terminal rejection records the incoming turn and safe loss reason,
+  disables follow-up, moves to `LOST`, and creates neither a reply draft nor a
+  send-confirmation instruction.
+- Copy-ready text must not expose bots, AI agents, internal automation or owner-
+  review narration. Selection and contract responses use neutral client-facing
+  Freelancehunt Workspace wording without accepting terms or payment.
+- Multi-role Telegram commands require any actually configured permitted role,
+  not every possible role setting. Owner-only confirmations remain owner-only;
+  unknown actors and duplicate numeric role IDs fail closed.
+- Schema changes remain additive and restart-safe. Release 5B, Release 5C and all
+  production/platform mutations remain outside this correction cycle.
+
+## 2026-09-04 — Stage 5A correction cycle V4 contract
+
+- Treat all eight required `/profile` and `/profile/show` URL forms as profile
+  identities. A normalized `freelancehunt_` slug is authoritative platform
+  staff evidence and routes outside sales without relying on subject wording.
+- Classify an explicit terminal rejection before contract/selection and price.
+  Price requires both a price/budget term and objection, reduction,
+  counteroffer or negotiation semantics; a neutral budget statement is not an
+  objection.
+- Mark title-resolution fallback records explicitly as orphans. Merge one only
+  from `NEEDS_CONTEXT` into a distinct active canonical opportunity whose
+  submitted proposal hash and canonical actual terms are complete and valid.
+- Require the orphan's exact thread ID plus an exact canonical project ID, URL
+  or reply/reference ID. Names, fuzzy titles and similar text are never merge
+  evidence; conflicting combinations fail closed.
+- Lock both PostgreSQL opportunities in deterministic order and revalidate the
+  full contract in one transaction. Re-home turns and their Gmail, ACK and
+  escalation fields, human requests and context sync rows; never copy orphan
+  proposal or commercial fields.
+- Keep both histories. Tombstone the source as `MERGED` with target, timestamp,
+  actor and hashed identity evidence, add audit transitions on both records,
+  exclude the tombstone from active pipeline counts and bind all future thread
+  traffic to the canonical opportunity.
+- Owner-copied context is content-addressed on the canonical opportunity, so a
+  repeated import or restart reuses the stored result and does not generate a
+  second reply or card. No platform write capability is added.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.

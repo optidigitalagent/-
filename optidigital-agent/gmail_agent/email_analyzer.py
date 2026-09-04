@@ -207,6 +207,8 @@ class JobAnalysis:
     fit_score_valid: bool | None = None
     fit_score_raw: str = ""
     fit_score_state: str = ""
+    # Ephemeral card-only signal. Durable retry ownership remains in job.status.
+    sales_tracking_unavailable: bool = False
 
     @property
     def score_display(self) -> str:

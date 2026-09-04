@@ -537,6 +537,29 @@ async def cmd_reply_job(message: Message) -> None:
 
     job_id = raw[1].strip()
     rewrite = len(raw) >= 3 and raw[2].casefold() == "rewrite"
+    registered_job = _gmail_job_store.get(job_id)
+    registered_project_event = str(
+        (registered_job or {}).get("event_type") or ""
+    ) in {
+        "PROJECT_SINGLE",
+        "PROJECT_DIGEST",
+        "PROJECT_FEED",
+    }
+    registered_freelancehunt = "freelancehunt" in str(
+        (registered_job or {}).get("platform") or ""
+    ).casefold()
+    if (
+        registered_project_event
+        and registered_freelancehunt
+        and (
+            str((registered_job or {}).get("live_status") or "")
+            != "ACTIVE_BIDDABLE"
+            or (registered_job or {}).get("biddable") is not True
+        )
+    ):
+        await message.answer(_live_status_refusal(registered_job, job_id))
+        return
+
     job = None
     repository = None
     repository_unavailable = False
@@ -716,6 +739,351 @@ async def cmd_skip_job(message: Message) -> None:
             f"⚠️ Замовлення <code>{escape_html(job_id)}</code> не знайдено "
             "(вже пропущено або не існує)."
         )
+
+
+# ─── Stage 5A sales closer commands ─────────────────────────────────────────
+
+def _sales_closer_service():
+    from gmail_agent.sales_closer import SalesCloserService
+    from gmail_agent.sales_storage import PostgresSalesRepository
+
+    return SalesCloserService(PostgresSalesRepository(AsyncSessionLocal))
+
+
+def _sales_actor(message: Message, *, allowed_roles: tuple, required_settings: tuple[str, ...]):
+    from gmail_agent.telegram_roles import authorize_telegram_actor
+
+    user = message.from_user
+    if user is None:
+        raise RuntimeError("Telegram sender identity is unavailable")
+    return authorize_telegram_actor(
+        int(user.id),
+        str(user.username or ""),
+        settings,
+        allowed_roles=allowed_roles,
+        required_settings=required_settings,
+    )
+
+
+@router.message(Command("whoami"))
+async def cmd_whoami(message: Message) -> None:
+    """Read-only identity aid; it never authorizes a role by username."""
+
+    from gmail_agent.telegram_roles import resolve_telegram_actor
+
+    user = message.from_user
+    if user is None:
+        await message.answer("❌ Telegram sender identity is unavailable.")
+        return
+    actor = resolve_telegram_actor(int(user.id), str(user.username or ""), settings)
+    await message.answer(
+        "<b>Telegram identity</b>\n"
+        f"User ID: <code>{int(user.id)}</code>\n"
+        f"Username: @{escape_html(user.username or 'none')}\n"
+        f"Configured role: <b>{escape_html(actor.role.value)}</b>"
+    )
+
+
+@router.message(Command("mark_bid_sent"))
+async def cmd_mark_bid_sent(message: Message) -> None:
+    """Record an adult-owner confirmation; never submit a platform bid."""
+
+    raw = (message.text or "").strip()
+    payload = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) == 2 else ""
+    parts = [part.strip() for part in payload.split("|")]
+    identity = parts[0].split() if parts else []
+    if len(parts) != 3 or len(identity) != 2 or not all(parts):
+        await message.answer(
+            "Підтвердьте фактичні умови вже вручну поданої ставки однією командою:\n"
+            "<code>/mark_bid_sent &lt;opportunity_id&gt; &lt;proposal_version&gt; | "
+            "&lt;actual price&gt; | "
+            "&lt;actual timeline&gt;</code>\n"
+            "Ця команда нічого не надсилає у Freelancehunt."
+        )
+        return
+    opportunity_id, proposal_version = identity
+    price, timeline = parts[1:]
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER,),
+            required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
+        )
+        opportunity, confirmation, created = await _sales_closer_service().mark_bid_sent(
+            opportunity_id,
+            proposal_version,
+            price,
+            timeline,
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A bid confirmation failed")
+        await message.answer(f"❌ Bid confirmation rejected: {escape_html(exc)}")
+        return
+    status = "recorded" if created else "already recorded (idempotent)"
+    await message.answer(
+        f"✅ <b>Manual bid confirmation {status}</b>\n"
+        f"Opportunity: <code>{escape_html(opportunity.id)}</code>\n"
+        f"Proposal: <code>{escape_html(confirmation.proposal_version)}</code>\n"
+        f"Actual price: {escape_html(confirmation.actual_price)}\n"
+        f"Actual timeline: {escape_html(confirmation.actual_timeline)}\n"
+        "Platform action: <b>none</b>."
+    )
+
+
+@router.message(Command("answer_lead"))
+async def cmd_answer_lead(message: Message) -> None:
+    raw = (message.text or "").strip().split(maxsplit=2)
+    if len(raw) != 3 or not raw[1].strip() or not raw[2].strip():
+        await message.answer(
+            "❌ Використання: <code>/answer_lead &lt;request_id&gt; &lt;answer&gt;</code>"
+        )
+        return
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ARTEM, TelegramRole.VADIM),
+            required_settings=(),
+        )
+        result = await _sales_closer_service().answer_human_request(
+            raw[1],
+            raw[2],
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A human answer failed")
+        await message.answer(f"❌ Human answer rejected: {escape_html(exc)}")
+        return
+    from gmail_agent.telegram_notifier import format_sales_response_card_parts
+
+    for part in format_sales_response_card_parts(result):
+        await message.answer(part, disable_web_page_preview=True)
+
+
+@router.message(Command("mark_reply_sent"))
+async def cmd_mark_reply_sent(message: Message) -> None:
+    raw = (message.text or "").strip().split()
+    if len(raw) != 3:
+        await message.answer(
+            "❌ Використання: <code>/mark_reply_sent &lt;opportunity_id&gt; "
+            "&lt;reply_version&gt;</code>"
+        )
+        return
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER,),
+            required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
+        )
+        opportunity, confirmation, created = await _sales_closer_service().mark_reply_sent(
+            raw[1],
+            raw[2],
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A reply confirmation failed")
+        await message.answer(f"❌ Reply confirmation rejected: {escape_html(exc)}")
+        return
+    status = "recorded" if created else "already recorded (idempotent)"
+    latency = (
+        f"{confirmation.response_latency_seconds:.1f} s"
+        if confirmation.response_latency_seconds is not None
+        else "—"
+    )
+    await message.answer(
+        f"✅ <b>Manual reply confirmation {status}</b>\n"
+        f"Opportunity: <code>{escape_html(opportunity.id)}</code>\n"
+        f"Reply: <code>{escape_html(confirmation.reply_version)}</code>\n"
+        f"SHA-256: <code>{escape_html(confirmation.content_sha256)}</code>\n"
+        f"Response latency: {escape_html(latency)}\n"
+        "State: <b>WAITING_CLIENT</b>. Platform action: <b>none</b>."
+    )
+
+
+@router.message(Command("ack_lead"))
+async def cmd_ack_lead(message: Message) -> None:
+    raw = (message.text or "").strip().split()
+    if len(raw) != 2:
+        await message.answer("❌ Використання: <code>/ack_lead &lt;incoming_turn_id&gt;</code>")
+        return
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
+            required_settings=(),
+        )
+        turn = await _sales_closer_service().acknowledge_lead(
+            raw[1],
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A lead acknowledgement failed")
+        await message.answer(f"❌ Lead acknowledgement rejected: {escape_html(exc)}")
+        return
+    await message.answer(
+        "✅ <b>Lead acknowledged</b>\n"
+        f"Incoming turn: <code>{escape_html(turn.id)}</code>\n"
+        "Escalation: <b>cancelled</b>. Platform action: <b>none</b>."
+    )
+
+
+@router.message(Command("sync_lead_context"))
+async def cmd_sync_lead_context(message: Message) -> None:
+    raw = (message.text or "").strip().split()
+    if len(raw) != 2:
+        await message.answer(
+            "❌ Використання: <code>/sync_lead_context &lt;opportunity_id&gt;</code>"
+        )
+        return
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
+            required_settings=(),
+        )
+        _sync, opportunity = await _sales_closer_service().begin_context_sync(
+            raw[1],
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A context sync start failed")
+        await message.answer(f"❌ Context sync rejected: {escape_html(exc)}")
+        return
+    await message.answer(
+        f"📎 Context sync is waiting for <code>{escape_html(opportunity.id)}</code>.\n"
+        "Paste one plain-text copy of this exact Freelancehunt thread in your next message. "
+        "Credentials are redacted; copied lines are stored as UNKNOWN_DIRECTION and never as confirmed promises.\n"
+        "Cancel with <code>/cancel_sync</code>."
+    )
+
+
+@router.message(Command("cancel_sync"))
+async def cmd_cancel_sync(message: Message) -> None:
+    try:
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
+            required_settings=(),
+        )
+        cancelled = await _sales_closer_service().cancel_context_sync(
+            actor.user_id, actor_role=actor.role.value
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A context sync cancellation failed")
+        await message.answer(f"❌ Context sync cancellation rejected: {escape_html(exc)}")
+        return
+    await message.answer("✅ Context sync cancelled." if cancelled else "ℹ️ No pending context sync.")
+
+
+@router.message(Command("regenerate_lead"))
+async def cmd_regenerate_lead(message: Message) -> None:
+    raw = (message.text or "").strip().split()
+    if len(raw) != 2:
+        await message.answer("❌ Використання: <code>/regenerate_lead &lt;opportunity_id&gt;</code>")
+        return
+    try:
+        from gmail_agent.telegram_notifier import format_sales_response_card_parts
+        from gmail_agent.telegram_roles import TelegramRole
+
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
+            required_settings=(),
+        )
+        result = await _sales_closer_service().regenerate_latest_reply(
+            raw[1],
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A reply regeneration failed")
+        await message.answer(f"❌ Reply regeneration rejected: {escape_html(exc)}")
+        return
+    for part in format_sales_response_card_parts(result):
+        await message.answer(part, disable_web_page_preview=True)
+
+
+@router.message(Command("pipeline"))
+async def cmd_pipeline(message: Message) -> None:
+    from gmail_agent.telegram_notifier import format_pipeline_counts
+
+    try:
+        counts = await _sales_closer_service().pipeline_counts()
+    except Exception as exc:
+        logger.exception("Stage 5A pipeline query failed")
+        await message.answer(f"❌ Pipeline unavailable: {escape_html(exc)}")
+        return
+    await message.answer(format_pipeline_counts(counts))
+
+
+@router.message(Command("lead"))
+async def cmd_lead(message: Message) -> None:
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) != 2 or not raw[1].strip():
+        await message.answer("❌ Використання: <code>/lead &lt;opportunity_id&gt;</code>")
+        return
+    try:
+        timeline = await _sales_closer_service().lead_timeline(raw[1].strip())
+    except Exception as exc:
+        logger.exception("Stage 5A lead timeline query failed")
+        await message.answer(f"❌ Lead unavailable: {escape_html(exc)}")
+        return
+    from gmail_agent.telegram_notifier import format_lead_timeline
+
+    for part in format_lead_timeline(*timeline):
+        await message.answer(part, disable_web_page_preview=True)
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def capture_pending_lead_context(message: Message) -> None:
+    """Consume plain text only when this exact Telegram actor opened a sync."""
+
+    if not message.text:
+        return
+    try:
+        from gmail_agent.telegram_notifier import format_sales_response_card_parts
+        from gmail_agent.telegram_roles import TelegramRole
+
+        user = message.from_user
+        if user is None:
+            return
+        service = _sales_closer_service()
+        sync = await service.repository.get_pending_context_sync(int(user.id))
+        if sync is None:
+            return
+        actor = _sales_actor(
+            message,
+            allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
+            required_settings=(),
+        )
+        result = await service.import_context(
+            message.text,
+            actor_role=actor.role.value,
+            actor_telegram_user_id=actor.user_id,
+        )
+    except Exception as exc:
+        logger.exception("Stage 5A context import failed")
+        await message.answer(f"❌ Context import rejected: {escape_html(exc)}")
+        return
+    for part in format_sales_response_card_parts(result):
+        await message.answer(part, disable_web_page_preview=True)
 
 
 # ─── Admin commands ───────────────────────────────────────────────────────────

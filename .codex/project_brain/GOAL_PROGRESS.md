@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 4 — proposal-quality gate**
+**Stage 5 — issue #15 AI Sales Closer Copilot; Release 5A**
 
 ## Readiness by workstream
 
@@ -17,7 +17,8 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Gmail support/private-message delivery from Freelancehunt: confirmed**
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
-- **Proposal-quality gate V2: review blockers closed; deployment authorization pending**
+- **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
+- **AI Sales Closer Release 5A: Draft PR #16 correction cycle V2 ready for review**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -41,22 +42,24 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `ISSUE_7_COMPLETED`
 - `INSTANT_DISCOVERY_DEPLOYED_AND_VERIFIED`
 - `TELEGRAM_CHANNEL_MIGRATION_COMPLETED`
-- `STAGE_4_ACTIVE`
-- `ISSUE_11_CURRENT_WORK_ITEM`
-- `PROPOSAL_QUALITY_GATE_V2_READY_FOR_DEPLOY_REVIEW`
+- `STAGE_4_DEPLOYED_AND_VERIFIED`
+- `ISSUE_11_COMPLETED`
+- `STAGE_5_ACTIVE`
+- `ISSUE_15_CURRENT_WORK_ITEM`
+- `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`
 
 ## Protected production baseline
 
-- Production `main`: `6b2d75d3b16e0b41531428926f9552f5ff6ab84b`.
-- Railway deployment: `43a219b0-14e9-4f94-a108-b1a12e20039a`.
+- Production `main`: `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
+- Railway deployment: `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
 - Instant discovery is deployed and verified, and the Telegram channel
   migration is complete.
-- Stage 4 is active; GitHub issue #11 is the current work item.
-- Current production cards with Score/Fit `0.0` are diagnostic legacy output,
-  not proposal-ready results.
+- Stage 4 is deployed and verified; GitHub issue #11 is completed.
+- Stage 5 is active; GitHub issue #15 and Release 5A are the current work item.
+- Release 5B timed follow-ups and Release 5C delivery handoff are deferred.
 
 ## Completed account and profile work
 
@@ -415,3 +418,155 @@ Stage 2 is operational when:
 - Production remains unchanged on rollback `main` `01978e2b...` and healthy
   Railway deployment `5af42416-7c91-4283-9c26-8282f0d6f4d4`.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
+
+## 2026-09-03 — Stage 5 issue #15 Release 5A deployment gate
+
+- Stage 4 and its nullable-metadata correction are deployed and verified on
+  production `main` `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway
+  deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05` (`SUCCESS / RUNNING`).
+- One restart-safe `sales_opportunities` row owns one concrete project/thread
+  identity. Conversation turns, explicit owner confirmations, human fact
+  requests and every state transition are append-only/auditable.
+- Validated Stage 4 proposals create a version/hash-bound bid package. Only
+  `/mark_bid_sent` records actual manually submitted terms; it never submits.
+- Trusted private-message emails bypass score filtering, resolve by exact
+  thread/project/reference evidence, preserve full context, classify intent,
+  and produce a deterministic-validator-approved client-language draft.
+- Missing dialogue context becomes `NEEDS_CONTEXT`; unavailable delivery facts
+  become one `NEEDS_HUMAN_INPUT` request that `/answer_lead` resolves without
+  deleting earlier drafts or history.
+- `/mark_reply_sent` binds the exact reply version and SHA-256, records response
+  latency and moves the opportunity to `WAITING_CLIENT`; it never sends.
+- `/pipeline` and `/lead` expose current counts and compact auditable history.
+  Working-window deferral is 08:00–21:00 Europe/Kyiv, with durable pending cards.
+- Release 5B fields are present with `follow_up_status=DISABLED_5A`; no timed
+  follow-up scheduler exists. Release 5C handoff is not implemented.
+- Validation: 35 focused deterministic tests plus one real isolated PostgreSQL
+  E2E; the full suite discovered 346 tests, passed 340 and skipped only six
+  unrelated opt-in PostgreSQL cases.
+  The entire additive migration list ran twice, and the restart retained the
+  exact opportunity, confirmed turns and `WAITING_CLIENT` state.
+- No production, Railway variable, OAuth, Telegram secret, Gmail, bid,
+  message, contract, payment, backfill or replacement-card mutation occurred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY`.
+
+## 2026-09-03 — Stage 5A Draft PR #16 correction cycle V2
+
+- Stage 4 is deployed and verified, issue #11 is completed, and the protected
+  production baseline remains `main` `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`
+  with Railway deployment `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`
+  (`SUCCESS / RUNNING`).
+- Write-state Telegram commands now resolve the actual sender by configured
+  numeric user ID into `ADULT_OWNER`, `ARTEM`, `VADIM` or
+  `READ_ONLY_MEMBER`. Missing role configuration and unauthorized actors fail
+  closed; `/whoami`, `/pipeline`, `/lead` and notification cards remain
+  read-only.
+- Bid confirmation re-locks the opportunity and verifies the exact current
+  proposal version, SHA-256, state and canonical Stage 4 commercial terms.
+  Reply confirmation locks the opportunity and turns, rejects stale/hash-
+  changed drafts, and stores the actual actor audit fields.
+- Concurrent incoming turns use a PostgreSQL atomic sequence and a locked
+  draft-publication boundary, so versions remain unique and only the draft for
+  the latest incoming turn remains active.
+- Human decisions are bound to request, source turn, intent and subject
+  fingerprint. Application-owned clauses enforce technical, scope, price,
+  timeline, availability, proof, access, selection and contract decisions.
+- The explicit transition matrix prevents automatic reopening of terminal
+  states. Selection readiness becomes `SELECTION_REVIEW`, contract evidence
+  becomes `CONTRACT_REVIEW`, and no classification creates formal `SELECTED`.
+- `/sync_lead_context` accepts one bounded plain-text owner/Artem copy, redacts
+  credentials and reset material, rejects cross-opportunity identity, stores
+  `UNKNOWN_DIRECTION`, and performs at most one validated generation.
+- `/ack_lead` persists the actual actor. Each notified client turn owns one
+  restart-safe five-minute working-window escalation; answer, sync or confirmed
+  reply acknowledges it.
+- A temporary 5A persistence failure cannot suppress a validated Stage 4 card:
+  the card is labelled, sent once and leaves `sales_tracking_pending` for
+  retry. Dialogue failure emits one sanitized no-reply fallback and leaves the
+  Gmail event retryable.
+- Validation: 68 focused 5A tests plus 34 parameterized subtests pass. The full
+  ordered `unittest` suite runs 381 tests successfully, with nine opt-in
+  PostgreSQL skips when no disposable URL is supplied. Three real isolated
+  PostgreSQL 17 tests pass; the full additive migration list runs twice,
+  concurrent reply versions are unique, terminal races fail closed, and the
+  synthetic sales loop survives restart. Python 3.12.14 imports, compileall,
+  changed-file Ruff F rules, Telegram HTML/size checks and diff checks pass.
+- No merge, deploy, production migration/backfill, Railway variable, OAuth,
+  Telegram secret, card replacement, bid, client message, contract or payment
+  action occurred. Release 5B follow-ups and Release 5C handoff remain deferred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`.
+
+## 2026-09-03 — Stage 5A Draft PR #16 correction cycle V3
+
+- Added a typed real-notification parser for Ukrainian, Russian, English and
+  Polish wrappers. Sanitized HTML structure is authoritative, deterministic
+  plain text is the fallback, and ambiguous message boundaries fail closed.
+- Wrapper language and client-message language are persisted separately. Only
+  the isolated client text reaches intent classification, generation, storage
+  as message content and the copy-ready Telegram section.
+- Freelancehunt support/onboarding notifications route to a bounded safe support
+  card outside the sales repository, generator and funnel metrics.
+- Exact resolution now supports a bounded active-state conversation-title
+  lookup with Unicode/HTML/space/punctuation normalization and atomic thread
+  binding. Zero, duplicate, terminal-only and thread-conflict candidates become
+  `NEEDS_CONTEXT`; resolution basis is persisted on the incoming turn.
+- Intent precedence now puts price before rejection, requires explicit terminal
+  rejection phrases and distinguishes technical uses of “access/доступ” from an
+  explicit grant/share/use of access or credentials.
+- Explicit rejection persists a sanitized loss reason, disables follow-up,
+  transitions to `LOST`, and produces no reply draft, AI call or mark command.
+  Selection/contract copy is neutral and the validator blocks internal actor or
+  automation language in any copy-ready reply.
+- Partial Telegram role configuration is supported per command: either Artem or
+  Vadim may answer independently; any configured permitted role may acknowledge,
+  cancel or regenerate; owner or Artem may sync. Owner-only confirmations,
+  unknown actors and duplicate IDs remain fail closed; `/whoami` is read-only.
+- Five sanitized real-shape fixture files cover 19 parser/resolution/routing cases.
+  Focused 5A V1/V2/V3 validation runs 98 tests successfully. The full suite runs
+  412 tests successfully with ten expected opt-in PostgreSQL skips.
+- Four isolated real PostgreSQL 17 tests pass after the full additive migration
+  list runs twice, including restart/dedup, unique reply allocation, terminal
+  races and concurrent exact-title thread binding. Python 3.12.14 imports,
+  compileall, changed-file Ruff F rules, Telegram HTML/size and diff checks pass.
+- No merge, deployment, production migration/backfill, variable, secret, OAuth,
+  Gmail write, bid, message, contract or payment action occurred. Release 5B and
+  Release 5C remain deferred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V3`.
+
+## 2026-09-04 — Stage 5A Draft PR #16 correction cycle V4
+
+- Added all eight required `/profile` and `/profile/show` URL shapes and a
+  real-form Ukrainian onboarding fixture using
+  `/ua/profile/show/freelancehunt_nastasiia.html`. The staff slug alone routes
+  the notification outside sales.
+- Restarted support scans produce one mocked Telegram support card total and
+  zero sales opportunities, AI calls, qualified increments, pending ACKs or
+  escalations. An ordinary client's use of the word Freelancehunt remains a
+  client message.
+- Reordered intent classification to terminal rejection, formal
+  contract/selection, genuine price objection, timeline, scope, then other
+  intents. The four required rejection-plus-price cases close as `LOST` with
+  no reply or follow-up; four real objections stay price objections and four
+  neutral budget statements do not.
+- Added additive orphan/tombstone columns and `MERGED` state. Exact project URL,
+  project ID or reply/reference evidence combined with the orphan thread can
+  invoke an atomic merge; sender, fuzzy title, similar text, contradictory
+  identity, unchecked terms and unverified bid packages fail closed.
+- Both in-memory and PostgreSQL repositories re-home turns, Gmail identities,
+  ACK/escalation state, human requests and context sync rows; canonical
+  proposal, submitted price and submitted timeline remain byte-for-byte
+  unchanged. Both records retain audit transitions and the orphan is excluded
+  from active counts.
+- Focused V4 validation passes 12 tests plus 30 parameterized subtests. Five
+  isolated PostgreSQL 17 tests pass after the entire additive migration list
+  runs twice, including two concurrent merge transactions, restart, repeat
+  import, future-thread routing and mocked one-card delivery.
+- The full ordered suite passes 425 tests with six unrelated opt-in skips while
+  the disposable sales PostgreSQL URL is enabled. Python 3.12.14 production
+  import, compileall, changed-file Ruff F rules and `git diff --check` pass.
+- Protected production remains on `main`
+  `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05` and Railway deployment
+  `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`; no merge, deploy, production
+  migration/backfill, variable, secret, OAuth, Gmail, Telegram or platform
+  mutation occurred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.

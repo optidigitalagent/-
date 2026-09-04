@@ -732,6 +732,23 @@ def _contains_external_contact(text: str) -> bool:
     )
 
 
+def contains_external_contact(text: str) -> bool:
+    """Public Stage 4 contact guard shared by all model-owned client text."""
+
+    return _contains_external_contact(text)
+
+
+def contains_unsupported_case_or_capability_claim(text: str) -> bool:
+    """Reject model-authored past-client/capability claims before composition."""
+
+    value = str(text or "")
+    return bool(
+        _UNSUPPORTED_CLAIM_RE.search(value)
+        or _PAST_CAPABILITY_RE.search(value)
+        or _DIRECT_CASE_RE.search(value)
+    )
+
+
 def _safe_text_errors(analysis: JobAnalysis) -> list[str]:
     proposal = analysis.proposal_draft or ""
     errors: list[str] = []

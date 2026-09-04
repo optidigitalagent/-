@@ -1,6 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    Boolean,
+    BigInteger,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -239,6 +251,266 @@ class GmailJob(Base):
     fit_score_state: Mapped[str] = mapped_column(String(20), default="MISSING", server_default="MISSING", nullable=False)
 
 
+class SalesOpportunity(Base):
+    """One commercial workflow for one exact project/thread identity."""
+
+    __tablename__ = "sales_opportunities"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    identity_key: Mapped[str] = mapped_column(String(512), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(1000), nullable=False)
+    normalized_title: Mapped[str | None] = mapped_column(String(1000), nullable=True, index=True)
+    state: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    gmail_job_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    project_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    thread_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    project_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    thread_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    reply_reference_id: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    client_name: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
+    source_description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description_completeness: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="PARTIAL", server_default="PARTIAL"
+    )
+    decision: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="REVIEW", server_default="REVIEW"
+    )
+    live_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    fit_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    competition_signal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    recommended_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    recommended_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    risks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    initial_proposal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    proposal_content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_submitted_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_submitted_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_submitted_price_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_submitted_timeline_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_submitted_money_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_submitted_timeline_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bid_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_reply_sequence: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    client_constraints_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    decisions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    human_facts_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="{}", server_default="{}"
+    )
+    unresolved_questions_json: Mapped[str] = mapped_column(
+        Text, nullable=False, default="[]", server_default="[]"
+    )
+    last_owner_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_client_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    follow_up_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    do_not_follow_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    follow_up_status: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="DISABLED_5A", server_default="DISABLED_5A"
+    )
+    loss_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_orphan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    merged_into_opportunity_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    merged_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    merged_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    merge_evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_sales_opportunity_project_id"),
+        UniqueConstraint("thread_id", name="uq_sales_opportunity_thread_id"),
+    )
+
+
+class OpportunityStateTransition(Base):
+    __tablename__ = "opportunity_state_transitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    previous_state: Mapped[str] = mapped_column(String(50), nullable=False)
+    new_state: Mapped[str] = mapped_column(String(50), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    actor: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_role: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="SYSTEM", server_default="SYSTEM"
+    )
+    actor_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        Index("ix_opportunity_transitions_timeline", "opportunity_id", "timestamp"),
+    )
+
+
+class ConversationTurn(Base):
+    __tablename__ = "conversation_turns"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    direction: Mapped[str] = mapped_column(String(30), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonical_turn_identity: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    source_reference_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    incoming_gmail_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    incoming_canonical_identity: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="GMAIL", server_default="GMAIL"
+    )
+    language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    wrapper_language: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    parse_confidence: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    resolution_basis: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    intent: Mapped[str] = mapped_column(String(50), nullable=False, default="UNKNOWN", server_default="UNKNOWN")
+    russian_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_ask: Mapped[str | None] = mapped_column(Text, nullable=True)
+    negotiation_strategy: Mapped[str | None] = mapped_column(Text, nullable=True)
+    risks: Mapped[str | None] = mapped_column(Text, nullable=True)
+    missing_facts: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    detected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    response_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    telegram_notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notification_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    imported_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    imported_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    acknowledged_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    acknowledged_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    escalation_due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    escalation_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    alert_state: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="NOT_SENT", server_default="NOT_SENT"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_conversation_turns_timeline", "opportunity_id", "created_at"),
+        UniqueConstraint(
+            "opportunity_id", "reply_version", name="uq_conversation_turn_reply_version"
+        ),
+    )
+
+
+class OwnerActionConfirmation(Base):
+    __tablename__ = "owner_action_confirmations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    actor: Mapped[str] = mapped_column(String(20), nullable=False)
+    actor_role: Mapped[str] = mapped_column(String(30), nullable=False)
+    actor_telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    proposal_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    actual_price: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_timeline: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    actual_price_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    actual_timeline_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
+    money_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timeline_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    response_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("ix_owner_confirmations_timeline", "opportunity_id", "confirmed_at"),
+    )
+
+
+class HumanInformationRequest(Base):
+    __tablename__ = "human_information_requests"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    source_turn_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("conversation_turns.id", ondelete="CASCADE"), nullable=False
+    )
+    fact_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    intent: Mapped[str] = mapped_column(String(50), nullable=False)
+    subject_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="OPEN", server_default="OPEN")
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answer_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    canonical_money_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    canonical_timeline_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_availability_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    approved_evidence_case_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    resulting_reply_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    answered_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    answered_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        Index("ix_human_requests_open", "opportunity_id", "status"),
+    )
+
+
+class LeadContextSync(Base):
+    __tablename__ = "lead_context_syncs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    opportunity_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    requested_by_role: Mapped[str] = mapped_column(String(30), nullable=False)
+    requested_by_telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    imported_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    redaction_applied: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+
+    __table_args__ = (
+        Index("ix_lead_context_sync_actor", "requested_by_telegram_user_id", "status"),
+    )
+
+
 _MIGRATIONS = [
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_name TEXT",
     "ALTER TABLE orders ADD COLUMN IF NOT EXISTS employer_url TEXT",
@@ -372,6 +644,70 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_calls INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS repair_successes INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS proposal_versions_sent INTEGER NOT NULL DEFAULT 0",
+    # Stage 5A is additive. create_all creates the new sales tables; these
+    # guards also make repeat deploys and an early/partial schema restart-safe.
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_owner_message_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_client_message_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS do_not_follow_up BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_status TEXT NOT NULL DEFAULT 'DISABLED_5A'",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS normalized_title TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS loss_reason TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_price_raw TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_timeline_raw TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_money_json TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_timeline_json TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_reply_sequence INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS is_orphan BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_into_opportunity_id TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_by_role TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_by_telegram_user_id BIGINT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merge_evidence_json TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS telegram_notified_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS notification_due_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS incoming_gmail_message_id TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS incoming_canonical_identity TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'GMAIL'",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS wrapper_language TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS parse_confidence TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS resolution_basis TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS imported_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS imported_by_role TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS imported_by_telegram_user_id BIGINT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS acknowledged_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS acknowledged_by_role TEXT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS acknowledged_by_telegram_user_id BIGINT",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS escalation_due_at TIMESTAMPTZ",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS escalation_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS alert_state TEXT NOT NULL DEFAULT 'NOT_SENT'",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actor_role TEXT NOT NULL DEFAULT 'ADULT_OWNER'",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actor_telegram_user_id BIGINT",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actual_price_raw TEXT",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actual_timeline_raw TEXT",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS money_terms_json TEXT",
+    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS timeline_terms_json TEXT",
+    "ALTER TABLE opportunity_state_transitions ADD COLUMN IF NOT EXISTS actor_role TEXT NOT NULL DEFAULT 'SYSTEM'",
+    "ALTER TABLE opportunity_state_transitions ADD COLUMN IF NOT EXISTS actor_telegram_user_id BIGINT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS intent TEXT NOT NULL DEFAULT 'UNKNOWN'",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS subject_fingerprint TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answer_code TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answer_text TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS canonical_money_json TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS canonical_timeline_json TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS approved_availability_json TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS approved_evidence_case_id TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answered_by_role TEXT",
+    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answered_by_telegram_user_id BIGINT",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_project_id ON sales_opportunities (project_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_thread_id ON sales_opportunities (thread_id)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_state ON sales_opportunities (state)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_normalized_title ON sales_opportunities (normalized_title)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_merged_into ON sales_opportunities (merged_into_opportunity_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_project_id ON sales_opportunities (project_id) WHERE project_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_thread_id ON sales_opportunities (thread_id) WHERE thread_id IS NOT NULL",
 ]
 
 
