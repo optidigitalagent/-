@@ -750,15 +750,7 @@ def _sales_closer_service():
     return SalesCloserService(PostgresSalesRepository(AsyncSessionLocal))
 
 
-def _sales_actor(
-    message: Message,
-    *,
-    allowed_roles: tuple,
-    required_settings: tuple[str, ...],
-    claimed_role=None,
-    attestation_version: str = "",
-    allow_shared_operator: bool = False,
-):
+def _sales_actor(message: Message, *, allowed_roles: tuple, required_settings: tuple[str, ...]):
     from gmail_agent.telegram_roles import authorize_telegram_actor
 
     user = message.from_user
@@ -770,43 +762,26 @@ def _sales_actor(
         settings,
         allowed_roles=allowed_roles,
         required_settings=required_settings,
-        claimed_role=claimed_role,
-        attestation_version=attestation_version,
-        allow_shared_operator=allow_shared_operator,
     )
-
-
-def _actor_audit_kwargs(actor) -> dict[str, object]:
-    return {
-        "operator_mode": actor.operator_mode.value,
-        "identity_assurance": actor.identity_assurance,
-        "claimed_actor_role": actor.claimed_actor_role,
-        "attestation_version": actor.attestation_version,
-        "claimed_at": actor.claimed_at,
-    }
 
 
 @router.message(Command("whoami"))
 async def cmd_whoami(message: Message) -> None:
     """Read-only identity aid; it never authorizes a role by username."""
 
-    from gmail_agent.telegram_roles import (
-        TelegramAuthorizationError,
-        format_whoami,
-        resolve_telegram_actor,
-    )
+    from gmail_agent.telegram_roles import resolve_telegram_actor
 
     user = message.from_user
     if user is None:
         await message.answer("❌ Telegram sender identity is unavailable.")
         return
-    try:
-        actor = resolve_telegram_actor(int(user.id), str(user.username or ""), settings)
-    except TelegramAuthorizationError as exc:
-        logger.warning("Stage 5A Telegram operator configuration rejected: %s", exc)
-        await message.answer("❌ Telegram operator configuration is invalid; access is read-only.")
-        return
-    await message.answer(format_whoami(actor))
+    actor = resolve_telegram_actor(int(user.id), str(user.username or ""), settings)
+    await message.answer(
+        "<b>Telegram identity</b>\n"
+        f"User ID: <code>{int(user.id)}</code>\n"
+        f"Username: @{escape_html(user.username or 'none')}\n"
+        f"Configured role: <b>{escape_html(actor.role.value)}</b>"
+    )
 
 
 @router.message(Command("mark_bid_sent"))
@@ -817,73 +792,25 @@ async def cmd_mark_bid_sent(message: Message) -> None:
     payload = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) == 2 else ""
     parts = [part.strip() for part in payload.split("|")]
     identity = parts[0].split() if parts else []
-    if len(parts) not in {3, 4} or len(identity) != 2 or not all(parts):
+    if len(parts) != 3 or len(identity) != 2 or not all(parts):
         await message.answer(
             "Підтвердьте фактичні умови вже вручну поданої ставки однією командою:\n"
             "<code>/mark_bid_sent &lt;opportunity_id&gt; &lt;proposal_version&gt; | "
             "&lt;actual price&gt; | "
             "&lt;actual timeline&gt;</code>\n"
-            "Shared operator confirmation appends: <code>| OWNER_CONFIRMS</code>\n"
             "Ця команда нічого не надсилає у Freelancehunt."
         )
         return
     opportunity_id, proposal_version = identity
-    price, timeline = parts[1:3]
+    price, timeline = parts[1:]
     try:
-        from gmail_agent.telegram_roles import (
-            OWNER_ATTESTATION_VERSION,
-            OWNER_CONFIRMATION_PHRASE,
-            TelegramOperatorMode,
-            TelegramRole,
-        )
+        from gmail_agent.telegram_roles import TelegramRole
 
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER,),
             required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
-            allow_shared_operator=True,
         )
-        if actor.operator_mode is TelegramOperatorMode.SINGLE_SHARED_OPERATOR:
-            opportunity, canonical_price, canonical_timeline = (
-                await _sales_closer_service().preview_bid_confirmation(
-                    opportunity_id, proposal_version, price, timeline
-                )
-            )
-            if len(parts) == 3:
-                await message.answer(
-                    "⚠️ <b>Adult-owner attestation required — no state changed</b>\n"
-                    f"Opportunity: <code>{escape_html(opportunity.id)}</code>\n"
-                    f"Proposal: <code>{escape_html(opportunity.proposal_version)}</code>\n"
-                    f"SHA-256: <code>{escape_html(opportunity.proposal_content_sha256[:12])}…</code>\n"
-                    f"Actual price: {escape_html(canonical_price)}\n"
-                    f"Actual timeline: {escape_html(canonical_timeline)}\n"
-                    "Only the adult owner who personally submitted this exact bid may run:\n"
-                    f"<code>/mark_bid_sent {escape_html(opportunity.id)} "
-                    f"{escape_html(opportunity.proposal_version)} | "
-                    f"{escape_html(canonical_price)} | {escape_html(canonical_timeline)} | "
-                    f"{OWNER_CONFIRMATION_PHRASE}</code>\n"
-                    "Platform action: <b>none</b>."
-                )
-                return
-            if parts[3] != OWNER_CONFIRMATION_PHRASE:
-                raise RuntimeError("exact OWNER_CONFIRMS attestation is required")
-            actor = _sales_actor(
-                message,
-                allowed_roles=(TelegramRole.ADULT_OWNER,),
-                required_settings=(),
-                claimed_role=TelegramRole.ADULT_OWNER,
-                attestation_version=OWNER_ATTESTATION_VERSION,
-            )
-        elif len(parts) == 4:
-            if parts[3] != OWNER_CONFIRMATION_PHRASE:
-                raise RuntimeError("exact OWNER_CONFIRMS attestation is required")
-            actor = _sales_actor(
-                message,
-                allowed_roles=(TelegramRole.ADULT_OWNER,),
-                required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
-                claimed_role=TelegramRole.ADULT_OWNER,
-                attestation_version=OWNER_ATTESTATION_VERSION,
-            )
         opportunity, confirmation, created = await _sales_closer_service().mark_bid_sent(
             opportunity_id,
             proposal_version,
@@ -891,7 +818,6 @@ async def cmd_mark_bid_sent(message: Message) -> None:
             timeline,
             actor_role=actor.role.value,
             actor_telegram_user_id=actor.user_id,
-            **_actor_audit_kwargs(actor),
         )
     except Exception as exc:
         logger.exception("Stage 5A bid confirmation failed")
@@ -910,81 +836,25 @@ async def cmd_mark_bid_sent(message: Message) -> None:
 
 @router.message(Command("answer_lead"))
 async def cmd_answer_lead(message: Message) -> None:
-    raw = (message.text or "").strip()
-    payload = raw.split(maxsplit=1)[1].strip() if len(raw.split(maxsplit=1)) == 2 else ""
-    if not payload:
+    raw = (message.text or "").strip().split(maxsplit=2)
+    if len(raw) != 3 or not raw[1].strip() or not raw[2].strip():
         await message.answer(
-            "❌ Використання: <code>/answer_lead &lt;request_id&gt; ARTEM | &lt;answer&gt;</code> "
-            "or <code>VADIM</code> in shared mode."
+            "❌ Використання: <code>/answer_lead &lt;request_id&gt; &lt;answer&gt;</code>"
         )
         return
     try:
-        from gmail_agent.telegram_roles import (
-            FACT_SOURCE_ATTESTATION_VERSION,
-            TelegramOperatorMode,
-            TelegramRole,
-        )
+        from gmail_agent.telegram_roles import TelegramRole
 
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ARTEM, TelegramRole.VADIM),
             required_settings=(),
-            allow_shared_operator=True,
         )
-        request_id = ""
-        answer = ""
-        if actor.operator_mode is TelegramOperatorMode.SINGLE_SHARED_OPERATOR:
-            segments = [segment.strip() for segment in payload.split("|", maxsplit=1)]
-            identity = segments[0].split() if segments else []
-            if len(segments) != 2 or len(identity) != 2 or not segments[1]:
-                raise RuntimeError(
-                    "shared mode requires /answer_lead <request_id> ARTEM | <answer> or VADIM"
-                )
-            request_id, source_role = identity
-            try:
-                claimed_role = TelegramRole(source_role)
-            except ValueError as exc:
-                raise RuntimeError("fact source must be exactly ARTEM or VADIM") from exc
-            if claimed_role not in {TelegramRole.ARTEM, TelegramRole.VADIM}:
-                raise RuntimeError("fact source must be exactly ARTEM or VADIM")
-            answer = segments[1]
-            actor = _sales_actor(
-                message,
-                allowed_roles=(TelegramRole.ARTEM, TelegramRole.VADIM),
-                required_settings=(),
-                claimed_role=claimed_role,
-                attestation_version=FACT_SOURCE_ATTESTATION_VERSION,
-            )
-        else:
-            segments = [segment.strip() for segment in payload.split("|", maxsplit=1)]
-            identity = segments[0].split() if segments else []
-            if len(segments) == 2 and len(identity) == 2 and segments[1]:
-                request_id, source_role = identity
-                try:
-                    claimed_role = TelegramRole(source_role)
-                except ValueError as exc:
-                    raise RuntimeError("fact source must be exactly ARTEM or VADIM") from exc
-                if claimed_role not in {TelegramRole.ARTEM, TelegramRole.VADIM}:
-                    raise RuntimeError("fact source must be exactly ARTEM or VADIM")
-                answer = segments[1]
-                actor = _sales_actor(
-                    message,
-                    allowed_roles=(TelegramRole.ARTEM, TelegramRole.VADIM),
-                    required_settings=(),
-                    claimed_role=claimed_role,
-                    attestation_version=FACT_SOURCE_ATTESTATION_VERSION,
-                )
-            else:
-                legacy = payload.split(maxsplit=1)
-                if len(legacy) != 2 or not all(legacy):
-                    raise RuntimeError("answer is required")
-                request_id, answer = legacy
         result = await _sales_closer_service().answer_human_request(
-            request_id,
-            answer,
+            raw[1],
+            raw[2],
             actor_role=actor.role.value,
             actor_telegram_user_id=actor.user_id,
-            **_actor_audit_kwargs(actor),
         )
     except Exception as exc:
         logger.exception("Stage 5A human answer failed")
@@ -998,73 +868,26 @@ async def cmd_answer_lead(message: Message) -> None:
 
 @router.message(Command("mark_reply_sent"))
 async def cmd_mark_reply_sent(message: Message) -> None:
-    text = (message.text or "").strip()
-    payload = text.split(maxsplit=1)[1].strip() if len(text.split(maxsplit=1)) == 2 else ""
-    segments = [segment.strip() for segment in payload.split("|", maxsplit=1)]
-    identity = segments[0].split() if segments else []
-    if len(identity) != 2 or len(segments) not in {1, 2}:
+    raw = (message.text or "").strip().split()
+    if len(raw) != 3:
         await message.answer(
             "❌ Використання: <code>/mark_reply_sent &lt;opportunity_id&gt; "
-            "&lt;reply_version&gt;</code>; shared confirmation appends "
-            "<code>| OWNER_CONFIRMS</code>."
+            "&lt;reply_version&gt;</code>"
         )
         return
     try:
-        from gmail_agent.telegram_roles import (
-            OWNER_ATTESTATION_VERSION,
-            OWNER_CONFIRMATION_PHRASE,
-            TelegramOperatorMode,
-            TelegramRole,
-        )
+        from gmail_agent.telegram_roles import TelegramRole
 
         actor = _sales_actor(
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER,),
             required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
-            allow_shared_operator=True,
         )
-        opportunity_id, reply_version = identity
-        if actor.operator_mode is TelegramOperatorMode.SINGLE_SHARED_OPERATOR:
-            opportunity, draft = await _sales_closer_service().preview_reply_confirmation(
-                opportunity_id, reply_version
-            )
-            if len(segments) == 1:
-                await message.answer(
-                    "⚠️ <b>Adult-owner attestation required — no state changed</b>\n"
-                    f"Opportunity: <code>{escape_html(opportunity.id)}</code>\n"
-                    f"Reply: <code>{escape_html(draft.reply_version)}</code>\n"
-                    f"SHA-256: <code>{escape_html(draft.content_sha256[:12])}…</code>\n"
-                    "Only the adult owner who personally sent this exact reply may run:\n"
-                    f"<code>/mark_reply_sent {escape_html(opportunity.id)} "
-                    f"{escape_html(draft.reply_version)} | {OWNER_CONFIRMATION_PHRASE}</code>\n"
-                    "Platform action: <b>none</b>."
-                )
-                return
-            if segments[1] != OWNER_CONFIRMATION_PHRASE:
-                raise RuntimeError("exact OWNER_CONFIRMS attestation is required")
-            actor = _sales_actor(
-                message,
-                allowed_roles=(TelegramRole.ADULT_OWNER,),
-                required_settings=(),
-                claimed_role=TelegramRole.ADULT_OWNER,
-                attestation_version=OWNER_ATTESTATION_VERSION,
-            )
-        elif len(segments) == 2:
-            if segments[1] != OWNER_CONFIRMATION_PHRASE:
-                raise RuntimeError("exact OWNER_CONFIRMS attestation is required")
-            actor = _sales_actor(
-                message,
-                allowed_roles=(TelegramRole.ADULT_OWNER,),
-                required_settings=("TELEGRAM_ADULT_OWNER_USER_ID",),
-                claimed_role=TelegramRole.ADULT_OWNER,
-                attestation_version=OWNER_ATTESTATION_VERSION,
-            )
         opportunity, confirmation, created = await _sales_closer_service().mark_reply_sent(
-            opportunity_id,
-            reply_version,
+            raw[1],
+            raw[2],
             actor_role=actor.role.value,
             actor_telegram_user_id=actor.user_id,
-            **_actor_audit_kwargs(actor),
         )
     except Exception as exc:
         logger.exception("Stage 5A reply confirmation failed")
@@ -1099,7 +922,6 @@ async def cmd_ack_lead(message: Message) -> None:
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
             required_settings=(),
-            allow_shared_operator=True,
         )
         turn = await _sales_closer_service().acknowledge_lead(
             raw[1],
@@ -1132,7 +954,6 @@ async def cmd_sync_lead_context(message: Message) -> None:
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
             required_settings=(),
-            allow_shared_operator=True,
         )
         _sync, opportunity = await _sales_closer_service().begin_context_sync(
             raw[1],
@@ -1160,7 +981,6 @@ async def cmd_cancel_sync(message: Message) -> None:
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
             required_settings=(),
-            allow_shared_operator=True,
         )
         cancelled = await _sales_closer_service().cancel_context_sync(
             actor.user_id, actor_role=actor.role.value
@@ -1186,7 +1006,6 @@ async def cmd_regenerate_lead(message: Message) -> None:
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM, TelegramRole.VADIM),
             required_settings=(),
-            allow_shared_operator=True,
         )
         result = await _sales_closer_service().regenerate_latest_reply(
             raw[1],
@@ -1253,7 +1072,6 @@ async def capture_pending_lead_context(message: Message) -> None:
             message,
             allowed_roles=(TelegramRole.ADULT_OWNER, TelegramRole.ARTEM),
             required_settings=(),
-            allow_shared_operator=True,
         )
         result = await service.import_context(
             message.text,

@@ -383,18 +383,12 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
     }:
         opportunity_id = opportunity_id_for_analysis(analysis)
         proposal_version = str(analysis.proposal_version or "").strip() or "UNAVAILABLE"
-        proposal_hash = str(analysis.proposal_content_sha256 or "").strip()
-        hash_prefix = proposal_hash[:12] + "…" if proposal_hash else "UNAVAILABLE"
         commands = (
             f"<b>Validated proposal retrieval:</b> <code>/reply_job {escape_html(analysis.email_id)}</code>\n"
-            f"<b>Exact package:</b> {escape_html(proposal_version)} · SHA-256 "
-            f"<code>{escape_html(hash_prefix)}</code>\n"
             "<b>Наступна дія власниці (одна):</b> перевірити й вручну подати точний "
             "відгук у Freelancehunt, потім зафіксувати фактичні умови:\n"
             f"<code>/mark_bid_sent {escape_html(opportunity_id)} "
-            f"{escape_html(proposal_version)} | &lt;price&gt; | &lt;timeline&gt; | "
-            "OWNER_CONFIRMS</code>\n"
-            "The command only records the adult owner's manual platform action; it never submits a bid."
+            f"{escape_html(proposal_version)} | &lt;price&gt; | &lt;timeline&gt;</code>"
         )
     else:
         next_action = analysis.next_action or (
@@ -600,11 +594,6 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
                 f"<b>Sanitized notification excerpt:</b>\n{escape_html(chunk)}",
             )
     if reply is not None:
-        _append_html_section(
-            parts,
-            f"<b>Exact reply package:</b> {escape_html(reply.reply_version)} · SHA-256 "
-            f"<code>{escape_html(reply.content_sha256[:12])}…</code>",
-        )
         for chunk in _split_text(reply.content):
             _append_html_section(
                 parts,
@@ -622,10 +611,6 @@ def format_sales_response_card_parts(result: SalesProcessResult) -> list[str]:
     _append_html_section(
         parts,
         f"<b>Next action (one):</b> {escape_html(result.next_action)}",
-    )
-    _append_html_section(
-        parts,
-        "⚠️ This bot only prepares and records copy-ready work; it performs no Freelancehunt action.",
     )
     if len(parts) > 1:
         total = len(parts)

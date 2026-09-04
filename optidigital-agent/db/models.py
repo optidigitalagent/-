@@ -449,19 +449,6 @@ class OwnerActionConfirmation(Base):
     timeline_terms_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     response_latency_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    operator_mode: Mapped[str] = mapped_column(
-        String(40), nullable=False, default="SEPARATE_ROLES", server_default="SEPARATE_ROLES"
-    )
-    identity_assurance: Mapped[str] = mapped_column(
-        String(60), nullable=False, default="CONFIGURED_ROLE_ID", server_default="CONFIGURED_ROLE_ID"
-    )
-    claimed_actor_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    attestation_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    actual_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    action_confirmed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
 
     __table_args__ = (
         Index("ix_owner_confirmations_timeline", "opportunity_id", "confirmed_at"),
@@ -496,19 +483,6 @@ class HumanInformationRequest(Base):
     answered_by: Mapped[str | None] = mapped_column(String(20), nullable=True)
     answered_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
     answered_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    operator_mode: Mapped[str] = mapped_column(
-        String(40), nullable=False, default="SEPARATE_ROLES", server_default="SEPARATE_ROLES"
-    )
-    identity_assurance: Mapped[str] = mapped_column(
-        String(60), nullable=False, default="CONFIGURED_ROLE_ID", server_default="CONFIGURED_ROLE_ID"
-    )
-    claimed_actor_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
-    attestation_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    actual_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    action_confirmed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
 
     __table_args__ = (
         Index("ix_human_requests_open", "opportunity_id", "status"),
@@ -715,13 +689,6 @@ _MIGRATIONS = [
     "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actual_timeline_raw TEXT",
     "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS money_terms_json TEXT",
     "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS timeline_terms_json TEXT",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS operator_mode TEXT NOT NULL DEFAULT 'SEPARATE_ROLES'",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS identity_assurance TEXT NOT NULL DEFAULT 'CONFIGURED_ROLE_ID'",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS claimed_actor_role TEXT",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS attestation_version TEXT",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS actual_telegram_user_id BIGINT",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ",
-    "ALTER TABLE owner_action_confirmations ADD COLUMN IF NOT EXISTS action_confirmed_at TIMESTAMPTZ",
     "ALTER TABLE opportunity_state_transitions ADD COLUMN IF NOT EXISTS actor_role TEXT NOT NULL DEFAULT 'SYSTEM'",
     "ALTER TABLE opportunity_state_transitions ADD COLUMN IF NOT EXISTS actor_telegram_user_id BIGINT",
     "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS intent TEXT NOT NULL DEFAULT 'UNKNOWN'",
@@ -734,13 +701,6 @@ _MIGRATIONS = [
     "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS approved_evidence_case_id TEXT",
     "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answered_by_role TEXT",
     "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS answered_by_telegram_user_id BIGINT",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS operator_mode TEXT NOT NULL DEFAULT 'SEPARATE_ROLES'",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS identity_assurance TEXT NOT NULL DEFAULT 'CONFIGURED_ROLE_ID'",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS claimed_actor_role TEXT",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS attestation_version TEXT",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS actual_telegram_user_id BIGINT",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ",
-    "ALTER TABLE human_information_requests ADD COLUMN IF NOT EXISTS action_confirmed_at TIMESTAMPTZ",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_project_id ON sales_opportunities (project_id)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_thread_id ON sales_opportunities (thread_id)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_state ON sales_opportunities (state)",

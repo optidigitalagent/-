@@ -9,8 +9,6 @@ class Settings(BaseSettings):
     TELEGRAM_TOKEN: str
     TELEGRAM_CHAT_ID: int
     ADMIN_CHAT_ID: Optional[int] = None
-    TELEGRAM_OPERATOR_MODE: str = "SEPARATE_ROLES"
-    TELEGRAM_SHARED_OPERATOR_USER_ID: Optional[int] = None
     TELEGRAM_ADULT_OWNER_USER_ID: Optional[int] = None
     TELEGRAM_ARTEM_USER_ID: Optional[int] = None
     TELEGRAM_VADIM_USER_ID: Optional[int] = None
