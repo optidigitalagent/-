@@ -54,9 +54,18 @@ from .sales_storage import (
     SalesOpportunity,
     SalesRepository,
     TERMINAL_STATES,
+    evaluate_reply_confirmation,
+    raise_for_reply_validation,
     utc_now,
 )
 from .security import redact_sensitive_content
+from .telegram_roles import (
+    FACT_SOURCE_ATTESTATION_VERSION,
+    OWNER_ATTESTATION_VERSION,
+    SEPARATE_ROLE_IDENTITY_ASSURANCE,
+    SHARED_IDENTITY_ASSURANCE,
+    TelegramOperatorMode,
+)
 
 KYIV = ZoneInfo("Europe/Kyiv")
 _URL_RE = re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE)
@@ -136,18 +145,54 @@ class SalesProcessResult:
             )
         if self.human_request is not None:
             return (
-                f"Answer one fact: /answer_lead {self.human_request.id} <answer>"
+                f"Answer one fact with its source: /answer_lead {self.human_request.id} "
+                "ARTEM | <answer> (or VADIM)"
             )
         if self.reply_turn is not None:
             return (
                 "Manually send the exact draft in Freelancehunt, then confirm: "
-                f"/mark_reply_sent {self.opportunity.id} {self.reply_turn.reply_version}"
+                f"/mark_reply_sent {self.opportunity.id} {self.reply_turn.reply_version} "
+                "| OWNER_CONFIRMS"
             )
         return "Review the client message manually; no platform action was performed."
 
 
 class SalesCloserError(RuntimeError):
     pass
+
+
+def _validate_operator_audit(
+    *,
+    actor_role: str,
+    actor_telegram_user_id: int,
+    operator_mode: str,
+    identity_assurance: str,
+    claimed_actor_role: str,
+    attestation_version: str,
+    claimed_at: datetime | None,
+    required_attestation_version: str,
+) -> None:
+    if (
+        not isinstance(actor_telegram_user_id, int)
+        or isinstance(actor_telegram_user_id, bool)
+        or actor_telegram_user_id <= 0
+    ):
+        raise SalesCloserError("actual Telegram actor ID is required")
+    try:
+        mode = TelegramOperatorMode(operator_mode)
+    except ValueError as exc:
+        raise SalesCloserError("unknown Telegram operator mode") from exc
+    if mode is TelegramOperatorMode.SINGLE_SHARED_OPERATOR:
+        if identity_assurance != SHARED_IDENTITY_ASSURANCE:
+            raise SalesCloserError("shared operator identity assurance is required")
+        if claimed_actor_role != actor_role:
+            raise SalesCloserError("explicit self-attested action role is required")
+        if attestation_version != required_attestation_version:
+            raise SalesCloserError("required shared-operator attestation is missing")
+        if claimed_at is None:
+            raise SalesCloserError("shared-operator claim timestamp is required")
+    elif identity_assurance != SEPARATE_ROLE_IDENTITY_ASSURANCE:
+        raise SalesCloserError("separate-role identity assurance is invalid")
 
 
 class UntrustedSalesMessage(SalesCloserError):
@@ -761,6 +806,11 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
         confirmed_at: datetime | None = None,
+        operator_mode: str = TelegramOperatorMode.SEPARATE_ROLES.value,
+        identity_assurance: str = SEPARATE_ROLE_IDENTITY_ASSURANCE,
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> tuple[SalesOpportunity, OwnerActionConfirmation, bool]:
         if actor_role != "ADULT_OWNER" or not actor_telegram_user_id:
             raise SalesCloserError("only the actual ADULT_OWNER Telegram actor may confirm a bid")
@@ -779,6 +829,16 @@ class SalesCloserService:
         if not version or not opportunity.proposal_version or not opportunity.proposal_content_sha256:
             raise SalesCloserError("exact validated proposal version is unavailable")
         at = confirmed_at or self._now()
+        _validate_operator_audit(
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+            operator_mode=operator_mode,
+            identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role,
+            attestation_version=attestation_version,
+            claimed_at=claimed_at,
+            required_attestation_version=OWNER_ATTESTATION_VERSION,
+        )
         confirmation = OwnerActionConfirmation(
             id=uuid4().hex,
             opportunity_id=opportunity.id,
@@ -798,11 +858,59 @@ class SalesCloserService:
             money_terms_json=money.to_json(),
             timeline_terms_json=timeline_terms.to_json(),
             confirmed_at=at,
+            operator_mode=operator_mode,
+            identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role or actor_role,
+            attestation_version=attestation_version,
+            actual_telegram_user_id=actor_telegram_user_id,
+            claimed_at=claimed_at or at,
+            action_confirmed_at=at,
         )
         try:
             return await self.repository.confirm_bid(opportunity.id, confirmation)
         except (KeyError, ValueError) as exc:
             raise SalesCloserError(str(exc)) from exc
+
+    async def preview_bid_confirmation(
+        self,
+        opportunity_id: str,
+        proposal_version: str,
+        actual_price: str,
+        actual_timeline: str,
+    ) -> tuple[SalesOpportunity, str, str]:
+        """Validate and return a read-only owner-attestation preview."""
+
+        money = parse_money_terms(str(actual_price or "").strip())
+        timeline = parse_timeline_terms(str(actual_timeline or "").strip())
+        if money is None:
+            raise SalesCloserError("actual price is not valid canonical MoneyTerms")
+        if timeline is None:
+            raise SalesCloserError("actual timeline is not valid canonical TimelineTerms")
+        opportunity = await self.repository.get_opportunity(opportunity_id)
+        if opportunity is None:
+            raise SalesCloserError("opportunity not found")
+        version = str(proposal_version or "").strip()
+        if version != opportunity.proposal_version:
+            raise SalesCloserError("proposal version is stale")
+        if opportunity.state != OpportunityState.PROPOSAL_READY.value:
+            raise SalesCloserError(
+                f"bid cannot be confirmed from state {opportunity.state}"
+            )
+        actual_hash = hashlib.sha256(
+            opportunity.initial_proposal.encode("utf-8")
+        ).hexdigest()
+        if (
+            not opportunity.proposal_content_sha256
+            or actual_hash != opportunity.proposal_content_sha256
+        ):
+            raise SalesCloserError(
+                "current proposal SHA-256 does not match the stored package"
+            )
+        return (
+            opportunity,
+            money.canonical_model_text(),
+            timeline.canonical_model_text(),
+        )
 
     async def process_client_message(
         self,
@@ -1139,12 +1247,27 @@ class SalesCloserService:
         *,
         actor_role: str,
         actor_telegram_user_id: int,
+        operator_mode: str = TelegramOperatorMode.SEPARATE_ROLES.value,
+        identity_assurance: str = SEPARATE_ROLE_IDENTITY_ASSURANCE,
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> SalesProcessResult:
         if actor_role not in {"ARTEM", "VADIM"} or not actor_telegram_user_id:
             raise SalesCloserError("only the actual ARTEM or VADIM Telegram actor may answer")
         value = str(answer or "").strip()
         if not value:
             raise SalesCloserError("answer is required")
+        _validate_operator_audit(
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+            operator_mode=operator_mode,
+            identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role,
+            attestation_version=attestation_version,
+            claimed_at=claimed_at,
+            required_attestation_version=FACT_SOURCE_ATTESTATION_VERSION,
+        )
         request = await self.repository.get_human_request(request_id)
         if request is None:
             raise SalesCloserError("human information request not found")
@@ -1160,6 +1283,11 @@ class SalesCloserService:
             request.answer_code != decision.code or request.answer_text != decision.text
         ):
             raise SalesCloserError("request was already answered with a different fact")
+        if request.status == "ANSWERED" and (
+            request.claimed_actor_role not in {"", claimed_actor_role or actor_role}
+            or request.actual_telegram_user_id not in {None, actor_telegram_user_id}
+        ):
+            raise SalesCloserError("request was already answered by a different fact source")
         if request.status == "ANSWERED" and request.resulting_reply_version:
             return await self._result_for_turn(incoming, "human_answer", duplicate=True)
         questions = [
@@ -1168,6 +1296,7 @@ class SalesCloserService:
             if item != request.question
         ]
         decisions = _json_list(opportunity.decisions_json)
+        recorded_at = self._now()
         if not any(
             isinstance(item, dict)
             and item.get("request_id") == request.id
@@ -1184,7 +1313,12 @@ class SalesCloserService:
                     "fact_key": request.fact_key,
                     "answer_code": decision.code,
                     "answer_text": decision.text,
-                    "recorded_at": self._now().isoformat(),
+                    "operator_mode": operator_mode,
+                    "identity_assurance": identity_assurance,
+                    "claimed_actor_role": claimed_actor_role or actor_role,
+                    "attestation_version": attestation_version,
+                    "actual_telegram_user_id": actor_telegram_user_id,
+                    "recorded_at": recorded_at.isoformat(),
                 }
             )
         opportunity = await self.repository.update_opportunity_fields(
@@ -1203,10 +1337,17 @@ class SalesCloserService:
             "canonical_timeline_json": decision.canonical_timeline_json,
             "approved_availability_json": decision.approved_availability_json,
             "approved_evidence_case_id": decision.approved_evidence_case_id,
-            "answered_at": self._now(),
+            "answered_at": recorded_at,
             "answered_by": "Artem" if actor_role == "ARTEM" else "Vadim",
             "answered_by_role": actor_role,
             "answered_by_telegram_user_id": actor_telegram_user_id,
+            "operator_mode": operator_mode,
+            "identity_assurance": identity_assurance,
+            "claimed_actor_role": claimed_actor_role or actor_role,
+            "attestation_version": attestation_version,
+            "actual_telegram_user_id": actor_telegram_user_id,
+            "claimed_at": claimed_at or recorded_at,
+            "action_confirmed_at": recorded_at,
         }
         request = await self.repository.update_human_request(
             request.id, answer_fields
@@ -1214,7 +1355,11 @@ class SalesCloserService:
         await self.repository.acknowledge_turn(
             incoming.id,
             at=self._now(),
-            actor_role=actor_role,
+            actor_role=(
+                "SHARED_OPERATOR"
+                if operator_mode == TelegramOperatorMode.SINGLE_SHARED_OPERATOR.value
+                else actor_role
+            ),
             actor_telegram_user_id=actor_telegram_user_id,
         )
         existing_turns = await self.repository.list_turns(opportunity.id)
@@ -1277,11 +1422,27 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
         confirmed_at: datetime | None = None,
+        operator_mode: str = TelegramOperatorMode.SEPARATE_ROLES.value,
+        identity_assurance: str = SEPARATE_ROLE_IDENTITY_ASSURANCE,
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> tuple[SalesOpportunity, OwnerActionConfirmation, bool]:
         if actor_role != "ADULT_OWNER" or not actor_telegram_user_id:
             raise SalesCloserError(
                 "only the actual ADULT_OWNER Telegram actor may confirm a reply"
             )
+        at = confirmed_at or self._now()
+        _validate_operator_audit(
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+            operator_mode=operator_mode,
+            identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role,
+            attestation_version=attestation_version,
+            claimed_at=claimed_at,
+            required_attestation_version=OWNER_ATTESTATION_VERSION,
+        )
         try:
             return await self.repository.confirm_reply(
                 opportunity_id,
@@ -1289,10 +1450,33 @@ class SalesCloserService:
                 actor="adult_owner",
                 actor_role=actor_role,
                 actor_telegram_user_id=actor_telegram_user_id,
-                confirmed_at=confirmed_at or self._now(),
+                confirmed_at=at,
+                operator_mode=operator_mode,
+                identity_assurance=identity_assurance,
+                claimed_actor_role=claimed_actor_role or actor_role,
+                attestation_version=attestation_version,
+                claimed_at=claimed_at or at,
             )
         except (KeyError, ValueError, RuntimeError) as exc:
             raise SalesCloserError(str(exc)) from exc
+
+    async def preview_reply_confirmation(
+        self, opportunity_id: str, reply_version: str
+    ) -> tuple[SalesOpportunity, ConversationTurn]:
+        """Validate and return a read-only current-reply attestation preview."""
+
+        opportunity = await self.repository.get_opportunity(opportunity_id)
+        if opportunity is None:
+            raise SalesCloserError("opportunity not found")
+        turns = await self.repository.list_turns(opportunity_id)
+        validation = evaluate_reply_confirmation(opportunity, reply_version, turns)
+        try:
+            raise_for_reply_validation(validation)
+        except (ValueError, RuntimeError) as exc:
+            raise SalesCloserError(str(exc)) from exc
+        if validation.draft is None:
+            raise AssertionError("validated reply draft is missing")
+        return opportunity, validation.draft
 
     async def pending_cards(self) -> list[SalesProcessResult]:
         turns = await self.repository.list_pending_incoming_turns(self._now())
@@ -1308,7 +1492,7 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
     ) -> ConversationTurn:
-        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM"} or not actor_telegram_user_id:
+        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
             raise SalesCloserError("only an authorized team role may acknowledge a lead")
         turn = await self.repository.acknowledge_turn(
             incoming_turn_id,
@@ -1333,7 +1517,7 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
     ) -> tuple[LeadContextSync, SalesOpportunity]:
-        if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+        if actor_role not in {"ADULT_OWNER", "ARTEM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
             raise SalesCloserError("only an authorized team role may sync context")
         opportunity = await self.repository.get_opportunity(opportunity_id)
         if opportunity is None:
@@ -1378,7 +1562,7 @@ class SalesCloserService:
         *,
         actor_role: str,
     ) -> bool:
-        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM"} or not actor_telegram_user_id:
+        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
             raise SalesCloserError("only an authorized team role may cancel context sync")
         sync = await self.repository.get_pending_context_sync(actor_telegram_user_id)
         if sync is None:
@@ -1393,7 +1577,7 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
     ) -> SalesProcessResult:
-        if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+        if actor_role not in {"ADULT_OWNER", "ARTEM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
             raise SalesCloserError("only an authorized team role may import context")
         sync = await self.repository.get_pending_context_sync(actor_telegram_user_id)
         if sync is None:
@@ -1550,7 +1734,12 @@ class SalesCloserService:
                 OpportunityState.CLIENT_REPLIED.value,
                 source="telegram:/sync_lead_context",
                 reason="sanitized owner-copied thread context imported for exact opportunity",
-                actor="adult_owner" if actor_role == "ADULT_OWNER" else "Artem" if actor_role == "ARTEM" else "Vadim",
+                actor={
+                    "ADULT_OWNER": "adult_owner",
+                    "ARTEM": "Artem",
+                    "VADIM": "Vadim",
+                    "SHARED_OPERATOR": "shared_operator",
+                }[actor_role],
                 actor_role=actor_role,
                 actor_telegram_user_id=actor_telegram_user_id,
             )
@@ -1631,7 +1820,7 @@ class SalesCloserService:
         actor_role: str,
         actor_telegram_user_id: int,
     ) -> SalesProcessResult:
-        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM"} or not actor_telegram_user_id:
+        if actor_role not in {"ADULT_OWNER", "ARTEM", "VADIM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
             raise SalesCloserError("only an authorized team role may regenerate a reply")
         opportunity = await self.repository.get_opportunity(opportunity_id)
         if opportunity is None:

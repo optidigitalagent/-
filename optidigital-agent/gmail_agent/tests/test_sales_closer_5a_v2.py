@@ -27,6 +27,8 @@ from gmail_agent.sales_storage import (
     IllegalTransitionError,
     InMemorySalesRepository,
     OpportunityState,
+    ReplyValidationStatus,
+    evaluate_reply_confirmation,
 )
 from gmail_agent.storage import InMemoryGmailRepository
 from gmail_agent.tests.test_quality_gate_v2 import stored
@@ -49,13 +51,15 @@ class V2Case(unittest.IsolatedAsyncioTestCase):
             self.repository, reply_generator=self.generator, now=lambda: NOW
         )
 
-    async def seed(self, project_id: str = "910001"):
-        opportunity = await self.service.ensure_from_validated_job(_job(project_id))
+    async def seed(self, project_id: str = "910001", **kwargs):
+        opportunity = await self.service.ensure_from_validated_job(
+            _job(project_id, **kwargs)
+        )
         self.assertIsNotNone(opportunity)
         return opportunity
 
-    async def bid(self, project_id: str = "910001"):
-        opportunity = await self.seed(project_id)
+    async def bid(self, project_id: str = "910001", **kwargs):
+        opportunity = await self.seed(project_id, **kwargs)
         opportunity, _confirmation, _created = await self.service.mark_bid_sent(
             opportunity.id,
             opportunity.proposal_version,
@@ -227,6 +231,10 @@ class TestExactVersionAndStaleReplyV2(V2Case):
                 email_id="incoming-new",
             )
         )
+        await self.repository.update_opportunity_fields(
+            second.opportunity.id,
+            {"state": OpportunityState.CLIENT_REPLIED.value},
+        )
         with self.assertRaisesRegex(
             SalesCloserError,
             rf"{second.incoming_turn.id}.*?/regenerate_lead {second.opportunity.id}",
@@ -239,7 +247,197 @@ class TestExactVersionAndStaleReplyV2(V2Case):
             )
         stale = await self.repository.get_turn(first.reply_turn.id)
         self.assertEqual(stale.direction, "OUTGOING_SUPERSEDED")
-        self.assertNotEqual(second.opportunity.state, OpportunityState.WAITING_CLIENT.value)
+        persisted = await self.repository.get_opportunity(second.opportunity.id)
+        latest = await self.repository.get_turn(second.incoming_turn.id)
+        self.assertEqual(persisted.state, OpportunityState.CLIENT_REPLIED.value)
+        self.assertIsNone(latest.acknowledged_at)
+        self.assertEqual(
+            sum(
+                item.action == "REPLY_SENT"
+                for item in self.state["confirmations"].values()
+            ),
+            0,
+        )
+
+    async def test_stale_preview_uses_same_latest_turn_and_regenerate_contract(self):
+        await self.bid("910011")
+        first = await self.service.process_client_message(
+            _email("910011", "Please clarify authentication.", email_id="preview-old")
+        )
+        second = await self.service.process_client_message(
+            _email(
+                "910011",
+                "Please clarify authentication headers.",
+                email_id="preview-new",
+            )
+        )
+        before = dict(self.state["confirmations"])
+        with self.assertRaisesRegex(
+            SalesCloserError,
+            rf"{second.incoming_turn.id}.*?/regenerate_lead {second.opportunity.id}",
+        ):
+            await self.service.preview_reply_confirmation(
+                first.opportunity.id, first.reply_turn.reply_version
+            )
+        self.assertEqual(self.state["confirmations"], before)
+        self.assertIsNone(
+            (await self.repository.get_turn(second.incoming_turn.id)).acknowledged_at
+        )
+
+    async def test_repeated_stale_confirmation_is_idempotently_refused(self):
+        await self.bid("910012")
+        first = await self.service.process_client_message(
+            _email("910012", "Please clarify authentication.", email_id="repeat-old")
+        )
+        second = await self.service.process_client_message(
+            _email(
+                "910012",
+                "Please clarify authentication headers.",
+                email_id="repeat-new",
+            )
+        )
+        pattern = rf"{second.incoming_turn.id}.*?/regenerate_lead {second.opportunity.id}"
+        for _attempt in range(2):
+            with self.assertRaisesRegex(SalesCloserError, pattern):
+                await self.service.mark_reply_sent(
+                    first.opportunity.id,
+                    first.reply_turn.reply_version,
+                    actor_role="ADULT_OWNER",
+                    actor_telegram_user_id=101,
+                )
+        self.assertEqual(
+            sum(
+                item.action == "REPLY_SENT"
+                for item in self.state["confirmations"].values()
+            ),
+            0,
+        )
+
+    async def test_stale_precedence_covers_all_post_incoming_states(self):
+        states = (
+            OpportunityState.CLIENT_REPLIED.value,
+            OpportunityState.NEEDS_HUMAN_INPUT.value,
+            OpportunityState.NEEDS_CONTEXT.value,
+            OpportunityState.NEGOTIATING.value,
+            OpportunityState.SELECTION_REVIEW.value,
+            OpportunityState.CONTRACT_REVIEW.value,
+        )
+        for index, state in enumerate(states):
+            with self.subTest(state=state):
+                project_id = f"91002{index}"
+                client = f"State Client {index}"
+                await self.bid(project_id, client=client)
+                first = await self.service.process_client_message(
+                    _email(
+                        project_id,
+                        "Please clarify authentication.",
+                        email_id=f"old-{index}",
+                        client=client,
+                    )
+                )
+                second = await self.service.process_client_message(
+                    _email(
+                        project_id,
+                        "Please clarify authentication headers.",
+                        email_id=f"new-{index}",
+                        client=client,
+                    )
+                )
+                await self.repository.update_opportunity_fields(
+                    second.opportunity.id, {"state": state}
+                )
+                turns = await self.repository.list_turns(second.opportunity.id)
+                decision = evaluate_reply_confirmation(
+                    await self.repository.get_opportunity(second.opportunity.id),
+                    first.reply_turn.reply_version,
+                    turns,
+                )
+                self.assertEqual(decision.status, ReplyValidationStatus.STALE)
+                with self.assertRaisesRegex(
+                    SalesCloserError,
+                    rf"{second.incoming_turn.id}.*?/regenerate_lead {second.opportunity.id}",
+                ):
+                    await self.service.mark_reply_sent(
+                        first.opportunity.id,
+                        first.reply_turn.reply_version,
+                        actor_role="ADULT_OWNER",
+                        actor_telegram_user_id=101,
+                    )
+
+    async def test_current_draft_in_forbidden_state_keeps_state_refusal(self):
+        await self.bid("910030")
+        current = await self.service.process_client_message(
+            _email("910030", "Please clarify authentication.", email_id="current")
+        )
+        await self.repository.update_opportunity_fields(
+            current.opportunity.id,
+            {"state": OpportunityState.CLIENT_REPLIED.value},
+        )
+        with self.assertRaisesRegex(
+            SalesCloserError, "reply cannot be confirmed from state CLIENT_REPLIED"
+        ):
+            await self.service.preview_reply_confirmation(
+                current.opportunity.id, current.reply_turn.reply_version
+            )
+        with self.assertRaisesRegex(
+            SalesCloserError, "reply cannot be confirmed from state CLIENT_REPLIED"
+        ):
+            await self.service.mark_reply_sent(
+                current.opportunity.id,
+                current.reply_turn.reply_version,
+                actor_role="ADULT_OWNER",
+                actor_telegram_user_id=101,
+            )
+        self.assertEqual(
+            (await self.repository.get_turn(current.reply_turn.id)).direction,
+            "OUTGOING_DRAFT",
+        )
+
+    async def test_current_reply_hash_mismatch_remains_blocked(self):
+        await self.bid("910031")
+        current = await self.service.process_client_message(
+            _email("910031", "Please clarify authentication.", email_id="hash-current")
+        )
+        await self.repository.update_turn_fields(
+            current.reply_turn.id, {"content": "tampered synthetic reply"}
+        )
+        with self.assertRaisesRegex(SalesCloserError, "content hash changed"):
+            await self.service.preview_reply_confirmation(
+                current.opportunity.id, current.reply_turn.reply_version
+            )
+        with self.assertRaisesRegex(SalesCloserError, "content hash changed"):
+            await self.service.mark_reply_sent(
+                current.opportunity.id,
+                current.reply_turn.reply_version,
+                actor_role="ADULT_OWNER",
+                actor_telegram_user_id=101,
+            )
+
+    async def test_new_incoming_between_preview_and_confirmation_blocks_old_reply(self):
+        await self.bid("910032")
+        first = await self.service.process_client_message(
+            _email("910032", "Please clarify authentication.", email_id="race-preview")
+        )
+        await self.service.preview_reply_confirmation(
+            first.opportunity.id, first.reply_turn.reply_version
+        )
+        second = await self.service.process_client_message(
+            _email(
+                "910032",
+                "Please clarify authentication headers.",
+                email_id="race-confirm",
+            )
+        )
+        with self.assertRaisesRegex(
+            SalesCloserError,
+            rf"{second.incoming_turn.id}.*?/regenerate_lead {second.opportunity.id}",
+        ):
+            await self.service.mark_reply_sent(
+                first.opportunity.id,
+                first.reply_turn.reply_version,
+                actor_role="ADULT_OWNER",
+                actor_telegram_user_id=101,
+            )
 
     async def test_two_concurrent_incoming_turns_get_distinct_versions(self):
         await self.bid()

@@ -42,7 +42,7 @@ class OpportunityState(StrEnum):
     CLOSED = "CLOSED"
 
 
-VALID_ACTORS = {"system", "adult_owner", "Artem", "Vadim"}
+VALID_ACTORS = {"system", "adult_owner", "Artem", "Vadim", "shared_operator"}
 
 TERMINAL_STATES = frozenset(
     {
@@ -147,6 +147,23 @@ class StaleReplyError(RuntimeError):
             "reply is stale; latest incoming turn is "
             f"{latest_incoming_turn_id}; regenerate with {self.regeneration_command}"
         )
+
+
+class ReplyValidationStatus(StrEnum):
+    CURRENT_AND_ALLOWED = "CURRENT_AND_ALLOWED"
+    STALE = "STALE"
+    CURRENT_BUT_STATE_FORBIDDEN = "CURRENT_BUT_STATE_FORBIDDEN"
+    HASH_MISMATCH = "HASH_MISMATCH"
+    VERSION_NOT_FOUND = "VERSION_NOT_FOUND"
+
+
+@dataclass(frozen=True, slots=True)
+class ReplyValidationResult:
+    status: ReplyValidationStatus
+    opportunity: SalesOpportunity
+    draft: ConversationTurn | None
+    latest_incoming: ConversationTurn | None
+    latest_active_draft: ConversationTurn | None
 
 
 @dataclass(slots=True)
@@ -293,6 +310,13 @@ class OwnerActionConfirmation:
     timeline_terms_json: str = ""
     response_latency_seconds: float | None = None
     confirmed_at: datetime = field(default_factory=utc_now)
+    operator_mode: str = "SEPARATE_ROLES"
+    identity_assurance: str = "CONFIGURED_ROLE_ID"
+    claimed_actor_role: str = ""
+    attestation_version: str = ""
+    actual_telegram_user_id: int | None = None
+    claimed_at: datetime | None = None
+    action_confirmed_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -318,6 +342,13 @@ class HumanInformationRequest:
     answered_by: str = ""
     answered_by_role: str = ""
     answered_by_telegram_user_id: int | None = None
+    operator_mode: str = "SEPARATE_ROLES"
+    identity_assurance: str = "CONFIGURED_ROLE_ID"
+    claimed_actor_role: str = ""
+    attestation_version: str = ""
+    actual_telegram_user_id: int | None = None
+    claimed_at: datetime | None = None
+    action_confirmed_at: datetime | None = None
 
 
 @dataclass(slots=True)
@@ -395,6 +426,11 @@ class SalesRepository(Protocol):
         actor_role: str,
         actor_telegram_user_id: int,
         confirmed_at: datetime,
+        operator_mode: str = "SEPARATE_ROLES",
+        identity_assurance: str = "CONFIGURED_ROLE_ID",
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> tuple[SalesOpportunity, OwnerActionConfirmation, bool]: ...
 
     async def allocate_reply_version(self, opportunity_id: str) -> str: ...
@@ -597,6 +633,9 @@ class InMemorySalesRepository:
                 existing.actual_price != confirmation.actual_price
                 or existing.actual_timeline != confirmation.actual_timeline
                 or existing.actor_telegram_user_id != confirmation.actor_telegram_user_id
+                or existing.operator_mode != confirmation.operator_mode
+                or existing.claimed_actor_role
+                not in {"", confirmation.claimed_actor_role}
             ):
                 raise ValueError("bid confirmation conflicts with the persisted confirmation")
             return replace(item), existing, False
@@ -641,6 +680,11 @@ class InMemorySalesRepository:
         actor_role: str,
         actor_telegram_user_id: int,
         confirmed_at: datetime,
+        operator_mode: str = "SEPARATE_ROLES",
+        identity_assurance: str = "CONFIGURED_ROLE_ID",
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> tuple[SalesOpportunity, OwnerActionConfirmation, bool]:
         item = self.state["opportunities"].get(opportunity_id)
         if item is None:
@@ -650,17 +694,29 @@ class InMemorySalesRepository:
             if value.opportunity_id == opportunity_id
         ]
         turns.sort(key=lambda value: (value.created_at, value.id))
-        latest_incoming = next(
-            (value for value in reversed(turns) if value.direction == "INCOMING"), None
-        )
-        draft = next((value for value in turns if value.reply_version == reply_version), None)
-        if draft is None:
-            raise ValueError("exact reply version not found")
+        validation = evaluate_reply_confirmation(item, reply_version, turns)
+        if validation.draft is None:
+            raise_for_reply_validation(validation)
+            raise AssertionError("unreachable reply validation state")
+        draft = validation.draft
         key = f"REPLY_SENT:{opportunity_id}:{reply_version}:{draft.content_sha256}"
         existing = await self.get_confirmation_by_key(key)
         if existing:
+            if (
+                existing.actual_telegram_user_id not in {None, actor_telegram_user_id}
+                or existing.operator_mode != operator_mode
+                or existing.claimed_actor_role
+                not in {"", claimed_actor_role or actor_role}
+            ):
+                raise ValueError("reply confirmation conflicts with the persisted confirmation")
             return replace(item), existing, False
-        _verify_current_reply(item, draft, latest_incoming, turns)
+        if validation.status is ReplyValidationStatus.STALE:
+            stored_draft = self.state["turns"][draft.id]
+            if stored_draft.direction == "OUTGOING_DRAFT":
+                stored_draft.direction = "OUTGOING_SUPERSEDED"
+            raise_for_reply_validation(validation)
+        raise_for_reply_validation(validation)
+        latest_incoming = validation.latest_incoming
         latency = _reply_latency(latest_incoming, confirmed_at)
         confirmation = OwnerActionConfirmation(
             id=uuid4().hex,
@@ -674,7 +730,15 @@ class InMemorySalesRepository:
             content_sha256=draft.content_sha256,
             response_latency_seconds=latency,
             confirmed_at=confirmed_at,
+            operator_mode=operator_mode,
+            identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role or actor_role,
+            attestation_version=attestation_version,
+            actual_telegram_user_id=actor_telegram_user_id,
+            claimed_at=claimed_at or confirmed_at,
+            action_confirmed_at=confirmed_at,
         )
+        _verify_confirmation_identity_audit(confirmation)
         self.state["confirmations"][confirmation.id] = confirmation
         draft.direction = "OUTGOING_CONFIRMED"
         draft.sent_at = confirmed_at
@@ -1098,7 +1162,11 @@ class InMemorySalesRepository:
         orphan.follow_up_status = "DISABLED_MERGED"
         orphan.updated_at = merged_at
 
-        actor = "adult_owner" if actor_role == "ADULT_OWNER" else "Artem"
+        actor = {
+            "ADULT_OWNER": "adult_owner",
+            "ARTEM": "Artem",
+            "SHARED_OPERATOR": "shared_operator",
+        }[actor_role]
         orphan_transition_id = uuid4().hex
         self.state["transitions"][orphan_transition_id] = OpportunityTransition(
             id=orphan_transition_id,
@@ -1301,6 +1369,9 @@ class PostgresSalesRepository:
                     or existing.actual_timeline != confirmation.actual_timeline
                     or existing.actor_telegram_user_id
                     != confirmation.actor_telegram_user_id
+                    or existing.operator_mode != confirmation.operator_mode
+                    or existing.claimed_actor_role
+                    not in {"", confirmation.claimed_actor_role}
                 ):
                     raise ValueError(
                         "bid confirmation conflicts with the persisted confirmation"
@@ -1350,6 +1421,11 @@ class PostgresSalesRepository:
         actor_role: str,
         actor_telegram_user_id: int,
         confirmed_at: datetime,
+        operator_mode: str = "SEPARATE_ROLES",
+        identity_assurance: str = "CONFIGURED_ROLE_ID",
+        claimed_actor_role: str = "",
+        attestation_version: str = "",
+        claimed_at: datetime | None = None,
     ) -> tuple[SalesOpportunity, OwnerActionConfirmation, bool]:
         from sqlalchemy import select
 
@@ -1373,14 +1449,12 @@ class PostgresSalesRepository:
                 )
             ).scalars().all()
             turns = [_turn_from_row(row) for row in turn_rows]
-            latest_incoming = next(
-                (turn for turn in reversed(turns) if turn.direction == "INCOMING"), None
-            )
-            draft = next(
-                (turn for turn in turns if turn.reply_version == reply_version), None
-            )
-            if draft is None:
-                raise ValueError("exact reply version not found")
+            opportunity = _opportunity_from_row(opportunity_row)
+            validation = evaluate_reply_confirmation(opportunity, reply_version, turns)
+            if validation.draft is None:
+                raise_for_reply_validation(validation)
+                raise AssertionError("unreachable reply validation state")
+            draft = validation.draft
             key = f"REPLY_SENT:{opportunity_id}:{reply_version}:{draft.content_sha256}"
             existing_row = (
                 await session.execute(
@@ -1390,21 +1464,31 @@ class PostgresSalesRepository:
                 )
             ).scalar_one_or_none()
             if existing_row is not None:
+                existing = _confirmation_from_row(existing_row)
+                if (
+                    existing.actual_telegram_user_id not in {
+                        None, actor_telegram_user_id
+                    }
+                    or existing.operator_mode != operator_mode
+                    or existing.claimed_actor_role
+                    not in {"", claimed_actor_role or actor_role}
+                ):
+                    raise ValueError(
+                        "reply confirmation conflicts with the persisted confirmation"
+                    )
                 return (
                     _opportunity_from_row(opportunity_row),
-                    _confirmation_from_row(existing_row),
+                    existing,
                     False,
                 )
-            try:
-                _verify_current_reply(
-                    _opportunity_from_row(opportunity_row), draft, latest_incoming, turns
-                )
-            except StaleReplyError:
+            if validation.status is ReplyValidationStatus.STALE:
                 stale_row = next(row for row in turn_rows if row.id == draft.id)
                 if stale_row.direction == "OUTGOING_DRAFT":
                     stale_row.direction = "OUTGOING_SUPERSEDED"
                 await session.commit()
-                raise
+                raise_for_reply_validation(validation)
+            raise_for_reply_validation(validation)
+            latest_incoming = validation.latest_incoming
             latency = _reply_latency(latest_incoming, confirmed_at)
             confirmation = OwnerActionConfirmation(
                 id=uuid4().hex,
@@ -1418,7 +1502,15 @@ class PostgresSalesRepository:
                 content_sha256=draft.content_sha256,
                 response_latency_seconds=latency,
                 confirmed_at=confirmed_at,
+                operator_mode=operator_mode,
+                identity_assurance=identity_assurance,
+                claimed_actor_role=claimed_actor_role or actor_role,
+                attestation_version=attestation_version,
+                actual_telegram_user_id=actor_telegram_user_id,
+                claimed_at=claimed_at or confirmed_at,
+                action_confirmed_at=confirmed_at,
             )
+            _verify_confirmation_identity_audit(confirmation)
             session.add(self._confirmation_model(**_model_values(confirmation)))
             draft_row = next(row for row in turn_rows if row.id == draft.id)
             draft_row.direction = "OUTGOING_CONFIRMED"
@@ -2119,7 +2211,11 @@ class PostgresSalesRepository:
             orphan_row.follow_up_status = "DISABLED_MERGED"
             orphan_row.updated_at = merged_at
 
-            actor = "adult_owner" if actor_role == "ADULT_OWNER" else "Artem"
+            actor = {
+                "ADULT_OWNER": "adult_owner",
+                "ARTEM": "Artem",
+                "SHARED_OPERATOR": "shared_operator",
+            }[actor_role]
             session.add_all(
                 [
                     self._transition_model(
@@ -2187,6 +2283,7 @@ def _actor_role(actor: str) -> str:
         "adult_owner": "ADULT_OWNER",
         "Artem": "ARTEM",
         "Vadim": "VADIM",
+        "shared_operator": "SHARED_OPERATOR",
     }.get(actor, "SYSTEM")
 
 
@@ -2214,27 +2311,66 @@ def _verify_bid_confirmation(
         raise ValueError("current proposal SHA-256 does not match the stored package")
     if not confirmation.money_terms_json or not confirmation.timeline_terms_json:
         raise ValueError("canonical submitted terms are required")
+    _verify_confirmation_identity_audit(confirmation)
 
 
-def _verify_current_reply(
-    opportunity: SalesOpportunity,
-    draft: ConversationTurn,
-    latest_incoming: ConversationTurn | None,
-    turns: list[ConversationTurn],
+def _verify_confirmation_identity_audit(
+    confirmation: OwnerActionConfirmation,
 ) -> None:
-    allowed_states = {
-        OpportunityState.NEGOTIATING.value,
-        OpportunityState.SELECTION_REVIEW.value,
-        OpportunityState.CONTRACT_REVIEW.value,
-    }
-    if opportunity.state not in allowed_states:
-        raise ValueError(f"reply cannot be confirmed from state {opportunity.state}")
-    current_drafts = [turn for turn in turns if turn.direction == "OUTGOING_DRAFT"]
+    if confirmation.actual_telegram_user_id not in {
+        None,
+        confirmation.actor_telegram_user_id,
+    }:
+        raise ValueError("confirmation Telegram actor audit is inconsistent")
+    if confirmation.operator_mode == "SINGLE_SHARED_OPERATOR":
+        if confirmation.identity_assurance != "SHARED_ACCOUNT_SELF_ATTESTED":
+            raise ValueError("shared confirmation assurance is required")
+        if confirmation.claimed_actor_role != confirmation.actor_role:
+            raise ValueError("shared confirmation action role is required")
+        if confirmation.attestation_version != "OWNER_CONFIRMS_V1":
+            raise ValueError("shared owner confirmation attestation is required")
+        if confirmation.claimed_at is None or confirmation.action_confirmed_at is None:
+            raise ValueError("shared confirmation timestamps are required")
+    elif confirmation.operator_mode != "SEPARATE_ROLES":
+        raise ValueError("unknown confirmation operator mode")
+
+
+def evaluate_reply_confirmation(
+    opportunity: SalesOpportunity,
+    requested_reply_version: str,
+    turns: list[ConversationTurn],
+) -> ReplyValidationResult:
+    """Return one deterministic, side-effect-free reply validation decision."""
+
+    ordered_turns = sorted(turns, key=lambda turn: (turn.created_at, turn.id))
+    draft = next(
+        (
+            turn
+            for turn in ordered_turns
+            if turn.reply_version == requested_reply_version
+        ),
+        None,
+    )
+    latest_incoming = next(
+        (turn for turn in reversed(ordered_turns) if turn.direction == "INCOMING"),
+        None,
+    )
+    current_drafts = [
+        turn for turn in ordered_turns if turn.direction == "OUTGOING_DRAFT"
+    ]
     latest_draft = max(
         current_drafts,
         key=lambda turn: int((turn.reply_version or "r0").removeprefix("r") or 0),
         default=None,
     )
+    if draft is None:
+        return ReplyValidationResult(
+            ReplyValidationStatus.VERSION_NOT_FOUND,
+            opportunity,
+            None,
+            latest_incoming,
+            latest_draft,
+        )
     is_stale = (
         latest_incoming is None
         or draft.direction != "OUTGOING_DRAFT"
@@ -2246,13 +2382,52 @@ def _verify_current_reply(
         or latest_draft.id != draft.id
     )
     if is_stale:
-        draft.direction = "OUTGOING_SUPERSEDED"
-        raise StaleReplyError(
-            latest_incoming.id if latest_incoming else "unavailable", opportunity.id
+        status = ReplyValidationStatus.STALE
+    elif hashlib.sha256(draft.content.encode("utf-8")).hexdigest() != draft.content_sha256:
+        status = ReplyValidationStatus.HASH_MISMATCH
+    else:
+        allowed_states = {
+            OpportunityState.NEGOTIATING.value,
+            OpportunityState.SELECTION_REVIEW.value,
+            OpportunityState.CONTRACT_REVIEW.value,
+        }
+        status = (
+            ReplyValidationStatus.CURRENT_AND_ALLOWED
+            if opportunity.state in allowed_states
+            else ReplyValidationStatus.CURRENT_BUT_STATE_FORBIDDEN
         )
-    actual_hash = hashlib.sha256(draft.content.encode("utf-8")).hexdigest()
-    if actual_hash != draft.content_sha256:
+    return ReplyValidationResult(
+        status,
+        opportunity,
+        draft,
+        latest_incoming,
+        latest_draft,
+    )
+
+
+def raise_for_reply_validation(result: ReplyValidationResult) -> None:
+    """Raise the canonical error for a non-confirmable reply decision."""
+
+    if result.status is ReplyValidationStatus.CURRENT_AND_ALLOWED:
+        return
+    if result.status is ReplyValidationStatus.VERSION_NOT_FOUND:
+        raise ValueError("exact reply version not found")
+    if result.status is ReplyValidationStatus.STALE:
+        raise StaleReplyError(
+            (
+                result.latest_incoming.id
+                if result.latest_incoming is not None
+                else "unavailable"
+            ),
+            result.opportunity.id,
+        )
+    if result.status is ReplyValidationStatus.HASH_MISMATCH:
         raise ValueError("reply content hash changed after validation")
+    if result.status is ReplyValidationStatus.CURRENT_BUT_STATE_FORBIDDEN:
+        raise ValueError(
+            f"reply cannot be confirmed from state {result.opportunity.state}"
+        )
+    raise AssertionError(f"unknown reply validation status: {result.status}")
 
 
 def _reply_latency(
@@ -2337,7 +2512,7 @@ def _validate_orphan_merge(
 ) -> None:
     if orphan.id == canonical.id:
         raise ValueError("orphan and canonical opportunity must be different")
-    if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+    if actor_role not in {"ADULT_OWNER", "ARTEM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
         raise ValueError("only an authorized owner role may merge an orphan")
     if not orphan.is_orphan or orphan.source != "gmail_private_message":
         raise ValueError("source opportunity is not an orphan private-message record")
@@ -2446,7 +2621,7 @@ def _validate_repeated_merge(
     actor_role: str,
     actor_telegram_user_id: int,
 ) -> None:
-    if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+    if actor_role not in {"ADULT_OWNER", "ARTEM", "SHARED_OPERATOR"} or not actor_telegram_user_id:
         raise ValueError("only an authorized owner role may merge an orphan")
     try:
         stored = json.loads(orphan.merge_evidence_json)
@@ -2533,6 +2708,8 @@ def _model_values(value: Any) -> dict[str, Any]:
             "actual_timeline_raw",
             "money_terms_json",
             "timeline_terms_json",
+            "claimed_actor_role",
+            "attestation_version",
         },
         HumanInformationRequest: {
             "answer",
@@ -2545,6 +2722,8 @@ def _model_values(value: Any) -> dict[str, Any]:
             "resulting_reply_version",
             "answered_by",
             "answered_by_role",
+            "claimed_actor_role",
+            "attestation_version",
         },
         LeadContextSync: {"content_sha256"},
     }
@@ -2583,6 +2762,9 @@ def _from_row(kind: type[Any], row: Any) -> Any:
                 "answered_at",
                 "answered_by_telegram_user_id",
                 "actor_telegram_user_id",
+                "actual_telegram_user_id",
+                "claimed_at",
+                "action_confirmed_at",
             }
         }
         | {
@@ -2612,6 +2794,9 @@ def _from_row(kind: type[Any], row: Any) -> Any:
                 "answered_at",
                 "answered_by_telegram_user_id",
                 "actor_telegram_user_id",
+                "actual_telegram_user_id",
+                "claimed_at",
+                "action_confirmed_at",
             }
         }
     )

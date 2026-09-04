@@ -2,31 +2,28 @@
 
 ## Current status
 
-`READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`
+`READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`
 
-Draft PR #16 remains the only Release 5A work item. Correction cycle V4 closes
-the three final review blockers: real `profile/show` platform-support routing,
-terminal-rejection/contract/price precedence, and exact-identity atomic
-orphan-to-canonical recovery. It preserves V3's parser, actor, version/hash,
-human-decision, stale-draft, ACK/escalation, Stage 4 fallback and no-platform-
-write protections.
+The issue #17 reapply branch now includes the narrow stale-reply precedence
+correction on top of the exact approved shared-operator tree. One deterministic
+contract is shared by preview, in-memory confirmation and PostgreSQL
+confirmation; only actual stale confirmation persists `OUTGOING_SUPERSEDED`.
 
 Validation evidence:
 
-- 12 focused V4 tests plus 30 parameterized subtests pass;
-- five isolated PostgreSQL 17 tests pass, including migrations twice,
-  concurrent merge, restart, repeat import and future-thread routing;
-- the full ordered suite passes 425 tests with six unrelated opt-in skips while
-  the disposable sales PostgreSQL URL is enabled;
-- Python 3.12.14 production import, compileall, changed-file Ruff F rules,
-  Telegram HTML/size regressions and `git diff --check` pass.
+- 81 focused V2/shared-operator tests pass;
+- full discovery passes 474 tests with 12 opt-in PostgreSQL skips;
+- six real PostgreSQL 17 tests pass with migrations twice and restart proof;
+- Python 3.12.14 production-like import, compileall, changed-file Ruff F rules
+  and `git diff --check` pass.
 
-Production remains unchanged on `main`
-`1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway deployment
-`765ba1da-4df3-4472-8ea8-b0d6fa5dad05`. No merge, deployment, variable,
-secret, backfill or platform action was performed.
+Production remains unchanged on rollback `main`
+`6baaa462ef70e40d45e9c144e269eff71786f35b`, Railway deployment
+`480c3170-f354-4e4d-909d-c7a0e771e5d3` (`SUCCESS / RUNNING`). No merge,
+deployment, variable, secret, OAuth, production migration/backfill, real
+Telegram card or platform action was performed. Release 5B/5C remain deferred.
 
 ## Exactly one next action
 
-Review Draft PR #16 correction cycle V4 and, if accepted, provide separate
-explicit merge/deployment authorization.
+Review the new stale-reply correction Draft PR and, if accepted, provide the
+separate zero-overlap merge/deployment authorization.

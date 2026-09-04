@@ -668,3 +668,47 @@ token.json: ✅ знайдено
 - No merge, deployment, production migration/backfill, replacement card,
   variable/secret change, bid, client message, contract, or payment occurred.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
+
+## 2026-09-04 Stage 5A issue #17 single shared Telegram operator hotfix (Draft PR #18)
+
+- Started `fix/sales-closer-single-shared-operator-v1` from exact deployed V4
+  production baseline `030128fa958c5243bfe3f1f28005813e2a8605a4`.
+- Added mutually exclusive separate-role/shared-operator configuration,
+  fail-closed ID validation, neutral shared-account authorization and truthful
+  self-attested action/source-role audit.
+- Owner bid/reply records require exact `OWNER_CONFIRMS` after a non-mutating
+  version/hash/terms preview. Shared human facts require explicit `ARTEM` or
+  `VADIM`. The application still has no Freelancehunt write capability.
+- Added restart-safe confirmation/request audit metadata and 42 focused
+  regressions. The full isolated PostgreSQL 17 suite passes 467 tests with six
+  unrelated opt-in skips; Python 3.12.14 imports, compileall, Ruff F and diff
+  checks pass.
+- No merge, deploy, production migration/backfill, variable, secret, OAuth,
+  Telegram card or platform action occurred. Release 5B/5C remain deferred.
+- Status: `READY_FOR_SINGLE_SHARED_OPERATOR_DEPLOY`.
+
+## 2026-09-04 Stage 5A issue #17 stale-reply precedence correction
+
+- Reproduced the failing-before path with synthetic data: an old reply after a
+  newer incoming message returned the generic `CLIENT_REPLIED` state refusal
+  instead of `StaleReplyError` and `/regenerate_lead`; zero reply confirmations
+  and zero platform writes occurred.
+- Added one deterministic validation result shared by preview, in-memory and
+  PostgreSQL confirmation. Stale relationship checks now precede generic state
+  refusal; current drafts retain existing state, version, hash, role and
+  `OWNER_CONFIRMS` requirements.
+- PostgreSQL locks the opportunity and turns and commits only
+  `OUTGOING_SUPERSEDED` for a stale reply. It does not create a confirmation,
+  acknowledge the latest incoming turn or set `WAITING_CLIENT`; repository
+  restart preserves the marker.
+- Focused V2/shared coverage passes 81 tests. Full discovery passes 474 tests
+  with 12 expected opt-in PostgreSQL skips. The six-test isolated PostgreSQL 17
+  suite passes with migrations twice. Telegram HTML/size, Stage 4 quality,
+  Stage 5A parser/resolution, Python 3.12.14 import, compileall, Ruff F and diff
+  checks pass.
+- Production remains unchanged on rollback `main`
+  `6baaa462ef70e40d45e9c144e269eff71786f35b`, Railway deployment
+  `480c3170-f354-4e4d-909d-c7a0e771e5d3`. No merge, deploy, Railway variable,
+  production migration/backfill, real Telegram card or platform action was
+  performed.
+- Status: `READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`.

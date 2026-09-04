@@ -6,7 +6,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 
 ## Current stage
 
-**Stage 5 — issue #15 AI Sales Closer Copilot; Release 5A**
+**Stage 5 — issue #17 stale-reply correction before shared-operator redeploy**
 
 ## Readiness by workstream
 
@@ -18,7 +18,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
 - **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
-- **AI Sales Closer Release 5A: Draft PR #16 correction cycle V2 ready for review**
+- **AI Sales Closer Release 5A V4: deployed; issue #17 stale-reply correction is ready for Draft PR review**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -45,20 +45,22 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - `STAGE_4_DEPLOYED_AND_VERIFIED`
 - `ISSUE_11_COMPLETED`
 - `STAGE_5_ACTIVE`
-- `ISSUE_15_CURRENT_WORK_ITEM`
-- `READY_FOR_SALES_CLOSER_5A_DEPLOY_V2`
+- `SALES_CLOSER_5A_V4_DEPLOYED`
+- `ISSUE_17_CURRENT_WORK_ITEM`
+- `READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`
 
 ## Protected production baseline
 
-- Production `main`: `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`.
-- Railway deployment: `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`.
+- Production rollback `main`: `6baaa462ef70e40d45e9c144e269eff71786f35b`.
+- Railway deployment: `480c3170-f354-4e4d-909d-c7a0e771e5d3`.
 - Railway state: `SUCCESS / RUNNING`.
 - Live-status state: `DEPLOYED_LIVE_STATUS_HOTFIX_V2`.
 - GitHub issue #7 is completed. Its V2 safety guard must not be weakened.
 - Instant discovery is deployed and verified, and the Telegram channel
   migration is complete.
 - Stage 4 is deployed and verified; GitHub issue #11 is completed.
-- Stage 5 is active; GitHub issue #15 and Release 5A are the current work item.
+- Release 5A V4 is deployed. Stage 5 remains active; GitHub issue #17 is the
+  current narrow operational hotfix.
 - Release 5B timed follow-ups and Release 5C delivery handoff are deferred.
 
 ## Completed account and profile work
@@ -570,3 +572,67 @@ Stage 2 is operational when:
   migration/backfill, variable, secret, OAuth, Gmail, Telegram or platform
   mutation occurred.
 - Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.
+
+## 2026-09-04 — GitHub issue #17 single shared Telegram operator hotfix (Draft PR #18)
+
+- Created `fix/sales-closer-single-shared-operator-v1` from exact production
+  `origin/main` `030128fa958c5243bfe3f1f28005813e2a8605a4`. Production Railway
+  deployment `4664e3e1-ff90-458c-92cc-2d0f6ba05acd` remains `SUCCESS / RUNNING`.
+- Added mutually exclusive `SEPARATE_ROLES` and `SINGLE_SHARED_OPERATOR`
+  configuration. Shared mode accepts one positive numeric ID only when every
+  legacy role ID is absent; unknown, missing, malformed, nonpositive,
+  duplicate and conflicting configurations fail closed without echoing IDs.
+- `/whoami` reports the operator mode, configured shared account and
+  `SELF-ATTESTED ACTION ROLE` assurance without a full numeric ID. Generic
+  shared operations use neutral `SHARED_OPERATOR`, not a fabricated person.
+- Bid/reply confirmations use a read-only exact package preview and require
+  exact `OWNER_CONFIRMS`. Stored audit binds actual Telegram ID, shared mode,
+  self-attested adult-owner role, timestamps, phrase version, exact
+  opportunity/version/hash and canonical submitted terms. No phrase means no
+  confirmation and no `WAITING_CLIENT`/`BID_SUBMITTED` transition.
+- Shared `/answer_lead` requires explicit `ARTEM` or `VADIM`. Stored audit keeps
+  the self-attested fact source, request/source turn, subject fingerprint,
+  structured answer code/text, actual Telegram ID and timestamps; duplicate
+  source changes fail closed.
+- Added restart-safe nullable audit columns to confirmations and human requests
+  without destructive SQL. Existing separate-role rows and commands remain
+  compatible.
+- Added 42 shared-operator tests, including a complete synthetic proposal →
+  owner confirmation → client reply → exact reply confirmation E2E. The full
+  suite passes 467 tests on isolated PostgreSQL 17 with the migration list
+  applied twice; six unrelated opt-in tests remain skipped. Python 3.12.14
+  production imports, compileall, changed-file Ruff F checks and diff checks
+  pass.
+- No merge, deployment, Railway variable/secret, OAuth, production migration,
+  real Telegram card, bid, client message, contract, Workspace or payment
+  action occurred. Release 5B and Release 5C remain deferred.
+- Status: `READY_FOR_SINGLE_SHARED_OPERATOR_DEPLOY`.
+
+## 2026-09-04 — Issue #17 stale-reply precedence correction
+
+- Continued the exact local reapply branch from
+  `3345194d6026833eb0db5b3ecc9583cd03cd6e0a`; the approved shared-operator
+  tree was unchanged before the narrow correction.
+- Reproduced the pre-fix failure safely: confirmation of an old reply after a
+  newer incoming turn returned the generic `CLIENT_REPLIED` state refusal
+  instead of the latest-turn stale error and regeneration command. It created
+  zero reply confirmations and performed zero platform writes.
+- Added one deterministic preview/confirmation validation contract with stale
+  precedence above generic state refusal. In-memory actual confirmation and
+  PostgreSQL actual confirmation persist only `OUTGOING_SUPERSEDED` on stale;
+  preview remains read-only.
+- Regression coverage proves stale behavior across all six post-incoming
+  states, shared and separate-role owner paths, preview/confirmation race,
+  repeated refusal, current forbidden-state refusal and hash mismatch.
+- Full discovery passes 474 tests with 12 opt-in PostgreSQL skips. Focused V2
+  plus shared-operator coverage passes 81 tests. Six isolated PostgreSQL 17
+  tests pass with the entire additive migration list applied twice and stale
+  audit preserved across repository restart.
+- Telegram HTML/size (12), Stage 4 quality (102), and Stage 5A V3/V4 parser and
+  resolution (42) regressions pass. Python 3.12.14 import, compileall, Ruff F
+  and `git diff --check` pass.
+- Production remains unchanged on rollback `main`
+  `6baaa462ef70e40d45e9c144e269eff71786f35b`, Railway deployment
+  `480c3170-f354-4e4d-909d-c7a0e771e5d3`. No merge, deployment, variable,
+  production migration, Telegram card or platform write occurred.
+- Status: `READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`.
