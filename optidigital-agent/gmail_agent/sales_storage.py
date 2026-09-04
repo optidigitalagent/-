@@ -37,6 +37,7 @@ class OpportunityState(StrEnum):
     CONTRACT_REVIEW = "CONTRACT_REVIEW"
     SELECTED = "SELECTED"
     HANDOFF_READY = "HANDOFF_READY"
+    MERGED = "MERGED"
     LOST = "LOST"
     CLOSED = "CLOSED"
 
@@ -49,6 +50,7 @@ TERMINAL_STATES = frozenset(
         OpportunityState.CLOSED.value,
         OpportunityState.SELECTED.value,
         OpportunityState.HANDOFF_READY.value,
+        OpportunityState.MERGED.value,
     }
 )
 
@@ -94,7 +96,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
         {OpportunityState.CLIENT_REPLIED.value, OpportunityState.NEEDS_HUMAN_INPUT.value,
          OpportunityState.NEGOTIATING.value, OpportunityState.SELECTION_REVIEW.value,
          OpportunityState.CONTRACT_REVIEW.value, OpportunityState.MANUAL_REVIEW.value,
-         OpportunityState.LOST.value,
+         OpportunityState.LOST.value, OpportunityState.MERGED.value,
          OpportunityState.CLOSED.value}
     ),
     OpportunityState.NEEDS_HUMAN_INPUT.value: frozenset(
@@ -127,6 +129,7 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     ),
     OpportunityState.SELECTED.value: frozenset(),
     OpportunityState.HANDOFF_READY.value: frozenset(),
+    OpportunityState.MERGED.value: frozenset(),
     OpportunityState.LOST.value: frozenset(),
     OpportunityState.CLOSED.value: frozenset(),
 }
@@ -195,6 +198,12 @@ class SalesOpportunity:
     do_not_follow_up: bool = False
     follow_up_status: str = "DISABLED_5A"
     loss_reason: str = ""
+    is_orphan: bool = False
+    merged_into_opportunity_id: str = ""
+    merged_at: datetime | None = None
+    merged_by_role: str = ""
+    merged_by_telegram_user_id: int | None = None
+    merge_evidence_json: str = ""
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
 
@@ -331,6 +340,23 @@ class OpportunityResolution:
     ambiguous: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class OpportunityMergeEvidence:
+    project_id: str = ""
+    project_url: str = ""
+    thread_id: str = ""
+    thread_url: str = ""
+    reply_reference_id: str = ""
+    content_sha256: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class OpportunityMergeResult:
+    orphan: SalesOpportunity
+    canonical: SalesOpportunity
+    created: bool
+
+
 class SalesRepository(Protocol):
     async def ensure_opportunity(
         self, opportunity: SalesOpportunity, *, reason: str, actor: str
@@ -455,6 +481,17 @@ class SalesRepository(Protocol):
     async def update_context_sync(
         self, sync_id: str, fields: dict[str, Any]
     ) -> LeadContextSync | None: ...
+
+    async def merge_orphan_into_canonical(
+        self,
+        orphan_id: str,
+        canonical_id: str,
+        *,
+        evidence: OpportunityMergeEvidence,
+        actor_role: str,
+        actor_telegram_user_id: int,
+        merged_at: datetime,
+    ) -> OpportunityMergeResult: ...
 
 
 class InMemorySalesRepository:
@@ -935,6 +972,8 @@ class InMemorySalesRepository:
     async def pipeline_counts(self) -> dict[str, int]:
         counts = {state.value: 0 for state in OpportunityState}
         for item in self.state["opportunities"].values():
+            if item.state == OpportunityState.MERGED.value:
+                continue
             counts[item.state] = counts.get(item.state, 0) + 1
         return counts
 
@@ -975,6 +1014,118 @@ class InMemorySalesRepository:
             if key in allowed:
                 setattr(item, key, value)
         return replace(item)
+
+    async def merge_orphan_into_canonical(
+        self,
+        orphan_id: str,
+        canonical_id: str,
+        *,
+        evidence: OpportunityMergeEvidence,
+        actor_role: str,
+        actor_telegram_user_id: int,
+        merged_at: datetime,
+    ) -> OpportunityMergeResult:
+        orphan = self.state["opportunities"].get(orphan_id)
+        canonical = self.state["opportunities"].get(canonical_id)
+        if orphan is None or canonical is None:
+            raise ValueError("orphan or canonical opportunity not found")
+        if orphan.state == OpportunityState.MERGED.value:
+            if orphan.merged_into_opportunity_id != canonical_id:
+                raise ValueError("orphan is already merged into a different opportunity")
+            _validate_repeated_merge(
+                orphan,
+                canonical,
+                evidence=evidence,
+                actor_role=actor_role,
+                actor_telegram_user_id=actor_telegram_user_id,
+            )
+            return OpportunityMergeResult(replace(orphan), replace(canonical), False)
+
+        turns = [
+            item for item in self.state["turns"].values()
+            if item.opportunity_id == orphan_id
+        ]
+        confirmations = [
+            item for item in self.state["confirmations"].values()
+            if item.opportunity_id == orphan_id
+        ]
+        _validate_orphan_merge(
+            orphan,
+            canonical,
+            evidence=evidence,
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+            orphan_turns=turns,
+            orphan_confirmations=confirmations,
+        )
+
+        canonical.thread_id = canonical.thread_id or orphan.thread_id
+        canonical.thread_url = canonical.thread_url or orphan.thread_url
+        canonical.reply_reference_id = (
+            canonical.reply_reference_id or orphan.reply_reference_id
+        )
+        canonical.last_client_message_at = max(
+            filter(None, (canonical.last_client_message_at, orphan.last_client_message_at)),
+            default=None,
+        )
+        canonical.updated_at = merged_at
+
+        for turn in turns:
+            turn.opportunity_id = canonical_id
+        for request in self.state["requests"].values():
+            if request.opportunity_id == orphan_id:
+                request.opportunity_id = canonical_id
+        for sync in self.state["context_syncs"].values():
+            if sync.opportunity_id == orphan_id:
+                sync.opportunity_id = canonical_id
+
+        evidence_json = _merge_evidence_json(
+            orphan, canonical, evidence, actor_role, actor_telegram_user_id
+        )
+        previous = orphan.state
+        orphan.state = OpportunityState.MERGED.value
+        orphan.thread_id = ""
+        orphan.thread_url = ""
+        orphan.reply_reference_id = ""
+        orphan.client_name = ""
+        orphan.is_orphan = True
+        orphan.merged_into_opportunity_id = canonical_id
+        orphan.merged_at = merged_at
+        orphan.merged_by_role = actor_role
+        orphan.merged_by_telegram_user_id = actor_telegram_user_id
+        orphan.merge_evidence_json = evidence_json
+        orphan.do_not_follow_up = True
+        orphan.follow_up_status = "DISABLED_MERGED"
+        orphan.updated_at = merged_at
+
+        actor = "adult_owner" if actor_role == "ADULT_OWNER" else "Artem"
+        orphan_transition_id = uuid4().hex
+        self.state["transitions"][orphan_transition_id] = OpportunityTransition(
+            id=orphan_transition_id,
+            opportunity_id=orphan_id,
+            timestamp=merged_at,
+            source="telegram:/sync_lead_context",
+            previous_state=previous,
+            new_state=OpportunityState.MERGED.value,
+            reason=f"orphan merged into exact canonical opportunity {canonical_id}",
+            actor=actor,
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+        )
+        canonical_transition_id = uuid4().hex
+        self.state["transitions"][canonical_transition_id] = OpportunityTransition(
+            id=canonical_transition_id,
+            opportunity_id=canonical_id,
+            timestamp=merged_at,
+            source="telegram:/sync_lead_context",
+            previous_state=canonical.state,
+            new_state=canonical.state,
+            reason=f"accepted audited orphan history from {orphan_id}",
+            actor=actor,
+            actor_role=actor_role,
+            actor_telegram_user_id=actor_telegram_user_id,
+        )
+        return OpportunityMergeResult(replace(orphan), replace(canonical), True)
 
 
 class PostgresSalesRepository:
@@ -1767,6 +1918,7 @@ class PostgresSalesRepository:
             rows = (
                 await session.execute(
                     select(self._opportunity_model.state, func.count())
+                    .where(self._opportunity_model.state != OpportunityState.MERGED.value)
                     .group_by(self._opportunity_model.state)
                 )
             ).all()
@@ -1836,6 +1988,176 @@ class PostgresSalesRepository:
             ).scalar_one_or_none()
             await session.commit()
             return _context_sync_from_row(row) if row else None
+
+    async def merge_orphan_into_canonical(
+        self,
+        orphan_id: str,
+        canonical_id: str,
+        *,
+        evidence: OpportunityMergeEvidence,
+        actor_role: str,
+        actor_telegram_user_id: int,
+        merged_at: datetime,
+    ) -> OpportunityMergeResult:
+        from sqlalchemy import select
+        from sqlalchemy.exc import IntegrityError
+
+        if orphan_id == canonical_id:
+            raise ValueError("orphan and canonical opportunity must be different")
+        async with self._session_factory() as session:
+            rows = (
+                await session.execute(
+                    select(self._opportunity_model)
+                    .where(self._opportunity_model.id.in_([orphan_id, canonical_id]))
+                    .order_by(self._opportunity_model.id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            by_id = {row.id: row for row in rows}
+            orphan_row = by_id.get(orphan_id)
+            canonical_row = by_id.get(canonical_id)
+            if orphan_row is None or canonical_row is None:
+                raise ValueError("orphan or canonical opportunity not found")
+            if orphan_row.state == OpportunityState.MERGED.value:
+                if orphan_row.merged_into_opportunity_id != canonical_id:
+                    raise ValueError("orphan is already merged into a different opportunity")
+                _validate_repeated_merge(
+                    _opportunity_from_row(orphan_row),
+                    _opportunity_from_row(canonical_row),
+                    evidence=evidence,
+                    actor_role=actor_role,
+                    actor_telegram_user_id=actor_telegram_user_id,
+                )
+                return OpportunityMergeResult(
+                    _opportunity_from_row(orphan_row),
+                    _opportunity_from_row(canonical_row),
+                    False,
+                )
+
+            turn_rows = (
+                await session.execute(
+                    select(self._turn_model)
+                    .where(self._turn_model.opportunity_id == orphan_id)
+                    .order_by(self._turn_model.created_at, self._turn_model.id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            confirmation_rows = (
+                await session.execute(
+                    select(self._confirmation_model)
+                    .where(self._confirmation_model.opportunity_id == orphan_id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            request_rows = (
+                await session.execute(
+                    select(self._request_model)
+                    .where(self._request_model.opportunity_id == orphan_id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+            sync_rows = (
+                await session.execute(
+                    select(self._context_sync_model)
+                    .where(self._context_sync_model.opportunity_id == orphan_id)
+                    .with_for_update()
+                )
+            ).scalars().all()
+
+            orphan = _opportunity_from_row(orphan_row)
+            canonical = _opportunity_from_row(canonical_row)
+            _validate_orphan_merge(
+                orphan,
+                canonical,
+                evidence=evidence,
+                actor_role=actor_role,
+                actor_telegram_user_id=actor_telegram_user_id,
+                orphan_turns=[_turn_from_row(row) for row in turn_rows],
+                orphan_confirmations=[
+                    _confirmation_from_row(row) for row in confirmation_rows
+                ],
+            )
+            evidence_json = _merge_evidence_json(
+                orphan, canonical, evidence, actor_role, actor_telegram_user_id
+            )
+
+            orphan_row.thread_id = None
+            orphan_row.thread_url = None
+            orphan_row.reply_reference_id = None
+            orphan_row.client_name = None
+            await session.flush()
+            canonical_row.thread_id = canonical_row.thread_id or orphan.thread_id or None
+            canonical_row.thread_url = canonical_row.thread_url or orphan.thread_url or None
+            canonical_row.reply_reference_id = (
+                canonical_row.reply_reference_id or orphan.reply_reference_id or None
+            )
+            client_times = [
+                value for value in (
+                    canonical_row.last_client_message_at,
+                    orphan.last_client_message_at,
+                ) if value is not None
+            ]
+            canonical_row.last_client_message_at = max(client_times, default=None)
+            canonical_row.updated_at = merged_at
+
+            for row in turn_rows:
+                row.opportunity_id = canonical_id
+            for row in request_rows:
+                row.opportunity_id = canonical_id
+            for row in sync_rows:
+                row.opportunity_id = canonical_id
+
+            previous = orphan.state
+            orphan_row.state = OpportunityState.MERGED.value
+            orphan_row.is_orphan = True
+            orphan_row.merged_into_opportunity_id = canonical_id
+            orphan_row.merged_at = merged_at
+            orphan_row.merged_by_role = actor_role
+            orphan_row.merged_by_telegram_user_id = actor_telegram_user_id
+            orphan_row.merge_evidence_json = evidence_json
+            orphan_row.do_not_follow_up = True
+            orphan_row.follow_up_status = "DISABLED_MERGED"
+            orphan_row.updated_at = merged_at
+
+            actor = "adult_owner" if actor_role == "ADULT_OWNER" else "Artem"
+            session.add_all(
+                [
+                    self._transition_model(
+                        id=uuid4().hex,
+                        opportunity_id=orphan_id,
+                        timestamp=merged_at,
+                        source="telegram:/sync_lead_context",
+                        previous_state=previous,
+                        new_state=OpportunityState.MERGED.value,
+                        reason=f"orphan merged into exact canonical opportunity {canonical_id}",
+                        actor=actor,
+                        actor_role=actor_role,
+                        actor_telegram_user_id=actor_telegram_user_id,
+                    ),
+                    self._transition_model(
+                        id=uuid4().hex,
+                        opportunity_id=canonical_id,
+                        timestamp=merged_at,
+                        source="telegram:/sync_lead_context",
+                        previous_state=canonical.state,
+                        new_state=canonical.state,
+                        reason=f"accepted audited orphan history from {orphan_id}",
+                        actor=actor,
+                        actor_role=actor_role,
+                        actor_telegram_user_id=actor_telegram_user_id,
+                    ),
+                ]
+            )
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise ValueError("orphan merge conflicts with persisted identities") from exc
+            return OpportunityMergeResult(
+                _opportunity_from_row(orphan_row),
+                _opportunity_from_row(canonical_row),
+                True,
+            )
 
 
 def _validate_actor(actor: str) -> None:
@@ -1964,6 +2286,7 @@ def _resolve_items(
     reply_reference_id: str,
     client_name: str,
 ) -> OpportunityResolution:
+    items = [item for item in items if item.state != OpportunityState.MERGED.value]
     authoritative: list[tuple[str, set[str]]] = []
     for basis, value, attribute in (
         ("thread_id", thread_id, "thread_id"),
@@ -2002,6 +2325,152 @@ def _resolve_items(
     return OpportunityResolution(None, "unresolved")
 
 
+def _validate_orphan_merge(
+    orphan: SalesOpportunity,
+    canonical: SalesOpportunity,
+    *,
+    evidence: OpportunityMergeEvidence,
+    actor_role: str,
+    actor_telegram_user_id: int,
+    orphan_turns: list[ConversationTurn],
+    orphan_confirmations: list[OwnerActionConfirmation],
+) -> None:
+    if orphan.id == canonical.id:
+        raise ValueError("orphan and canonical opportunity must be different")
+    if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+        raise ValueError("only an authorized owner role may merge an orphan")
+    if not orphan.is_orphan or orphan.source != "gmail_private_message":
+        raise ValueError("source opportunity is not an orphan private-message record")
+    if orphan.state != OpportunityState.NEEDS_CONTEXT.value:
+        raise ValueError("orphan must be in NEEDS_CONTEXT before merge")
+    orphan_commercial = (
+        orphan.gmail_job_key,
+        orphan.project_id,
+        orphan.project_url,
+        orphan.initial_proposal,
+        orphan.proposal_version,
+        orphan.proposal_content_sha256,
+        orphan.actual_submitted_price,
+        orphan.actual_submitted_timeline,
+        orphan.actual_submitted_money_json,
+        orphan.actual_submitted_timeline_json,
+        orphan.bid_submitted_at,
+    )
+    if any(orphan_commercial):
+        raise ValueError("orphan contains unchecked commercial or proposal data")
+    if orphan_confirmations:
+        raise ValueError("orphan contains owner action confirmations")
+    if any(
+        turn.direction.startswith("OUTGOING")
+        for turn in orphan_turns
+    ):
+        raise ValueError("orphan contains an outgoing commercial turn")
+
+    allowed_canonical_states = TITLE_RESOLUTION_STATES | {
+        OpportunityState.MANUAL_REVIEW.value
+    }
+    if canonical.is_orphan or canonical.state not in allowed_canonical_states:
+        raise ValueError("canonical opportunity is not an active post-bid workflow")
+    canonical_hash = hashlib.sha256(canonical.initial_proposal.encode("utf-8")).hexdigest()
+    if not all(
+        (
+            canonical.gmail_job_key,
+            canonical.project_id,
+            canonical.project_url,
+            canonical.initial_proposal,
+            canonical.proposal_version,
+            canonical.proposal_content_sha256,
+            canonical.actual_submitted_price,
+            canonical.actual_submitted_timeline,
+            canonical.actual_submitted_money_json,
+            canonical.actual_submitted_timeline_json,
+            canonical.bid_submitted_at,
+        )
+    ) or canonical_hash != canonical.proposal_content_sha256:
+        raise ValueError("canonical opportunity lacks a verified submitted bid package")
+
+    if not evidence.thread_id or evidence.thread_id != orphan.thread_id:
+        raise ValueError("copied context must contain the orphan's exact thread ID")
+    if (
+        evidence.thread_url
+        and orphan.thread_url
+        and evidence.thread_url.split("#", 1)[0].rstrip("/")
+        != orphan.thread_url.split("#", 1)[0].rstrip("/")
+    ):
+        raise ValueError("copied context thread URL conflicts with the orphan")
+    target_pairs = (
+        ("project_id", evidence.project_id, canonical.project_id),
+        ("project_url", evidence.project_url, canonical.project_url),
+        ("reply_reference_id", evidence.reply_reference_id, canonical.reply_reference_id),
+    )
+    supplied_targets = [(name, supplied, stored) for name, supplied, stored in target_pairs if supplied]
+    if not supplied_targets:
+        raise ValueError("copied context lacks an exact canonical opportunity identity")
+    for name, supplied, stored in supplied_targets:
+        if not stored or supplied != stored:
+            raise ValueError(f"copied context conflicts with canonical {name}")
+    if canonical.thread_id and canonical.thread_id != orphan.thread_id:
+        raise ValueError("canonical opportunity is already bound to a different thread")
+
+
+def _merge_evidence_json(
+    orphan: SalesOpportunity,
+    canonical: SalesOpportunity,
+    evidence: OpportunityMergeEvidence,
+    actor_role: str,
+    actor_telegram_user_id: int,
+) -> str:
+    return json.dumps(
+        {
+            "orphan_opportunity_id": orphan.id,
+            "canonical_opportunity_id": canonical.id,
+            "project_id": evidence.project_id,
+            "project_url": evidence.project_url,
+            "thread_id": evidence.thread_id,
+            "thread_url": evidence.thread_url,
+            "reply_reference_id": evidence.reply_reference_id,
+            "copied_context_sha256": evidence.content_sha256,
+            "actor_role": actor_role,
+            "actor_telegram_user_id": actor_telegram_user_id,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+
+
+def _validate_repeated_merge(
+    orphan: SalesOpportunity,
+    canonical: SalesOpportunity,
+    *,
+    evidence: OpportunityMergeEvidence,
+    actor_role: str,
+    actor_telegram_user_id: int,
+) -> None:
+    if actor_role not in {"ADULT_OWNER", "ARTEM"} or not actor_telegram_user_id:
+        raise ValueError("only an authorized owner role may merge an orphan")
+    try:
+        stored = json.loads(orphan.merge_evidence_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("stored orphan merge evidence is invalid") from exc
+    if stored.get("canonical_opportunity_id") != canonical.id:
+        raise ValueError("stored orphan merge target conflicts with canonical opportunity")
+    for field_name in (
+        "project_id",
+        "project_url",
+        "thread_id",
+        "thread_url",
+        "reply_reference_id",
+        "copied_context_sha256",
+    ):
+        supplied = (
+            evidence.content_sha256
+            if field_name == "copied_context_sha256"
+            else getattr(evidence, field_name)
+        )
+        if supplied and supplied != str(stored.get(field_name) or ""):
+            raise ValueError(f"repeated orphan merge conflicts with stored {field_name}")
+
+
 def _model_values(value: Any) -> dict[str, Any]:
     values = asdict(value)
     nullable_strings: dict[type[Any], set[str]] = {
@@ -2032,6 +2501,9 @@ def _model_values(value: Any) -> dict[str, Any]:
             "actual_submitted_timeline_json",
             "normalized_title",
             "loss_reason",
+            "merged_into_opportunity_id",
+            "merged_by_role",
+            "merge_evidence_json",
         },
         ConversationTurn: {
             "gmail_message_id",
@@ -2094,6 +2566,8 @@ def _from_row(kind: type[Any], row: Any) -> Any:
                 "last_owner_message_at",
                 "last_client_message_at",
                 "next_follow_up_at",
+                "merged_at",
+                "merged_by_telegram_user_id",
                 "response_latency_seconds",
                 "source_received_at",
                 "detected_at",
@@ -2121,6 +2595,8 @@ def _from_row(kind: type[Any], row: Any) -> Any:
                 "last_owner_message_at",
                 "last_client_message_at",
                 "next_follow_up_at",
+                "merged_at",
+                "merged_by_telegram_user_id",
                 "response_latency_seconds",
                 "source_received_at",
                 "detected_at",

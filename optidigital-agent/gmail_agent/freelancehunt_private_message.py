@@ -27,7 +27,8 @@ _PROJECT_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _PROFILE_PATH_RE = re.compile(
-    r"/(?:[a-z]{2}/)?(?:freelancer|profile)/(?P<slug>[^/?#]+?)(?:\.html)?/?$",
+    r"/(?:[a-z]{2}/)?(?:freelancer|profile)(?:/show)?/"
+    r"(?P<slug>[^/?#]+?)(?:\.html)?/?$",
     re.IGNORECASE,
 )
 _SUBJECT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
@@ -314,6 +315,9 @@ def _is_support_message(sender: str, slug: str, subject: str) -> bool:
     sender_key = normalize_conversation_title(sender)
     slug_key = slug.casefold().replace("-", "_")
     subject_key = normalize_conversation_title(subject)
+    authoritative_staff_slug = slug_key.startswith("freelancehunt_")
+    if authoritative_staff_slug:
+        return True
     platform_identity = sender_key in {
         "freelancehunt",
         "freelancehunt support",
@@ -328,6 +332,10 @@ def _is_support_message(sender: str, slug: str, subject: str) -> bool:
             "verification",
             "support",
             "welcome",
+            "successful start",
+            "успішний старт",
+            "успешный старт",
+            "udany start",
             "обліков",
             "акаунт",
             "профіл",

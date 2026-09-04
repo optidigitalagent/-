@@ -48,6 +48,7 @@ from .sales_storage import (
     ConversationTurn,
     HumanInformationRequest,
     LeadContextSync,
+    OpportunityMergeEvidence,
     OpportunityState,
     OwnerActionConfirmation,
     SalesOpportunity,
@@ -283,67 +284,68 @@ def extract_message_identity(email: EmailMessage, safe_body: str | None = None) 
 
 def classify_client_intent(text: str) -> ClientIntent:
     value = re.sub(r"\s+", " ", str(text or "")).casefold()
-    if re.search(
-        r"\b(price|pricing|cost|budget|rate|дорог\w*|цен\w*|стоимост\w*|бюджет\w*|"
-        r"дешев\w*|цін\w*|вартіст\w*|кошту\w*|дешевш\w*|budżet\w*|"
-        r"cen\w*|koszt\w*|drogo|taniej)\b",
+    rejection_phrases = (
+        "we will not proceed", "will not proceed", "decided not to proceed",
+        "we decided not to proceed", "we have decided not to proceed",
+        "we selected another freelancer", "we chose another freelancer",
+        "proposal is rejected", "cancelling the project", "canceling the project",
+        "мы решили не продолжать", "мы не будем продолжать", "решили не продолжать",
+        "не будем продолжать", "мы выбрали другого исполнителя", "ставка отклонена",
+        "отказываемся от сотрудничества", "проект отменен", "проект отменён",
+        "ми вирішили не продовжувати", "ми не будемо продовжувати",
+        "вирішили не продовжувати", "не будемо продовжувати",
+        "ми обрали іншого виконавця", "ставку відхилено",
+        "відмовляємося від співпраці", "проєкт скасовано",
+        "zdecydowaliśmy się nie kontynuować", "nie będziemy kontynuować",
+        "rezygnujemy z projektu", "wybraliśmy innego wykonawcę",
+        "oferta została odrzucona", "rezygnujemy ze współpracy",
+        "anulujemy projekt", "wybraliśmy innego freelancera",
+    )
+    if any(phrase in value for phrase in rejection_phrases):
+        return ClientIntent.REJECTION
+
+    contract_phrases = (
+        "contract created", "contract was created", "contract is ready",
+        "contract and safe are ready", "executor selected", "safe payment",
+        "funds reserved", "workspace opened", "контракт создан", "контракт готов",
+        "контракт створено", "контракт готовий", "исполнитель выбран",
+        "виконавця обрано", "средства зарезервированы", "кошти зарезервовано",
+        "workspace открыт", "workspace відкрито", "umowa utworzona",
+        "umowa jest gotowa", "wybrano wykonawcę", "środki zarezerwowane",
+        "workspace otwarty",
+    )
+    if any(phrase in value for phrase in contract_phrases):
+        return ClientIntent.SELECTED_OR_CONTRACT_STEP
+
+    ready_phrases = (
+        "choose you", "selected you", "ready to start", "we can start",
+        "обираємо вас", "выбираем вас", "готовы начать", "можем начинать",
+        "готові починати", "можемо починати", "wybieramy", "zaczynamy",
+        "możemy zaczynać",
+    )
+    if any(phrase in value for phrase in ready_phrases):
+        return ClientIntent.CLIENT_READY_TO_SELECT
+
+    has_price_term = bool(re.search(
+        r"(?:\b(?:price|pricing|cost|budget|rate|дорог\w*|цен\w*|стоимост\w*|"
+        r"бюджет\w*|дешев\w*|цін\w*|вартіст\w*|кошту\w*|дешевш\w*|"
+        r"budżet\w*|cen\w*|koszt\w*|drogo|taniej)\b|"
+        r"(?<!\w)(?:\$|€)\s*\d)",
         value,
-    ):
+    ))
+    has_price_objection = bool(re.search(
+        r"(?:too (?:high|expensive)|lower (?:the )?(?:price|rate)|discount|"
+        r"over (?:our )?budget|does(?: not|n't) fit (?:our )?budget|"
+        r"can you do (?:it|this) for|could you do (?:it|this) for|instead\??|"
+        r"дорог\w*|дешев\w*|сниз\w* цен|уменьш\w* бюджет|бюджет\s+(?:ниже|меньше)|"
+        r"другой вариант|не вписыва\w* в бюджет|"
+        r"цін\w*.{0,30}(?:висок\w*|зниз\w*)|дешевш\w*|не вклада\w* в бюджет|"
+        r"drogo|taniej|obniż\w* cen|poza (?:naszym )?budżet)",
+        value,
+    ))
+    if has_price_term and has_price_objection:
         return ClientIntent.PRICE_OBJECTION
     patterns: tuple[tuple[ClientIntent, tuple[str, ...]], ...] = (
-        (
-            ClientIntent.SELECTED_OR_CONTRACT_STEP,
-            (
-                "contract created", "contract was created", "contract and safe are ready",
-                "executor selected", "safe payment",
-                "funds reserved", "workspace opened", "контракт создан",
-                "контракт створено", "исполнитель выбран", "виконавця обрано",
-                "средства зарезервированы", "кошти зарезервовано",
-                "workspace открыт", "workspace відкрито", "umowa utworzona",
-                "wybrano wykonawcę", "środki zarezerwowane", "workspace otwarty",
-            ),
-        ),
-        (ClientIntent.CLIENT_READY_TO_SELECT, ("choose you", "selected you", "ready to start", "обираємо вас", "выбираем вас", "готовы начать", "wybieramy", "zaczynamy")),
-        (
-            ClientIntent.REJECTION,
-            (
-                "we will not proceed",
-                "will not proceed",
-                "decided not to proceed",
-                "we decided not to proceed",
-                "we have decided not to proceed",
-                "we selected another freelancer",
-                "we chose another freelancer",
-                "proposal is rejected",
-                "cancelling the project",
-                "canceling the project",
-                "мы решили не продолжать",
-                "мы не будем продолжать",
-                "решили не продолжать",
-                "не будем продолжать",
-                "мы выбрали другого исполнителя",
-                "ставка отклонена",
-                "отказываемся от сотрудничества",
-                "проект отменен",
-                "проект отменён",
-                "ми вирішили не продовжувати",
-                "ми не будемо продовжувати",
-                "вирішили не продовжувати",
-                "не будемо продовжувати",
-                "ми обрали іншого виконавця",
-                "ставку відхилено",
-                "відмовляємося від співпраці",
-                "проєкт скасовано",
-                "zdecydowaliśmy się nie kontynuować",
-                "nie będziemy kontynuować",
-                "rezygnujemy z projektu",
-                "wybraliśmy innego wykonawcę",
-                "oferta została odrzucona",
-                "rezygnujemy ze współpracy",
-                "anulujemy projekt",
-                "wybraliśmy innego freelancera",
-            ),
-        ),
         (ClientIntent.TIMELINE_OBJECTION, ("too long", "sooner", "faster", "urgent", "быстрее", "срочно", "раніше", "терміново", "szybciej", "pilne")),
         (ClientIntent.SCOPE_CHANGE, ("also add", "additional", "one more", "extra feature", "добавить еще", "додати ще", "дополнительно", "додатков", "dodatkowo", "jeszcze")),
         (ClientIntent.CALL_REQUEST, ("call", "meeting", "zoom", "созвон", "дзвінок", "встреч", "spotkanie", "rozmow")),
@@ -885,6 +887,7 @@ class SalesCloserService:
                     else identity.reply_reference_id
                 ),
                 client_name=client_name,
+                is_orphan=True,
             )
             opportunity, _created = await self.repository.ensure_opportunity(
                 opportunity,
@@ -1335,6 +1338,17 @@ class SalesCloserService:
         opportunity = await self.repository.get_opportunity(opportunity_id)
         if opportunity is None:
             raise SalesCloserError("opportunity not found")
+        if (
+            opportunity.state == OpportunityState.MERGED.value
+            and opportunity.merged_into_opportunity_id
+        ):
+            canonical = await self.repository.get_opportunity(
+                opportunity.merged_into_opportunity_id
+            )
+            if canonical is None:
+                raise SalesCloserError("merged opportunity target not found")
+            opportunity = canonical
+            opportunity_id = canonical.id
         sync, _created = await self.repository.create_context_sync(
             LeadContextSync(
                 id="sync_" + uuid4().hex[:16],
@@ -1391,29 +1405,76 @@ class SalesCloserService:
             raise SalesCloserError("copied context must be plain text up to 12000 characters")
         safe_text, redacted = redact_sensitive_content(raw)
         safe_text = _redact_access_secrets(safe_text)
-        project_ids, thread_ids = _copied_identity_values(safe_text)
-        if len(project_ids) > 1 or len(thread_ids) > 1:
+        project_ids, thread_ids, reply_reference_ids = _copied_identity_values(safe_text)
+        if (
+            len(project_ids) > 1
+            or len(thread_ids) > 1
+            or len(reply_reference_ids) > 1
+        ):
             raise SalesCloserError(
                 "copied context contains more than one opportunity identity"
             )
         opportunity = await self.repository.get_opportunity(sync.opportunity_id)
         if opportunity is None:
             raise SalesCloserError("sync opportunity not found")
+        if (
+            opportunity.state == OpportunityState.MERGED.value
+            and opportunity.merged_into_opportunity_id
+        ):
+            canonical = await self.repository.get_opportunity(
+                opportunity.merged_into_opportunity_id
+            )
+            if canonical is None:
+                raise SalesCloserError("merged opportunity target not found")
+            opportunity = canonical
         imported_identity = _identity_from_copied_text(safe_text)
-        resolution = await self.repository.resolve_opportunity(
-            thread_id=imported_identity.thread_id,
+        target_resolution = await self.repository.resolve_opportunity(
             project_id=imported_identity.project_id,
             project_url=imported_identity.project_url,
+            reply_reference_id=imported_identity.reply_reference_id,
         )
-        if resolution.opportunity is not None and resolution.opportunity.id != opportunity.id:
-            raise SalesCloserError("copied context belongs to a different opportunity")
+        if target_resolution.ambiguous:
+            raise SalesCloserError("copied context contains conflicting canonical identities")
+        target = target_resolution.opportunity
+        if target is not None and target.id != opportunity.id:
+            if not opportunity.is_orphan:
+                raise SalesCloserError("copied context belongs to a different opportunity")
+            try:
+                merge = await self.repository.merge_orphan_into_canonical(
+                    opportunity.id,
+                    target.id,
+                    evidence=OpportunityMergeEvidence(
+                        project_id=imported_identity.project_id,
+                        project_url=imported_identity.project_url,
+                        thread_id=imported_identity.thread_id,
+                        thread_url=imported_identity.thread_url,
+                        reply_reference_id=imported_identity.reply_reference_id,
+                        content_sha256=_hash_text(safe_text),
+                    ),
+                    actor_role=actor_role,
+                    actor_telegram_user_id=actor_telegram_user_id,
+                    merged_at=self._now(),
+                )
+            except ValueError as exc:
+                raise SalesCloserError(str(exc)) from exc
+            opportunity = merge.canonical
+        elif opportunity.is_orphan and target is None:
+            raise SalesCloserError(
+                "copied context does not identify an existing canonical submitted bid"
+            )
         for field_name, current, imported in (
             ("project_id", opportunity.project_id, imported_identity.project_id),
             ("thread_id", opportunity.thread_id, imported_identity.thread_id),
             ("project_url", opportunity.project_url, imported_identity.project_url),
             ("thread_url", opportunity.thread_url, imported_identity.thread_url),
         ):
-            if current and imported and current != imported:
+            conflicts = current != imported
+            if field_name == "thread_url":
+                conflicts = (
+                    current.split("#", 1)[0].rstrip("/")
+                    != imported.split("#", 1)[0].rstrip("/")
+                )
+            if current and imported and conflicts:
                 raise SalesCloserError(f"copied context conflicts with opportunity {field_name}")
         bindings = {
             field_name: imported
@@ -1461,6 +1522,10 @@ class SalesCloserService:
         )
         if incoming is None:
             raise SalesCloserError("no incoming client turn exists for regeneration")
+        if not _created:
+            return await self._result_for_turn(
+                incoming, "OWNER_COPIED_THREAD", duplicate=True
+            )
         missing = self._context_errors(opportunity, "OWNER_COPIED_THREAD")
         if missing:
             return SalesProcessResult(
@@ -1471,7 +1536,15 @@ class SalesCloserService:
                 resolution_basis="OWNER_COPIED_THREAD",
                 missing_context=tuple(missing),
             )
-        if opportunity.state == OpportunityState.NEEDS_CONTEXT.value:
+        if opportunity.state in {
+            OpportunityState.BID_SUBMITTED.value,
+            OpportunityState.WAITING_CLIENT.value,
+            OpportunityState.NEGOTIATING.value,
+            OpportunityState.NEEDS_CONTEXT.value,
+            OpportunityState.NEEDS_HUMAN_INPUT.value,
+            OpportunityState.SELECTION_REVIEW.value,
+            OpportunityState.CONTRACT_REVIEW.value,
+        }:
             opportunity = await self.repository.transition(
                 opportunity.id,
                 OpportunityState.CLIENT_REPLIED.value,
@@ -1481,7 +1554,32 @@ class SalesCloserService:
                 actor_role=actor_role,
                 actor_telegram_user_id=actor_telegram_user_id,
             )
-        request_spec = self._required_human_fact(opportunity, incoming, ClientIntent(incoming.intent))
+        intent = ClientIntent(incoming.intent)
+        if intent == ClientIntent.REJECTION:
+            loss_reason = _safe_rejection_reason(incoming.content)
+            opportunity = await self.repository.update_opportunity_fields(
+                opportunity.id,
+                {
+                    "loss_reason": loss_reason,
+                    "do_not_follow_up": True,
+                    "follow_up_status": "DISABLED_CLIENT_REJECTION",
+                },
+            ) or opportunity
+            opportunity = await self.repository.transition(
+                opportunity.id,
+                OpportunityState.LOST.value,
+                source="sales_rejection_guard",
+                reason=f"explicit terminal client rejection: {loss_reason}",
+                actor="system",
+            )
+            return SalesProcessResult(
+                opportunity=opportunity,
+                incoming_turn=incoming,
+                reply_turn=None,
+                human_request=None,
+                resolution_basis="OWNER_COPIED_THREAD",
+            )
+        request_spec = self._required_human_fact(opportunity, incoming, intent)
         if request_spec is not None:
             request, _created = await self.repository.create_human_request(
                 HumanInformationRequest(
@@ -1514,7 +1612,7 @@ class SalesCloserService:
         reply, errors = await self._generate_and_store(
             opportunity,
             incoming,
-            ClientIntent(incoming.intent),
+            intent,
             allow_repair=False,
         )
         return SalesProcessResult(
@@ -1960,10 +2058,21 @@ def _identity_from_copied_text(value: str) -> MessageIdentity:
         text_body=text,
         links=_URL_RE.findall(text),
     )
-    return extract_message_identity(synthetic, text)
+    identity = extract_message_identity(synthetic, text)
+    _project_ids, _thread_ids, reply_reference_ids = _copied_identity_values(text)
+    reply_reference_id = next(iter(reply_reference_ids), "")
+    return MessageIdentity(
+        project_id=identity.project_id,
+        thread_id=identity.thread_id,
+        project_url=identity.project_url,
+        thread_url=identity.thread_url,
+        message_reference_id=identity.message_reference_id,
+        reply_reference_id=reply_reference_id,
+        canonical_turn_identity=identity.canonical_turn_identity,
+    )
 
 
-def _copied_identity_values(value: str) -> tuple[set[str], set[str]]:
+def _copied_identity_values(value: str) -> tuple[set[str], set[str], set[str]]:
     text = str(value or "")
     project_ids = set(
         re.findall(
@@ -1981,6 +2090,14 @@ def _copied_identity_values(value: str) -> tuple[set[str], set[str]]:
             re.IGNORECASE,
         )
     )
+    reply_reference_ids = set(
+        re.findall(
+            r"(?:reply reference|reply id|in-reply-to|message reference)\s*"
+            r"[:#=]?\s*(<[^<>\s]+>)",
+            text,
+            re.IGNORECASE,
+        )
+    )
     for value in _URL_RE.findall(text):
         safe = safe_freelancehunt_url(value)
         if not safe:
@@ -1992,7 +2109,7 @@ def _copied_identity_values(value: str) -> tuple[set[str], set[str]]:
             project_ids.add(project_match.group("id"))
         if thread_match:
             thread_ids.add(thread_match.group("id"))
-    return project_ids, thread_ids
+    return project_ids, thread_ids, reply_reference_ids
 
 
 def _next_reply_version(turns: list[ConversationTurn]) -> str:

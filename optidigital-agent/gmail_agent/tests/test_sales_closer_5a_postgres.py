@@ -26,7 +26,9 @@ from gmail_agent.sales_closer import (
     SalesReplyCandidate,
 )
 from gmail_agent.sales_storage import (
+    HumanInformationRequest,
     IllegalTransitionError,
+    OpportunityMergeEvidence,
     OpportunityState,
     PostgresSalesRepository,
 )
@@ -41,7 +43,10 @@ async def _generator(context, _client, _errors):
     assert context["initial_submitted_proposal"]
     assert context["actual_submitted_price"] == "1200 USD"
     assert context["actual_submitted_timeline"] == "5 days"
-    assert context["confirmed_conversation"][-1]["direction"] == "INCOMING"
+    assert any(
+        item["direction"] == "INCOMING"
+        for item in context["confirmed_conversation"]
+    )
     return SalesReplyCandidate(
         reply="Regarding authentication, we will keep the confirmed scope. Please confirm the endpoint list.",
         russian_summary="Клиент просит уточнить авторизацию.",
@@ -392,3 +397,153 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(incoming), 2)
         self.assertTrue(all(turn.wrapper_language == "en" for turn in incoming))
         self.assertTrue(all(turn.resolution_basis for turn in incoming))
+
+    async def test_orphan_merge_is_atomic_concurrent_restart_safe_and_audited(self):
+        repository = PostgresSalesRepository(self.sessions)
+        generator = AsyncMock(side_effect=_generator)
+        service = SalesCloserService(
+            repository, reply_generator=generator, now=lambda: NOW
+        )
+        project_id = "990005040"
+        job = self._job(project_id)
+        job.title = "Canonical PostgreSQL merge target"
+        canonical = await service.ensure_from_validated_job(job)
+        canonical, _confirmation, _created = await service.mark_bid_sent(
+            canonical.id,
+            canonical.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=101,
+        )
+        orphan_result = await service.process_client_message(
+            self._title_email(
+                "Unknown PostgreSQL orphan title", "88005040", "pg-orphan-v4"
+            )
+        )
+        orphan = orphan_result.opportunity
+        self.assertTrue(orphan.is_orphan)
+        self.assertEqual(orphan.state, OpportunityState.NEEDS_CONTEXT.value)
+        await repository.update_turn_fields(
+            orphan_result.incoming_turn.id,
+            {
+                "acknowledged_at": NOW,
+                "acknowledged_by_role": "ARTEM",
+                "acknowledged_by_telegram_user_id": 202,
+                "escalation_count": 1,
+                "alert_state": "ESCALATED",
+            },
+        )
+        request, _created = await repository.create_human_request(
+            HumanInformationRequest(
+                id="hir_pg_v4_rehome",
+                opportunity_id=orphan.id,
+                source_turn_id=orphan_result.incoming_turn.id,
+                fact_key="synthetic_audit_fact",
+                intent="CLARIFICATION",
+                subject_fingerprint="pg-v4",
+                question="Synthetic audit-only question",
+                asked_at=NOW,
+            )
+        )
+        sync, _ = await service.begin_context_sync(
+            orphan.id, actor_role="ARTEM", actor_telegram_user_id=202
+        )
+        copied = (
+            f"Project ID: {project_id}\n"
+            "Thread ID: 88005040\n"
+            f"{canonical.project_url}\n"
+            "https://freelancehunt.com/en/mailbox/read/thread/88005040#last-message\n"
+            "Confirmed conversation history only."
+        )
+        evidence = OpportunityMergeEvidence(
+            project_id=project_id,
+            project_url=canonical.project_url,
+            thread_id="88005040",
+            thread_url="https://freelancehunt.com/en/mailbox/read/thread/88005040",
+            content_sha256=hashlib.sha256(copied.encode()).hexdigest(),
+        )
+        first, second = await asyncio.gather(
+            repository.merge_orphan_into_canonical(
+                orphan.id,
+                canonical.id,
+                evidence=evidence,
+                actor_role="ARTEM",
+                actor_telegram_user_id=202,
+                merged_at=NOW,
+            ),
+            PostgresSalesRepository(self.sessions).merge_orphan_into_canonical(
+                orphan.id,
+                canonical.id,
+                evidence=evidence,
+                actor_role="ARTEM",
+                actor_telegram_user_id=202,
+                merged_at=NOW,
+            ),
+        )
+        self.assertEqual(sum(result.created for result in (first, second)), 1)
+
+        result = await service.import_context(
+            copied, actor_role="ARTEM", actor_telegram_user_id=202
+        )
+        self.assertEqual(result.opportunity.id, canonical.id)
+        self.assertIsNotNone(result.reply_turn)
+        generator.assert_awaited_once()
+        telegram = SimpleNamespace(send_message=AsyncMock(return_value=True))
+        self.assertTrue(await send_sales_response_card(telegram, 1, result))
+        telegram.send_message.assert_awaited_once()
+
+        saved_orphan = await repository.get_opportunity(orphan.id)
+        saved_canonical = await repository.get_opportunity(canonical.id)
+        self.assertEqual(saved_orphan.state, OpportunityState.MERGED.value)
+        self.assertEqual(saved_orphan.merged_into_opportunity_id, canonical.id)
+        self.assertTrue(saved_orphan.merge_evidence_json)
+        self.assertEqual(saved_canonical.thread_id, "88005040")
+        self.assertEqual(saved_canonical.initial_proposal, canonical.initial_proposal)
+        self.assertEqual(saved_canonical.actual_submitted_price, "1200 USD")
+        self.assertEqual(saved_canonical.actual_submitted_timeline, "5 days")
+        turns = await repository.list_turns(canonical.id)
+        moved = next(turn for turn in turns if turn.id == orphan_result.incoming_turn.id)
+        self.assertEqual(moved.gmail_message_id, "pg-orphan-v4")
+        self.assertEqual(moved.acknowledged_by_role, "ARTEM")
+        self.assertEqual(moved.escalation_count, 1)
+        self.assertEqual(
+            (await repository.get_human_request(request.id)).opportunity_id,
+            canonical.id,
+        )
+        counts = await repository.pipeline_counts()
+        self.assertEqual(counts[OpportunityState.MERGED.value], 0)
+        self.assertEqual(sum(counts.values()), 1)
+        orphan_audit = await repository.list_transitions(orphan.id)
+        canonical_audit = await repository.list_transitions(canonical.id)
+        self.assertTrue(any(item.new_state == "MERGED" for item in orphan_audit))
+        self.assertTrue(any("accepted audited orphan history" in item.reason for item in canonical_audit))
+
+        restarted_repository = PostgresSalesRepository(self.sessions)
+        restarted = SalesCloserService(
+            restarted_repository, reply_generator=generator, now=lambda: NOW
+        )
+        repeated_sync, redirected = await restarted.begin_context_sync(
+            orphan.id, actor_role="ARTEM", actor_telegram_user_id=202
+        )
+        self.assertEqual(redirected.id, canonical.id)
+        repeated = await restarted.import_context(
+            copied, actor_role="ARTEM", actor_telegram_user_id=202
+        )
+        self.assertTrue(repeated.duplicate)
+        generator.assert_awaited_once()
+        async with self.sessions() as session:
+            from db.models import LeadContextSync
+
+            sync_row = await session.get(LeadContextSync, sync.id)
+            repeated_sync_row = await session.get(LeadContextSync, repeated_sync.id)
+            self.assertEqual(sync_row.opportunity_id, canonical.id)
+            self.assertEqual(repeated_sync_row.opportunity_id, canonical.id)
+
+        future = await restarted.process_client_message(
+            self._title_email(
+                "A different future title", "88005040", "pg-future-thread-v4"
+            )
+        )
+        self.assertEqual(future.opportunity.id, canonical.id)
+        self.assertEqual(len(await restarted_repository.list_opportunities()), 2)

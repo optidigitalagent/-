@@ -532,3 +532,41 @@ Stage 2 is operational when:
   Gmail write, bid, message, contract or payment action occurred. Release 5B and
   Release 5C remain deferred.
 - Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V3`.
+
+## 2026-09-04 — Stage 5A Draft PR #16 correction cycle V4
+
+- Added all eight required `/profile` and `/profile/show` URL shapes and a
+  real-form Ukrainian onboarding fixture using
+  `/ua/profile/show/freelancehunt_nastasiia.html`. The staff slug alone routes
+  the notification outside sales.
+- Restarted support scans produce one mocked Telegram support card total and
+  zero sales opportunities, AI calls, qualified increments, pending ACKs or
+  escalations. An ordinary client's use of the word Freelancehunt remains a
+  client message.
+- Reordered intent classification to terminal rejection, formal
+  contract/selection, genuine price objection, timeline, scope, then other
+  intents. The four required rejection-plus-price cases close as `LOST` with
+  no reply or follow-up; four real objections stay price objections and four
+  neutral budget statements do not.
+- Added additive orphan/tombstone columns and `MERGED` state. Exact project URL,
+  project ID or reply/reference evidence combined with the orphan thread can
+  invoke an atomic merge; sender, fuzzy title, similar text, contradictory
+  identity, unchecked terms and unverified bid packages fail closed.
+- Both in-memory and PostgreSQL repositories re-home turns, Gmail identities,
+  ACK/escalation state, human requests and context sync rows; canonical
+  proposal, submitted price and submitted timeline remain byte-for-byte
+  unchanged. Both records retain audit transitions and the orphan is excluded
+  from active counts.
+- Focused V4 validation passes 12 tests plus 30 parameterized subtests. Five
+  isolated PostgreSQL 17 tests pass after the entire additive migration list
+  runs twice, including two concurrent merge transactions, restart, repeat
+  import, future-thread routing and mocked one-card delivery.
+- The full ordered suite passes 425 tests with six unrelated opt-in skips while
+  the disposable sales PostgreSQL URL is enabled. Python 3.12.14 production
+  import, compileall, changed-file Ruff F rules and `git diff --check` pass.
+- Protected production remains on `main`
+  `1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05` and Railway deployment
+  `765ba1da-4df3-4472-8ea8-b0d6fa5dad05`; no merge, deploy, production
+  migration/backfill, variable, secret, OAuth, Gmail, Telegram or platform
+  mutation occurred.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.

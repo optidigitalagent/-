@@ -387,3 +387,31 @@
   unknown actors and duplicate numeric role IDs fail closed.
 - Schema changes remain additive and restart-safe. Release 5B, Release 5C and all
   production/platform mutations remain outside this correction cycle.
+
+## 2026-09-04 — Stage 5A correction cycle V4 contract
+
+- Treat all eight required `/profile` and `/profile/show` URL forms as profile
+  identities. A normalized `freelancehunt_` slug is authoritative platform
+  staff evidence and routes outside sales without relying on subject wording.
+- Classify an explicit terminal rejection before contract/selection and price.
+  Price requires both a price/budget term and objection, reduction,
+  counteroffer or negotiation semantics; a neutral budget statement is not an
+  objection.
+- Mark title-resolution fallback records explicitly as orphans. Merge one only
+  from `NEEDS_CONTEXT` into a distinct active canonical opportunity whose
+  submitted proposal hash and canonical actual terms are complete and valid.
+- Require the orphan's exact thread ID plus an exact canonical project ID, URL
+  or reply/reference ID. Names, fuzzy titles and similar text are never merge
+  evidence; conflicting combinations fail closed.
+- Lock both PostgreSQL opportunities in deterministic order and revalidate the
+  full contract in one transaction. Re-home turns and their Gmail, ACK and
+  escalation fields, human requests and context sync rows; never copy orphan
+  proposal or commercial fields.
+- Keep both histories. Tombstone the source as `MERGED` with target, timestamp,
+  actor and hashed identity evidence, add audit transitions on both records,
+  exclude the tombstone from active pipeline counts and bind all future thread
+  traffic to the canonical opportunity.
+- Owner-copied context is content-addressed on the canonical opportunity, so a
+  repeated import or restart reuses the stored result and does not generate a
+  second reply or card. No platform write capability is added.
+- Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.

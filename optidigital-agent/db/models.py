@@ -319,6 +319,16 @@ class SalesOpportunity(Base):
         String(50), nullable=False, default="DISABLED_5A", server_default="DISABLED_5A"
     )
     loss_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_orphan: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    merged_into_opportunity_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    merged_by_role: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    merged_by_telegram_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    merge_evidence_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -649,6 +659,12 @@ _MIGRATIONS = [
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_money_json TEXT",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS actual_submitted_timeline_json TEXT",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_reply_sequence INTEGER NOT NULL DEFAULT 1",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS is_orphan BOOLEAN NOT NULL DEFAULT FALSE",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_into_opportunity_id TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_at TIMESTAMPTZ",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_by_role TEXT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merged_by_telegram_user_id BIGINT",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS merge_evidence_json TEXT",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS telegram_notified_at TIMESTAMPTZ",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS notification_due_at TIMESTAMPTZ",
     "ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS incoming_gmail_message_id TEXT",
@@ -689,6 +705,7 @@ _MIGRATIONS = [
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_thread_id ON sales_opportunities (thread_id)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_state ON sales_opportunities (state)",
     "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_normalized_title ON sales_opportunities (normalized_title)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunities_merged_into ON sales_opportunities (merged_into_opportunity_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_project_id ON sales_opportunities (project_id) WHERE project_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_sales_opportunity_thread_id ON sales_opportunities (thread_id) WHERE thread_id IS NOT NULL",
 ]
