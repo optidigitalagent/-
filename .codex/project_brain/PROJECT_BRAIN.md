@@ -149,11 +149,16 @@ adult-owner action. Stage 4 and issue #11 are deployed and verified.
 
 Release 5A persists one exact opportunity per project/thread, prepares the
 validated bid package and contextual client replies, and records only explicit
-manual-send confirmations from configured Telegram user-ID roles. Correction
-cycle V4 retains every V3 protection while recognizing real `profile/show`
-platform-staff identities, applying terminal rejection and formal selection
-before price semantics, and atomically merging an exact-identity orphan thread
-into its verified submitted-bid opportunity with full audit history and no
-commercial-term copying. Release 5B will add timed client follow-ups; Release
-5C will add selected-project delivery handoff. Neither deferred release is
-active in 5A.
+manual-send confirmations. Release 5A V4 is deployed on production `main`
+`030128fa958c5243bfe3f1f28005813e2a8605a4`; its parser, intent, stale-draft,
+orphan-merge and no-platform-write protections remain mandatory.
+
+GitHub issue #17 is the active narrow operational hotfix. It supports exactly
+one of two internal Telegram operator modes: configured separate role IDs, or
+one shared Telegram account whose physical user is not technically
+distinguishable. Shared-mode owner actions require `OWNER_CONFIRMS`; fact
+answers require an explicit `ARTEM` or `VADIM` source. Both are recorded as
+`SHARED_ACCOUNT_SELF_ATTESTED`, never as verified human identity. This shared
+Telegram workflow does not share or automate the adult owner's Freelancehunt
+account. Release 5B will add timed client follow-ups; Release 5C will add
+selected-project delivery handoff. Neither deferred release is active in 5A.

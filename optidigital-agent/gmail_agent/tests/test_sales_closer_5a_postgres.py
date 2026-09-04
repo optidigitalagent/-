@@ -7,8 +7,8 @@ and Freelancehunt are never mutated.
 
 from __future__ import annotations
 
-import hashlib
 import asyncio
+import hashlib
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -547,3 +547,60 @@ class TestSalesCloserPostgresE2E(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(future.opportunity.id, canonical.id)
         self.assertEqual(len(await restarted_repository.list_opportunities()), 2)
+
+    async def test_shared_operator_audit_survives_postgres_restart(self):
+        repository = PostgresSalesRepository(self.sessions)
+        service = SalesCloserService(
+            repository, reply_generator=_generator, now=lambda: NOW
+        )
+        opportunity = await service.ensure_from_validated_job(self._job("880060"))
+        opportunity, confirmation, created = await service.mark_bid_sent(
+            opportunity.id,
+            opportunity.proposal_version,
+            "1200 USD",
+            "5 days",
+            actor_role="ADULT_OWNER",
+            actor_telegram_user_id=909090,
+            confirmed_at=NOW,
+            operator_mode="SINGLE_SHARED_OPERATOR",
+            identity_assurance="SHARED_ACCOUNT_SELF_ATTESTED",
+            claimed_actor_role="ADULT_OWNER",
+            attestation_version="OWNER_CONFIRMS_V1",
+            claimed_at=NOW,
+        )
+        self.assertTrue(created)
+        incoming = await service.process_client_message(
+            self._email(
+                "880060", "Can you support the HubSpot API?", "pg-shared-human"
+            )
+        )
+        self.assertIsNotNone(incoming.human_request)
+        answered = await service.answer_human_request(
+            incoming.human_request.id,
+            "YES",
+            actor_role="ARTEM",
+            actor_telegram_user_id=909090,
+            operator_mode="SINGLE_SHARED_OPERATOR",
+            identity_assurance="SHARED_ACCOUNT_SELF_ATTESTED",
+            claimed_actor_role="ARTEM",
+            attestation_version="FACT_SOURCE_V1",
+            claimed_at=NOW,
+        )
+        restarted = PostgresSalesRepository(self.sessions)
+        stored_confirmation = await restarted.get_confirmation_by_key(
+            confirmation.idempotency_key
+        )
+        stored_request = await restarted.get_human_request(
+            answered.human_request.id
+        )
+        self.assertEqual(stored_confirmation.operator_mode, "SINGLE_SHARED_OPERATOR")
+        self.assertEqual(
+            stored_confirmation.identity_assurance,
+            "SHARED_ACCOUNT_SELF_ATTESTED",
+        )
+        self.assertEqual(stored_confirmation.actual_telegram_user_id, 909090)
+        self.assertEqual(stored_confirmation.action_confirmed_at, NOW)
+        self.assertEqual(stored_request.claimed_actor_role, "ARTEM")
+        self.assertEqual(stored_request.source_turn_id, incoming.incoming_turn.id)
+        self.assertEqual(stored_request.actual_telegram_user_id, 909090)
+        self.assertEqual(stored_request.action_confirmed_at, NOW)
