@@ -669,7 +669,7 @@ token.json: ✅ знайдено
   variable/secret change, bid, client message, contract, or payment occurred.
 - Status: `READY_FOR_PROPOSAL_QUALITY_GATE_NULLABLE_METADATA_HOTFIX_DEPLOY`.
 
-## 2026-09-04 Stage 5A issue #17 single shared Telegram operator hotfix
+## 2026-09-04 Stage 5A issue #17 single shared Telegram operator hotfix (Draft PR #18)
 
 - Started `fix/sales-closer-single-shared-operator-v1` from exact deployed V4
   production baseline `030128fa958c5243bfe3f1f28005813e2a8605a4`.

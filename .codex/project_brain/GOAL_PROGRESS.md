@@ -18,7 +18,7 @@ Create a repeatable system that produces funded Antonov Digital client work with
 - **Instant official-RSS discovery: deployed and verified**
 - **Railway → Telegram target-channel migration: completed**
 - **Proposal-quality gate V3 plus nullable-metadata hotfix: deployed and verified**
-- **AI Sales Closer Release 5A V4: deployed; issue #17 shared-operator hotfix ready for Draft PR review**
+- **AI Sales Closer Release 5A V4: deployed; issue #17 shared-operator hotfix is in Draft PR #18**
 - **Portfolio: deferred where evidence/media is incomplete; does not block launch**
 - **Minor-owned account: 0% operational and excluded**
 
@@ -573,7 +573,7 @@ Stage 2 is operational when:
   mutation occurred.
 - Status: `READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`.
 
-## 2026-09-04 — GitHub issue #17 single shared Telegram operator hotfix
+## 2026-09-04 — GitHub issue #17 single shared Telegram operator hotfix (Draft PR #18)
 
 - Created `fix/sales-closer-single-shared-operator-v1` from exact production
   `origin/main` `030128fa958c5243bfe3f1f28005813e2a8605a4`. Production Railway

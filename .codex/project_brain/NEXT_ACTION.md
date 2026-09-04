@@ -2,31 +2,32 @@
 
 ## Current status
 
-`READY_FOR_SALES_CLOSER_5A_DEPLOY_V4`
+`READY_FOR_SINGLE_SHARED_OPERATOR_DEPLOY`
 
-Draft PR #16 remains the only Release 5A work item. Correction cycle V4 closes
-the three final review blockers: real `profile/show` platform-support routing,
-terminal-rejection/contract/price precedence, and exact-identity atomic
-orphan-to-canonical recovery. It preserves V3's parser, actor, version/hash,
-human-decision, stale-draft, ACK/escalation, Stage 4 fallback and no-platform-
-write protections.
+Draft PR #18 is the only GitHub issue #17 hotfix work item. It adds mutually
+exclusive `SEPARATE_ROLES` and `SINGLE_SHARED_OPERATOR` modes, fail-closed
+configuration, neutral shared-account authorization, exact `OWNER_CONFIRMS`
+adult-owner attestation, explicit `ARTEM`/`VADIM` fact-source attestation, and
+restart-safe audit metadata while preserving the existing separate-role model
+and every Stage 4/5A guard.
 
 Validation evidence:
 
-- 12 focused V4 tests plus 30 parameterized subtests pass;
-- five isolated PostgreSQL 17 tests pass, including migrations twice,
-  concurrent merge, restart, repeat import and future-thread routing;
-- the full ordered suite passes 425 tests with six unrelated opt-in skips while
-  the disposable sales PostgreSQL URL is enabled;
-- Python 3.12.14 production import, compileall, changed-file Ruff F rules,
-  Telegram HTML/size regressions and `git diff --check` pass.
+- 42 new shared-operator regression cases include the required synthetic E2E;
+- the full isolated PostgreSQL 17 suite passes 467 tests with six unrelated
+  opt-in skips;
+- the additive migration list applies twice and shared confirmation/fact audit
+  survives repository restart;
+- Python 3.12.14 production-like import, compileall, changed-file Ruff F rules
+  and `git diff --check` pass.
 
 Production remains unchanged on `main`
-`1f0bfb2ab95deb97cdde2eedd09fea7bceeecb05`, Railway deployment
-`765ba1da-4df3-4472-8ea8-b0d6fa5dad05`. No merge, deployment, variable,
-secret, backfill or platform action was performed.
+`030128fa958c5243bfe3f1f28005813e2a8605a4`, Railway deployment
+`4664e3e1-ff90-458c-92cc-2d0f6ba05acd` (`SUCCESS / RUNNING`). No merge,
+deployment, variable, secret, OAuth, production migration/backfill, real
+Telegram card or platform action was performed. Release 5B/5C remain deferred.
 
 ## Exactly one next action
 
-Review Draft PR #16 correction cycle V4 and, if accepted, provide separate
-explicit merge/deployment authorization.
+Review Draft PR #18 and, if accepted, provide separate explicit
+merge/deployment authorization.
