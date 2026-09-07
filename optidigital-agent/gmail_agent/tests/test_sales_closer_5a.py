@@ -558,7 +558,7 @@ class TestConfirmationRestartAndUx(SalesCloserCase):
         text = format_pipeline_counts(counts)
         self.assertEqual(counts[OpportunityState.PROPOSAL_READY.value], 1)
         self.assertEqual(counts[OpportunityState.BID_SUBMITTED.value], 1)
-        self.assertIn("follow-up scheduler: disabled", text.casefold())
+        self.assertIn("5b/5c opt-in", text.casefold())
         self.assertNotEqual(ready.id, submitted.id)
 
     async def test_lead_timeline_contains_full_state_history_and_one_next_action(self):

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 ANALYSIS_VERSION = "proposal-quality-gate-v3"
 PROPOSAL_VERSION_PREFIX = "pqg-v3"
+LIVE_STATUS_FRESH_SECONDS = 120
 
 SCORE_VALID = "VALID"
 SCORE_MISSING = "MISSING"
@@ -64,11 +65,19 @@ class QualityStatus(StrEnum):
     REPAIRED = "QUALITY_REPAIRED"
     MANUAL_REVIEW = "QUALITY_MANUAL_REVIEW"
     NON_EXECUTABLE = "QUALITY_NON_EXECUTABLE"
+    NEEDS_CLARIFICATION = "QUALITY_NEEDS_CLARIFICATION"
     FAILED = "QUALITY_FAILED"
 
 
 PROPOSAL_READY_QUALITY_STATUSES = frozenset(
     {QualityStatus.VALID.value, QualityStatus.REPAIRED.value}
+)
+DECISION_READY_QUALITY_STATUSES = frozenset(
+    {
+        *PROPOSAL_READY_QUALITY_STATUSES,
+        QualityStatus.NON_EXECUTABLE.value,
+        QualityStatus.NEEDS_CLARIFICATION.value,
+    }
 )
 
 
@@ -237,6 +246,7 @@ _DIRECT_CASE_RE = re.compile(
 )
 _PAST_CAPABILITY_RE = re.compile(
     r"(?ix)\b(?:"
+    r"(?:we|I)\s+have\s+(?:\w+\s+){0,2}experience\b|"
     r"we\s+(?:(?:have|have\s+already|already|previously)\s+)?(?:successfully\s+)?"
     r"(?:built|created|developed|implemented|integrated|launched|delivered|completed)|"
     r"we['’]ve\s+(?:successfully\s+)?(?:built|created|developed|implemented|integrated|launched|delivered|completed)|"
@@ -427,6 +437,47 @@ def approved_evidence_text(case_id: str, language: str = "en") -> str:
     return entry.get(language, "") if entry is not None else ""
 
 
+# Bounded capability vocabulary, not arbitrary shared words or new case claims.
+# Compare only explicit operations/technologies in source and approved registry.
+_EVIDENCE_CAPABILITIES = (
+    r'\b(?:telegram|телеграм\w*|bots?|бот\w*|boty)\b',
+    r'\b(?:audio\w*|аудио\w*|аудіо\w*|asr|dźwięk\w*)\b',
+    r'\b(?:animation|анимац\w*|анімац\w*|reels|рілз\w*|video\w*|відео\w*|видео\w*)\b',
+    r'\b(?:websites?|сайт\w*|strona\s+internetowa)\b',
+    r'\b(?:seo|сео|search\s+optimization|пошуков\w*|поисков\w*)\b',
+    r'\b(?:gmail|email|електронн\w*\s+пошт\w*|электронн\w*\s+почт\w*)\b',
+    r'\b(?:postgresql|постгрес\w*)\b',
+    r'\bnfc\b',
+)
+
+
+def evidence_selection_errors(analysis: JobAnalysis) -> list[str]:
+    """Check the selected registry option against source, not prior model choice.
+
+    Explicit capability adjacency is not proof of equivalent past scope.
+    Unknown vocabulary alone is not evidence of a mismatch; the independent
+    registry-only text and unsupported-claim guards still apply.
+    No-direct-case and demo labels make no past-scope assertion.
+    """
+    case_id = str(analysis.evidence_case_id or '').upper()
+    entry = EVIDENCE_REGISTRY.get(case_id)
+    if entry is None:
+        return ['invalid_evidence_case_id']
+    if case_id in {'NO_DIRECT_CASE', 'DEMO_REQUIRED'}:
+        return []
+    source = f'{analysis.title} {analysis.full_description}'.casefold()
+    # Only the registry's capability segment, not claims about validation/history.
+    skills = ' '.join(entry.get(lang, '').split('—', 1)[-1].split(';', 1)[0]
+                      for lang in ('uk', 'ru', 'en', 'pl'))
+    source_capabilities = {i for i, pattern in enumerate(_EVIDENCE_CAPABILITIES)
+                           if re.search(pattern, source, re.I)}
+    case_capabilities = {i for i, pattern in enumerate(_EVIDENCE_CAPABILITIES)
+                         if re.search(pattern, skills, re.I)}
+    if source_capabilities and case_capabilities and source_capabilities.isdisjoint(case_capabilities):
+        return ['evidence_selection_not_source_related']
+    return []
+
+
 def _record_value(record: Any, field_name: str, default: Any = "") -> Any:
     if isinstance(record, Mapping):
         return record.get(field_name, default)
@@ -455,8 +506,14 @@ def _commercial_terms(analysis: Any) -> tuple[MoneyTerms | None, TimelineTerms |
     return raw_money, raw_timeline
 
 
-def _plural_index(low: int, high: int) -> str:
-    return "one" if low == high == 1 else "many"
+def _plural_index(low: int, high: int, language: str) -> str:
+    if low != high:
+        return "many"
+    if low == 1:
+        return "one"
+    if language in {"uk", "ru", "pl"} and low % 10 in {2, 3, 4} and low % 100 not in {12, 13, 14}:
+        return "few"
+    return "many"
 
 
 def _amount_text(terms: MoneyTerms) -> str:
@@ -466,28 +523,28 @@ def _amount_text(terms: MoneyTerms) -> str:
 
 _TIMELINE_WORDS: Mapping[str, Mapping[TimelineUnit, Mapping[str, str]]] = {
     "uk": {
-        TimelineUnit.HOURS: {"one": "година", "many": "годин"},
-        TimelineUnit.DAYS: {"one": "день", "many": "днів"},
-        TimelineUnit.WEEKS: {"one": "тиждень", "many": "тижнів"},
-        TimelineUnit.MONTHS: {"one": "місяць", "many": "місяців"},
+        TimelineUnit.HOURS: {"one": "година", "few": "години", "many": "годин"},
+        TimelineUnit.DAYS: {"one": "день", "few": "дні", "many": "днів"},
+        TimelineUnit.WEEKS: {"one": "тиждень", "few": "тижні", "many": "тижнів"},
+        TimelineUnit.MONTHS: {"one": "місяць", "few": "місяці", "many": "місяців"},
     },
     "ru": {
-        TimelineUnit.HOURS: {"one": "час", "many": "часов"},
-        TimelineUnit.DAYS: {"one": "день", "many": "дней"},
-        TimelineUnit.WEEKS: {"one": "неделя", "many": "недель"},
-        TimelineUnit.MONTHS: {"one": "месяц", "many": "месяцев"},
+        TimelineUnit.HOURS: {"one": "час", "few": "часа", "many": "часов"},
+        TimelineUnit.DAYS: {"one": "день", "few": "дня", "many": "дней"},
+        TimelineUnit.WEEKS: {"one": "неделя", "few": "недели", "many": "недель"},
+        TimelineUnit.MONTHS: {"one": "месяц", "few": "месяца", "many": "месяцев"},
     },
     "en": {
-        TimelineUnit.HOURS: {"one": "hour", "many": "hours"},
-        TimelineUnit.DAYS: {"one": "day", "many": "days"},
-        TimelineUnit.WEEKS: {"one": "week", "many": "weeks"},
-        TimelineUnit.MONTHS: {"one": "month", "many": "months"},
+        TimelineUnit.HOURS: {"one": "hour", "few": "hours", "many": "hours"},
+        TimelineUnit.DAYS: {"one": "day", "few": "days", "many": "days"},
+        TimelineUnit.WEEKS: {"one": "week", "few": "weeks", "many": "weeks"},
+        TimelineUnit.MONTHS: {"one": "month", "few": "months", "many": "months"},
     },
     "pl": {
-        TimelineUnit.HOURS: {"one": "godzina", "many": "godzin"},
-        TimelineUnit.DAYS: {"one": "dzień", "many": "dni"},
-        TimelineUnit.WEEKS: {"one": "tydzień", "many": "tygodni"},
-        TimelineUnit.MONTHS: {"one": "miesiąc", "many": "miesięcy"},
+        TimelineUnit.HOURS: {"one": "godzina", "few": "godziny", "many": "godzin"},
+        TimelineUnit.DAYS: {"one": "dzień", "few": "dni", "many": "dni"},
+        TimelineUnit.WEEKS: {"one": "tydzień", "few": "tygodnie", "many": "tygodni"},
+        TimelineUnit.MONTHS: {"one": "miesiąc", "few": "miesiące", "many": "miesięcy"},
     },
 }
 
@@ -512,12 +569,19 @@ _TIMELINE_WORDING: Mapping[str, str] = {
     "pl": "termin — {timeline}",
 }
 
+_MATERIALS_START_CONDITION: Mapping[str, str] = {
+    "uk": "Відлік строку починається після отримання погоджених вихідних матеріалів.",
+    "ru": "Отсчёт срока начинается после получения согласованных исходных материалов.",
+    "en": "The timeline starts after the agreed source materials are received.",
+    "pl": "Termin rozpoczyna się po otrzymaniu uzgodnionych materiałów źródłowych.",
+}
+
 
 def _localized_timeline(terms: TimelineTerms, language: str) -> str:
     amount = str(terms.min_value)
     if terms.max_value != terms.min_value:
         amount += f"–{terms.max_value}"
-    form = _plural_index(terms.min_value, terms.max_value)
+    form = _plural_index(terms.min_value, terms.max_value, language)
     return f"{amount} {_TIMELINE_WORDS[language][terms.unit][form]}"
 
 
@@ -534,7 +598,13 @@ def application_owned_commercial_block(analysis: Any) -> str:
             timeline=_localized_timeline(timeline, language)
         )
     )
-    return APPLICATION_COMMERCIAL_PREFIXES[language] + "; ".join(clauses) + "."
+    block = APPLICATION_COMMERCIAL_PREFIXES[language] + "; ".join(clauses) + "."
+    if (
+        str(_record_value(analysis, "materials_status") or "").upper()
+        == "UNAVAILABLE_EXECUTION_INPUTS_ONLY"
+    ):
+        block += " " + _MATERIALS_START_CONDITION[language]
+    return block
 
 
 def application_owned_evidence_clause(analysis: Any) -> str:
@@ -557,6 +627,9 @@ def proposal_body(value: str) -> str:
 
 
 def compose_application_owned_proposal(analysis: Any) -> str:
+    decision = str(_record_value(analysis, "commercial_decision") or "").upper()
+    if decision and decision != "TAKE":
+        return ""
     body = proposal_body(str(_record_value(analysis, "proposal_draft") or ""))
     language = str(_record_value(analysis, "language") or "")
     approved = approved_evidence_text(
@@ -605,7 +678,7 @@ def _language_matches(language: str, proposal: str) -> bool:
         )
     if language == "ru":
         return bool(re.search(r"[ыэъё]", value)) or any(
-            word in value for word in ("нужно", "можем", "проект", "срок", "подтверд")
+            word in value for word in ("нужно", "можем", "проект", "срок", "подтверд", "пришлите")
         )
     if language == "pl":
         return bool(re.search(r"[ąćęłńóśźż]", value)) or any(
@@ -710,6 +783,7 @@ _CONFUSABLES = str.maketrans(
 )
 
 _MODEL_OWNED_TEXT_FIELDS = (
+    "decision_reason", "clarification_question",
     "reason", "why_relevant", "service_lane", "win_probability_signal",
     "scope_clarity", "estimated_effort", "delivery_risk",
     "client_payment_risk", "project_mode_reason", "recommended_price",
@@ -749,6 +823,17 @@ def contains_unsupported_case_or_capability_claim(text: str) -> bool:
     )
 
 
+_SELF_EXPERTISE_RE = re.compile(
+    r"(?i)(?:наш\w*\s+(?:експертиз\w*|экспертиз\w*|досвід\w*|опыт\w*)|"
+    r"\bour\s+(?:expertise|experience)\b|nasz\w*\s+doświadczeni\w*)"
+)
+
+
+def _unapproved_model_claim(value: str) -> bool:
+    return bool(_PAST_CAPABILITY_RE.search(value) or _DIRECT_CASE_RE.search(value)
+                or _SELF_EXPERTISE_RE.search(value))
+
+
 def _safe_text_errors(analysis: JobAnalysis) -> list[str]:
     proposal = analysis.proposal_draft or ""
     errors: list[str] = []
@@ -765,10 +850,169 @@ def _safe_text_errors(analysis: JobAnalysis) -> list[str]:
         if field_name != "proposal_draft" and _contains_external_contact(value):
             errors.append("structured_field_contains_external_contact")
         if field_name != "proposal_draft" and (
-            _PAST_CAPABILITY_RE.search(value) or _DIRECT_CASE_RE.search(value)
+            _unapproved_model_claim(value)
         ):
             errors.append("structured_field_contains_unapproved_capability_claim")
     return errors
+
+
+def ask_basis(analysis: JobAnalysis) -> dict[str, Any]:
+    """Read the dependency from the existing persisted model JSON; no migration.
+
+    Old rows deliberately do not acquire fabricated grounds on reload.
+    """
+    try:
+        from .email_analyzer import AskBasis
+        payload = json.loads(analysis.model_output_json or "{}")
+        value = payload.get("analysis", payload).get("ask_basis")
+        return AskBasis.model_validate(value).model_dump()
+    except (ValueError, TypeError, AttributeError):
+        return {}
+
+
+def _live_action_errors(analysis: JobAnalysis, checked_at: datetime) -> list[str]:
+    errors = []
+    if str(analysis.live_status or "") != "ACTIVE_BIDDABLE" or analysis.biddable is not True:
+        errors.append("live_status_not_active_biddable")
+    stamp = analysis.live_status_checked_at
+    if stamp is None:
+        errors.append("live_status_not_fresh")
+    else:
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        age = (checked_at - stamp).total_seconds()
+        if age < -5 or age > LIVE_STATUS_FRESH_SECONDS:
+            errors.append("live_status_not_fresh")
+    return errors
+
+
+_ASK_ACTION_RE = re.compile(
+    r"(?i)\b(?:ask|confirm|request|clarify|check|уточн\w*|запрос\w*|запита\w*|"
+    r"попрос\w*|підтверд\w*|подтверд\w*|перевір\w*|провер\w*|zapyt\w*|potwierd\w*|sprawd\w*)\b"
+)
+_CLIENT_RECIPIENT_RE = re.compile(r"(?i)\b(?:client|customer|клієнт\w*|клиент\w*|замовник\w*|заказчик\w*|klient\w*)\b")
+_TEAM_RECIPIENT_RE = re.compile(r"(?i)\b(?:team|команд\w*|вадим\w*|vadim|artem|артем\w*|zespo\w*)\b")
+_REFERENCE_RE = re.compile(r"(?i)(?:reference|example|sample|референс|приклад|пример|przykład|wz[oó]r)")
+_EXECUTOR_EXAMPLES_RE = re.compile(
+    r"(?i)(?:бажано\s+(?:відправити|надати|показати)\s+приклад\w*|"
+    r"желательно\s+(?:прислать|показать)\s+пример\w*|"
+    r"(?:prefer|please\s+show).{0,40}(?:your|executor).{0,30}(?:samples|examples|portfolio))"
+)
+_MANDATORY_CLIENT_REFERENCE_RE = re.compile(
+    r"(?i)(?:mandatory|required|обов'язков\w*|обязательн\w*|wymagan\w*).{0,30}"
+    r"(?:client\s+)?(?:reference|референс\w*|зраз\w*|образ\w*|wz[oó]r)"
+)
+
+
+def _ask_contract_errors(analysis: JobAnalysis) -> list[str]:
+    basis = ask_basis(analysis)
+    action = str(analysis.next_action or '').strip()
+    errors = []
+    if not (_one_action(action) and _ASK_ACTION_RE.search(action)):
+        errors.append('next_action_not_actionable')
+    if not basis:
+        return errors + ['ask_basis_missing_or_invalid']
+    owner = basis['owner']
+    recipient = _CLIENT_RECIPIENT_RE if owner == 'CLIENT' else _TEAM_RECIPIENT_RE
+    other = _TEAM_RECIPIENT_RE if owner == 'CLIENT' else _CLIENT_RECIPIENT_RE
+    # The leading action's first recipient is its addressee. A participant in
+    # the following requested content is not another recipient ("our team must
+    # follow"). Keep the separate imperative/nonempty check above.
+    verb = _ASK_ACTION_RE.search(action)
+    directed_action = action[verb.end():] if verb else action
+    addressed = recipient.search(directed_action)
+    other_addressed = other.search(directed_action)
+    if not addressed or (other_addressed and other_addressed.start() < addressed.start()):
+        errors.append('ask_action_recipient_mismatch')
+    kind = basis['fact_kind']
+    if (kind == 'TEAM_FACT') != (owner == 'TEAM'):
+        errors.append('ask_fact_owner_mismatch')
+    if not basis['required_for_estimate'] or kind in {'EXECUTOR_PREFERENCE', 'EXECUTION_INPUT'}:
+        errors.append('ask_not_estimate_blocking')
+    source = ' '.join(analysis.full_description.casefold().split())
+    quote = ' '.join(basis['source_quote'].casefold().split())
+    if quote and quote not in source:
+        errors.append('ask_source_quote_not_grounded')
+    if not quote and not basis['absence_reason'].strip():
+        errors.append('ask_missing_source_gap_reason')
+    question = str(analysis.clarification_question or '')
+    # Keep the question about the declared fact. This conservative lexical
+    # consistency check may require review of paraphrases; it is not an LLM judge.
+    def anchors(text: str) -> set[str]:
+        stop = {'what','which','required','requirement','missing','client','customer',
+                'team','please','можете','клиент','клієнт','какой','який','команда',
+                'обязательные','обовязкові','факт','нужны'}
+        return {word[:4] for word in re.findall(r'[^\W\d_]{4,}', text.casefold()) if word not in stop}
+    if not anchors(basis['missing_fact']) & anchors(question):
+        errors.append('ask_question_fact_mismatch')
+    gap = basis['missing_fact'] + ' ' + question
+    if (owner == 'CLIENT' and _REFERENCE_RE.search(gap)
+            and _EXECUTOR_EXAMPLES_RE.search(source)
+            and not _MANDATORY_CLIENT_REFERENCE_RE.search(source)):
+        errors.append('ask_source_perspective_mismatch')
+    # Bounded, auditable known-quantity checks, not a claim of general semantic
+    # entailment. Opposite reference-role controls exercise the source above.
+    known_quantities = (
+        (r'\d+\s*(?:символ\w*|characters?|знак\w*)', r'об[ъь’\']?[еєё]м|обсяг|length|characters?|символ'),
+        (r'\d+\s*(?:секунд\w*|seconds?)', r'тривал|длитель|duration|seconds?|секунд'),
+        (r'\d+\s*(?:товар\w*|products?)', r'сколько\s+товар|скільки\s+товар|how many products'),
+    )
+    # Bind the quantity to the requested deliverable inside the same source
+    # clause. Do not transfer product-description length to a separate company
+    # text; nor let model absence_reason override a source quantity for it.
+    attribute_words = {'объем', 'обсяг', 'length', 'characters', 'символов', 'знаков',
+                       'длительность', 'тривалість', 'duration', 'seconds', 'секунд',
+                       'количество', 'кількість', 'number', 'count', 'сколько', 'скільки',
+                       'required', 'missing', 'нужный', 'нужен'}
+    def deliverable_anchors(text: str) -> set[str]:
+        return {word[:4] for word in re.findall(r'[^\W\d_]{4,}', text.casefold().replace('ё', 'е'))
+                if word not in attribute_words}
+    target = deliverable_anchors(basis['missing_fact'])
+    clauses = re.split(r'[.!?;\n]+|\s+(?:и|та|and|or|или|або)\s+', source)
+    if owner == 'CLIENT' and target and any(
+        re.search(asked, gap, re.I) and any(
+            re.search(known, clause, re.I) and target <= deliverable_anchors(clause)
+            for clause in clauses)
+        for known, asked in known_quantities
+    ):
+        errors.append('ask_fact_already_known')
+    for value in (basis['missing_fact'], basis['absence_reason'], basis['estimate_impact']):
+        if _unapproved_model_claim(value):
+            errors.append('structured_field_contains_unapproved_capability_claim')
+        if _contains_external_contact(value) or _PLACEHOLDER_RE.search(value):
+            errors.append('clarification_contains_unsafe_text')
+    return errors
+
+
+def repair_diagnostics(analysis: JobAnalysis, errors: list[str] | tuple[str, ...]) -> list[dict[str, str]]:
+    """Private model repair context only, never ordinary operator-card content."""
+    result = []
+    for error in model_repair_errors(errors):
+        code = error.split(':', 1)[0]
+        paths = []
+        if 'unapproved_capability_claim' in code:
+            paths = [name for name in _MODEL_OWNED_TEXT_FIELDS
+                     if _unapproved_model_claim(str(getattr(analysis, name, '') or ''))]
+        if not paths:
+            paths = (['next_action'] if 'action' in code or 'recipient' in code else
+                     ['clarification_question'] if 'clarification' in code or 'question' in code else
+                     ['proposal_draft'] if 'proposal_language' in code else
+                     ['ask_basis'] if code.startswith('ask_') else
+                     ['evidence_case_id'] if 'evidence' in code else
+                     ['recommended_price'] if 'price' in code else
+                     ['realistic_timeline'] if 'timeline' in code else ['proposal_draft'])
+        rule = ('Describe source operations/future execution only. Past work is owned by the approved registry; '
+                'NO_DIRECT_CASE does not permit an experience claim.' if 'unapproved_capability' in code else
+                'Supply one concrete imperative action addressed to the true fact owner, not a recipient label.'
+                if 'action' in code or 'recipient' in code else
+                'Ground the missing fact, owner, mandatory dependency and estimate impact in source; '
+                'do not ask known facts or turn executor preferences/start assets into client requirements.'
+                if code.startswith('ask_') else
+                'Correct this field according to the decision contract and supplied source; do not invent facts.')
+        for path in paths:
+            value = ask_basis(analysis) if path == 'ask_basis' else getattr(analysis, path, '')
+            result.append({'code': code, 'path': path, 'fragment': str(value)[:600], 'rule': rule})
+    return result
 
 
 def _commercial_consistency_errors(analysis: JobAnalysis) -> list[str]:
@@ -1002,6 +1246,17 @@ def _dedupe(values: list[str]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(values))
 
 
+def model_repair_errors(errors: Any) -> list[str]:
+    """Exclude source/transport facts and genuine zeros; never request their invention."""
+    immutable = {
+        "analysis_provider_failed", "scope_not_sufficient_for_fixed_terms",
+        "execution_materials_without_sufficient_scope", "rss_full_without_enrichment_proof",
+        "score_zero_not_proposal_ready", "fit_score_zero_not_proposal_ready",
+        "score_provider_failed", "fit_score_provider_failed",
+    }
+    return list(dict.fromkeys(e for e in errors if e not in immutable and not e.startswith("live_status_")))
+
+
 def validate_analysis(
     analysis: JobAnalysis,
     *,
@@ -1012,8 +1267,22 @@ def validate_analysis(
 
     checked_at = now or datetime.now(timezone.utc)
     executable = str(analysis.executable or "maybe").strip().casefold()
-    if executable == "no":
-        errors: list[str] = []
+    decision = str(getattr(analysis, "commercial_decision", "") or "").strip().upper()
+    if not decision:
+        decision = "SKIP" if executable == "no" else "ASK" if executable == "maybe" else "TAKE"
+        analysis.commercial_decision = decision
+    if not analysis.analysis_succeeded:
+        return QualityValidation(
+            QualityStatus.FAILED.value,
+            ("analysis_provider_failed",),
+            checked_at,
+            0.0,
+        )
+
+    if decision == "SKIP" or executable == "no":
+        errors: list[str] = _safe_text_errors(analysis)
+        if decision != "SKIP" or executable != "no":
+            errors.append("skip_decision_executable_mismatch")
         if analysis.recommended_price:
             errors.append("non_executable_has_price")
         if analysis.realistic_timeline:
@@ -1022,29 +1291,68 @@ def validate_analysis(
             errors.append("non_executable_has_proposal")
         if not (analysis.reason or "").strip():
             errors.append("missing_non_executable_reason")
+        if getattr(analysis, "clarification_question", ""):
+            errors.append("skip_has_clarification_question")
         return QualityValidation(
-            QualityStatus.NON_EXECUTABLE.value,
+            (
+                QualityStatus.MANUAL_REVIEW.value
+                if errors
+                else QualityStatus.NON_EXECUTABLE.value
+            ),
             _dedupe(errors),
             checked_at,
             0.0,
         )
 
+    if decision == "ASK":
+        errors: list[str] = _safe_text_errors(analysis)
+        errors.extend(_ask_contract_errors(analysis))
+        errors.extend(evidence_selection_errors(analysis))
+        if contains_unsupported_case_or_capability_claim(analysis.proposal_draft or ""):
+            errors.append("proposal_contains_unapproved_capability_claim")
+        if executable != "maybe":
+            errors.append("ask_decision_executable_mismatch")
+        if ask_basis(analysis).get('owner') != 'TEAM':
+            errors.extend(_live_action_errors(analysis, checked_at))
+        question = " ".join(
+            str(
+                getattr(analysis, "clarification_question", "")
+                or _first_question(analysis.proposal_draft or "")
+            ).split()
+        )
+        if _question_count(question) != 1:
+            errors.append("ask_requires_exactly_one_clarification_question")
+        if question and not _language_matches(analysis.language, question):
+            errors.append("clarification_language_mismatch")
+        if _contains_external_contact(question) or _PLACEHOLDER_RE.search(question):
+            errors.append("clarification_contains_unsafe_text")
+        if analysis.recommended_price:
+            errors.append("ask_has_price")
+        if analysis.realistic_timeline:
+            errors.append("ask_has_timeline")
+        if analysis.proposal_draft:
+            errors.append("ask_has_proposal")
+        if not (getattr(analysis, "decision_reason", "") or analysis.reason or "").strip():
+            errors.append("ask_missing_source_gap_reason")
+        return QualityValidation(
+            (
+                QualityStatus.MANUAL_REVIEW.value
+                if errors
+                else QualityStatus.NEEDS_CLARIFICATION.value
+            ),
+            _dedupe(errors),
+            checked_at,
+            _quality_score(errors),
+            question,
+        )
+
     errors = []
-    if not analysis.analysis_succeeded:
-        errors.append("analysis_provider_failed")
+    if decision != "TAKE":
+        errors.append("invalid_commercial_decision")
+    errors.extend(evidence_selection_errors(analysis))
     if not analysis.is_relevant:
         errors.append("analysis_not_relevant")
-    if str(analysis.live_status or "") != "ACTIVE_BIDDABLE" or analysis.biddable is not True:
-        errors.append("live_status_not_active_biddable")
-    live_checked_at = analysis.live_status_checked_at
-    if live_checked_at is None:
-        errors.append("live_status_not_fresh")
-    else:
-        if live_checked_at.tzinfo is None:
-            live_checked_at = live_checked_at.replace(tzinfo=timezone.utc)
-        live_age = (checked_at - live_checked_at).total_seconds()
-        if live_age < -5 or live_age > 60:
-            errors.append("live_status_not_fresh")
+    errors.extend(_live_action_errors(analysis, checked_at))
 
     score = finite_score(analysis.score)
     fit = finite_score(analysis.fit_score)
@@ -1094,6 +1402,35 @@ def validate_analysis(
     if not (analysis.project_mode_reason or "").strip():
         errors.append("missing_project_mode_reason")
 
+    materials_status = str(
+        getattr(analysis, "materials_status", "UNKNOWN") or "UNKNOWN"
+    ).upper()
+    scope_sufficiency = str(
+        getattr(analysis, "scope_sufficiency", "UNKNOWN") or "UNKNOWN"
+    ).upper()
+    if (
+        materials_status == "UNAVAILABLE_SCOPE_RELEVANT"
+        or scope_sufficiency == "INSUFFICIENT_FOR_FIXED_TERMS"
+    ):
+        errors.append("scope_not_sufficient_for_fixed_terms")
+    if materials_status == "UNAVAILABLE_EXECUTION_INPUTS_ONLY":
+        if scope_sufficiency != "SUFFICIENT_FOR_FIXED_TERMS":
+            errors.append("execution_materials_without_sufficient_scope")
+    discovery_sources = {
+        value.strip().casefold()
+        for value in str(getattr(analysis, "discovery_source", "") or "").split("+")
+        if value.strip()
+    }
+    if (
+        "rss" in discovery_sources
+        and str(analysis.description_completeness or "PARTIAL").upper() == "FULL"
+        and not (
+            str(getattr(analysis, "scope_enrichment_source", "") or "").strip()
+            and str(getattr(analysis, "scope_enrichment_sha256", "") or "").strip()
+        )
+    ):
+        errors.append("rss_full_without_enrichment_proof")
+
     price = analysis.recommended_price or ""
     if not _PRICE_RE.search(price):
         errors.append("recommended_price_missing_amount_or_currency")
@@ -1136,20 +1473,6 @@ def validate_analysis(
         errors.append("partial_scope_not_bounded")
     if question_count > 1:
         errors.append("more_than_one_clarification_question")
-
-    if executable == "maybe":
-        if question_count != 1:
-            errors.append("maybe_requires_one_clarification_question")
-        if not _CONDITION_RE.search(proposal):
-            errors.append("maybe_proposal_not_conditioned")
-        # A maybe analysis is intentionally never a normal bid-ready card.
-        return QualityValidation(
-            QualityStatus.MANUAL_REVIEW.value,
-            _dedupe(errors or ["executable_maybe_requires_owner_review"]),
-            checked_at,
-            _quality_score(errors),
-            _first_question(proposal),
-        )
 
     if executable != "yes":
         errors.append("invalid_executable_state")
@@ -1203,6 +1526,7 @@ def apply_validation(
     if approved:
         analysis.selected_evidence = approved
     if validation.proposal_ready:
+        analysis.commercial_decision = "TAKE"
         money = parse_money_terms(analysis.recommended_price or "")
         timeline = parse_timeline_terms(analysis.realistic_timeline or "")
         if money is None or timeline is None:
@@ -1243,11 +1567,17 @@ def apply_validation(
         analysis.timeline_terms_json = ""
         analysis.proposal_draft = ""
         if validation.status == QualityStatus.NON_EXECUTABLE.value:
+            analysis.commercial_decision = "SKIP"
             analysis.next_action = "Do not bid."
+        elif validation.status == QualityStatus.NEEDS_CLARIFICATION.value:
+            analysis.commercial_decision = "ASK"
+            analysis.clarification_question = validation.clarification_question
+            analysis.next_action = analysis.next_action or validation.clarification_question
         elif validation.status in {
             QualityStatus.MANUAL_REVIEW.value,
             QualityStatus.FAILED.value,
         }:
+            analysis.commercial_decision = "TECHNICAL_FAILURE"
             analysis.next_action = "Review the quality errors; do not submit a bid."
     return analysis
 
@@ -1258,11 +1588,16 @@ def proposal_version(analysis: Any) -> str:
         "evidence_case_id": _record_value(analysis, "evidence_case_id"),
         "fit_score": finite_score(_record_value(analysis, "fit_score", None)),
         "language": _record_value(analysis, "language"),
+        "materials_status": _record_value(analysis, "materials_status"),
         "money_terms": _record_value(analysis, "money_terms_json"),
         "price": _record_value(analysis, "recommended_price"),
         "proposal": _record_value(analysis, "proposal_draft"),
         "proposal_content_sha256": _record_value(analysis, "proposal_content_sha256"),
         "score": finite_score(_record_value(analysis, "score", None)),
+        "scope_enrichment_sha256": _record_value(
+            analysis, "scope_enrichment_sha256"
+        ),
+        "scope_sufficiency": _record_value(analysis, "scope_sufficiency"),
         "selected_evidence": _record_value(analysis, "selected_evidence"),
         "timeline_terms": _record_value(analysis, "timeline_terms_json"),
         "timeline": _record_value(analysis, "realistic_timeline"),
@@ -1320,7 +1655,7 @@ def is_proposal_ready(record: Any) -> bool:
         and getter("analysis_version", "") == ANALYSIS_VERSION
         and getter("live_status", "") == "ACTIVE_BIDDABLE"
         and getter("biddable", None) is True
-        and -5 <= live_age <= 60
+        and -5 <= live_age <= LIVE_STATUS_FRESH_SECONDS
         and str(getter("executable", "")).casefold() == "yes"
         and score_state(
             getter("score", None),

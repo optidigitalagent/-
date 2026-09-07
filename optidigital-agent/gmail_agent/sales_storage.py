@@ -37,6 +37,7 @@ class OpportunityState(StrEnum):
     CONTRACT_REVIEW = "CONTRACT_REVIEW"
     SELECTED = "SELECTED"
     HANDOFF_READY = "HANDOFF_READY"
+    IN_DELIVERY = "IN_DELIVERY"
     MERGED = "MERGED"
     LOST = "LOST"
     CLOSED = "CLOSED"
@@ -50,6 +51,7 @@ TERMINAL_STATES = frozenset(
         OpportunityState.CLOSED.value,
         OpportunityState.SELECTED.value,
         OpportunityState.HANDOFF_READY.value,
+        OpportunityState.IN_DELIVERY.value,
         OpportunityState.MERGED.value,
     }
 )
@@ -135,6 +137,15 @@ ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 
+# Only the explicit lifecycle reducer uses these edges after evidence validation.
+for _review_state in ("SELECTION_REVIEW", "CONTRACT_REVIEW"):
+    ALLOWED_TRANSITIONS[_review_state] |= frozenset({"NEGOTIATING", "HANDOFF_READY"})
+ALLOWED_TRANSITIONS["WAITING_CLIENT"] |= frozenset({"CONTRACT_REVIEW", "HANDOFF_READY"})
+ALLOWED_TRANSITIONS["NEGOTIATING"] |= frozenset({"HANDOFF_READY"})
+ALLOWED_TRANSITIONS["HANDOFF_READY"] = frozenset({"IN_DELIVERY", "CONTRACT_REVIEW"})
+ALLOWED_TRANSITIONS["IN_DELIVERY"] = frozenset()
+
+
 class IllegalTransitionError(RuntimeError):
     pass
 
@@ -211,6 +222,7 @@ class SalesOpportunity:
     last_owner_message_at: datetime | None = None
     last_client_message_at: datetime | None = None
     follow_up_count: int = 0
+    lifecycle_json: str = "{}"
     next_follow_up_at: datetime | None = None
     do_not_follow_up: bool = False
     follow_up_status: str = "DISABLED_5A"
@@ -389,6 +401,8 @@ class OpportunityMergeResult:
 
 
 class SalesRepository(Protocol):
+    async def apply_lifecycle_event(self, opportunity_id: str, event: dict) -> SalesOpportunity: ...
+
     async def ensure_opportunity(
         self, opportunity: SalesOpportunity, *, reason: str, actor: str
     ) -> tuple[SalesOpportunity, bool]: ...
@@ -542,6 +556,23 @@ class InMemorySalesRepository:
         self.state.setdefault("requests", {})
         self.state.setdefault("context_syncs", {})
 
+    async def apply_lifecycle_event(self, opportunity_id: str, event: dict) -> SalesOpportunity:
+        from .sales_lifecycle import apply_event
+
+        op = replace(self.state['opportunities'][opportunity_id])
+        turns = [replace(t) for t in self.state['turns'].values() if t.opportunity_id == opportunity_id]
+        requests = [replace(r) for r in self.state['requests'].values() if r.opportunity_id == opportunity_id]
+        confirmations = [replace(c) for c in self.state['confirmations'].values() if c.opportunity_id == opportunity_id]
+        transition = apply_event(op, turns, requests, confirmations, event)
+        self.state['opportunities'][op.id] = op
+        for turn in turns:
+            self.state['turns'][turn.id] = turn
+        for confirmation in confirmations:
+            self.state['confirmations'][confirmation.id] = confirmation
+        if transition:
+            self.state['transitions'][transition.id] = transition
+        return replace(op)
+
     async def ensure_opportunity(
         self, opportunity: SalesOpportunity, *, reason: str, actor: str
     ) -> tuple[SalesOpportunity, bool]:
@@ -596,6 +627,8 @@ class InMemorySalesRepository:
     ) -> SalesOpportunity:
         _validate_actor(actor)
         _validate_state(new_state)
+        if new_state in {'HANDOFF_READY', 'IN_DELIVERY'}:
+            raise IllegalTransitionError('Handoff requires the evidence-checked lifecycle transaction.')
         item = self.state["opportunities"].get(opportunity_id)
         if item is None:
             raise KeyError(opportunity_id)
@@ -843,6 +876,12 @@ class InMemorySalesRepository:
             ) or existing.canonical_turn_identity == turn.canonical_turn_identity:
                 return replace(existing), False
         self.state["turns"][turn.id] = replace(turn)
+        if turn.direction == 'INCOMING':
+            from .sales_lifecycle import on_incoming
+            transition = on_incoming(self.state['opportunities'][turn.opportunity_id],
+                        [t for t in self.state['turns'].values() if t.opportunity_id == turn.opportunity_id], turn)
+            if transition:
+                self.state['transitions'][transition.id] = transition
         return replace(turn), True
 
     async def add_reply_draft_if_current(
@@ -1039,6 +1078,9 @@ class InMemorySalesRepository:
             if item.state == OpportunityState.MERGED.value:
                 continue
             counts[item.state] = counts.get(item.state, 0) + 1
+            if item.follow_up_status in {'DRAFT_AWAITING_OWNER', 'NEEDS_DIALOGUE_SYNC', 'PAUSED_PLATFORM_EVENT'}:
+                key = 'FOLLOW_UP_' + item.follow_up_status
+                counts[key] = counts.get(key, 0) + 1
         return counts
 
     async def create_context_sync(
@@ -1225,6 +1267,44 @@ class PostgresSalesRepository:
         self._request_model = HumanInformationRequestModel
         self._context_sync_model = LeadContextSyncModel
 
+    async def apply_lifecycle_event(self, opportunity_id: str, event: dict) -> SalesOpportunity:
+        from sqlalchemy import select
+        from .sales_lifecycle import apply_event
+
+        async with self._session_factory() as session:
+            row = (await session.execute(select(self._opportunity_model).where(
+                self._opportunity_model.id == opportunity_id).with_for_update())).scalar_one_or_none()
+            if row is None:
+                raise KeyError(opportunity_id)
+            turn_rows = (await session.execute(select(self._turn_model).where(
+                self._turn_model.opportunity_id == opportunity_id).order_by(
+                    self._turn_model.created_at, self._turn_model.id).with_for_update())).scalars().all()
+            request_rows = (await session.execute(select(self._request_model).where(
+                self._request_model.opportunity_id == opportunity_id))).scalars().all()
+            confirmation_rows = (await session.execute(select(self._confirmation_model).where(
+                self._confirmation_model.opportunity_id == opportunity_id))).scalars().all()
+            op = _opportunity_from_row(row)
+            turns = [_turn_from_row(t) for t in turn_rows]
+            confirmations = [_confirmation_from_row(c) for c in confirmation_rows]
+            transition = apply_event(op, turns, [_request_from_row(r) for r in request_rows], confirmations, event)
+            for key, value in _model_values(op).items():
+                setattr(row, key, value)
+            old = {t.id: t for t in turn_rows}
+            for turn in turns:
+                if turn.id in old:
+                    for key, value in _model_values(turn).items():
+                        setattr(old[turn.id], key, value)
+                else:
+                    session.add(self._turn_model(**_model_values(turn)))
+            if transition:
+                session.add(self._transition_model(**_model_values(transition)))
+            old_confirmations = {c.id for c in confirmation_rows}
+            for confirmation in confirmations:
+                if confirmation.id not in old_confirmations:
+                    session.add(self._confirmation_model(**_model_values(confirmation)))
+            await session.commit()
+            return _opportunity_from_row(row)
+
     async def ensure_opportunity(
         self, opportunity: SalesOpportunity, *, reason: str, actor: str
     ) -> tuple[SalesOpportunity, bool]:
@@ -1305,6 +1385,8 @@ class PostgresSalesRepository:
 
         _validate_actor(actor)
         _validate_state(new_state)
+        if new_state in {'HANDOFF_READY', 'IN_DELIVERY'}:
+            raise IllegalTransitionError('Handoff requires the evidence-checked lifecycle transaction.')
         async with self._session_factory() as session:
             result = await session.execute(
                 select(self._opportunity_model)
@@ -1664,6 +1746,8 @@ class PostgresSalesRepository:
         from sqlalchemy.exc import IntegrityError
 
         async with self._session_factory() as session:
+            opportunity_row = (await session.execute(select(self._opportunity_model).where(
+                self._opportunity_model.id == turn.opportunity_id).with_for_update())).scalar_one()
             predicates = [
                 self._turn_model.canonical_turn_identity == turn.canonical_turn_identity
             ]
@@ -1677,6 +1761,20 @@ class PostgresSalesRepository:
                 return _turn_from_row(existing), False
             row = self._turn_model(**_model_values(turn))
             session.add(row)
+            if turn.direction == 'INCOMING':
+                from .sales_lifecycle import on_incoming
+                prior_rows = (await session.execute(select(self._turn_model).where(
+                    self._turn_model.opportunity_id == turn.opportunity_id))).scalars().all()
+                prior = [_turn_from_row(t) for t in prior_rows]
+                op = _opportunity_from_row(opportunity_row)
+                transition = on_incoming(op, prior, turn)
+                if transition:
+                    session.add(self._transition_model(**_model_values(transition)))
+                for key, value in _model_values(op).items():
+                    setattr(opportunity_row, key, value)
+                changed = {t.id: t for t in prior}
+                for prior_row in prior_rows:
+                    prior_row.direction = changed[prior_row.id].direction
             try:
                 await session.commit()
             except IntegrityError:
@@ -2014,6 +2112,12 @@ class PostgresSalesRepository:
                     .group_by(self._opportunity_model.state)
                 )
             ).all()
+            followups = (await session.execute(select(self._opportunity_model.follow_up_status, func.count())
+                .where(self._opportunity_model.state != OpportunityState.MERGED.value)
+                .group_by(self._opportunity_model.follow_up_status))).all()
+        for status, count in followups:
+            if status in {'DRAFT_AWAITING_OWNER', 'NEEDS_DIALOGUE_SYNC', 'PAUSED_PLATFORM_EVENT'}:
+                counts['FOLLOW_UP_' + status] = int(count)
         for state, count in rows:
             counts[str(state)] = int(count)
         return counts
@@ -2393,7 +2497,7 @@ def evaluate_reply_confirmation(
         }
         status = (
             ReplyValidationStatus.CURRENT_AND_ALLOWED
-            if opportunity.state in allowed_states
+            if opportunity.state in allowed_states and draft.intent != 'FOLLOW_UP'
             else ReplyValidationStatus.CURRENT_BUT_STATE_FORBIDDEN
         )
     return ReplyValidationResult(

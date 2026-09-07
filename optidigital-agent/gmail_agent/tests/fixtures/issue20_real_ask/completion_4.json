@@ -1,0 +1,32 @@
+{
+  "actual_model": "gpt-4o-mini-2024-07-18",
+  "content": "{\n  \"is_relevant\": true,\n  \"commercial_decision\": \"ASK\",\n  \"decision_reason\": \"Missing specific product details to tailor the proposal.\",\n  \"clarification_question\": \"Could you provide the link to the product for better understanding?\",\n  \"title\": \"Створення сету з 3 коротких простих reels для товару вебсайту в Canva\",\n  \"platform\": \"Freelancehunt\",\n  \"score\": 0.0,\n  \"fit_score\": 0.0,\n  \"reason\": \"The project involves creating short reels which aligns with our capabilities in image/video workflows.\",\n  \"budget\": \"not specified\",\n  \"url\": \"https://freelancehunt.com/project/stvorennya-korotkih-reels-dlya-tovaru/1651774.html\",\n  \"urgency\": \"medium\",\n  \"why_relevant\": \"We have experience in creating visual content and can adapt to the client's needs.\",\n  \"red_flags\": [],\n  \"language\": \"uk\",\n  \"category\": \"\",\n  \"skills\": \"Canva, video editing, graphic design\",\n  \"deadline\": \"\",\n  \"bid_count\": null,\n  \"client_name\": \"\",\n  \"client_profile_url\": \"\",\n  \"client_context\": \"not available\",\n  \"project_id\": \"1651774\",\n  \"thread_id\": \"\",\n  \"service_lane\": \"image/video workflows\",\n  \"executable\": \"maybe\",\n  \"win_probability_signal\": \"medium due to the need for clarification on product specifics.\",\n  \"scope_clarity\": \"medium - the task is clear but lacks product details.\",\n  \"estimated_effort\": \"5-10 hours\",\n  \"delivery_risk\": \"\",\n  \"client_payment_risk\": \"\",\n  \"project_mode\": \"REPUTATION\",\n  \"project_mode_reason\": \"This project can enhance our portfolio and reputation in visual content creation.\",\n  \"recommended_price\": \"1200 USD\",\n  \"realistic_timeline\": \"4-6 weeks\",\n  \"selected_evidence\": \"NO_DIRECT_CASE\",\n  \"evidence_case_id\": \"NO_DIRECT_CASE\",\n  \"evidence\": \"The project requires skills in Canva and video editing, which we possess.\",\n  \"proposal_draft\": \"Доброго дня! Дякуємо за ваш запит. Ми маємо досвід у створенні візуального контенту та можемо адаптувати наші рішення під ваші потреби. Чи могли б ви надіслати посилання на товар, щоб ми могли краще зрозуміти завдання?\",\n  \"needs_context\": true,\n  \"next_action\": \"Send a clarification question regarding the product link.\"\n}",
+  "finish_reason": "stop",
+  "ledger_sequence": 4,
+  "requested_model": "gpt-4o-mini",
+  "saved_at": "2026-09-07T06:02:11.945732+00:00",
+  "source_revision": {
+    "dirty": true,
+    "files": {
+      "optidigital-agent/db/models.py": "f9e7d6092839fd383a201be311ec5338560c5f4813afdc9d09e51ceae031f3f6",
+      "optidigital-agent/gmail_agent/digest_parser.py": "9ae7be2259e6d5d9dcd2e5dede5bb929ebef589faad17c5cb2ae87c985ac96e2",
+      "optidigital-agent/gmail_agent/email_analyzer.py": "9b5d4bd71a9aad28afd0f6173c7530cdbb8509509a9e2180227a644a6191e3d7",
+      "optidigital-agent/gmail_agent/freelancehunt_discovery.py": "5cec8f5eb66933bb4a771d067e6c25722c84fc753ac3e4dce36adddf0be5aa5f",
+      "optidigital-agent/gmail_agent/gmail_provider.py": "e65bf3463de59e5ca21db63ba1bf39ab4f647211457b498113c89075c2bf00bc",
+      "optidigital-agent/gmail_agent/processor.py": "181462d6ad7623d0e09413c01ca0e5d1a40d47e7942e3a4fae37946830e40a64",
+      "optidigital-agent/gmail_agent/quality_gate.py": "4e30a32655b5faae93d3dba791ca2d01a8d9d60698bdbe58beba4a359f6bb7ac",
+      "optidigital-agent/gmail_agent/sales_closer.py": "48544bcdf87049dc16aa61e82922a2cfb21b6401230a63e23de22f24a3f147d8",
+      "optidigital-agent/gmail_agent/storage.py": "ad60149a1a7ea40033263b67e446eaa26badb85ccfe28a0594594aeb2e1dd2fb",
+      "optidigital-agent/gmail_agent/telegram_notifier.py": "0a7c8ab28991b30055e7f38e010feb9fc0c2ada9d9906d88f769788627ed3358",
+      "optidigital-agent/ops/issue20_live_e2e.py": "5b732331efc2fee94d3280943e5ea1d5adeb7420680c08e805f1d353cafc1003",
+      "optidigital-agent/ops/issue20_snapshot_diagnostic.py": "36ae9591c53cfe7274457727276783e504e0f16959758c640b8a868026dcd8d6"
+    },
+    "head": "f640c5472e1b70c6a303e96e31d104e23aacb2cd",
+    "source_sha256": "0d6401bc972e9887ce3dc0019d9b3128494a57d2c388d298c7816dc7357a3810"
+  },
+  "usage": {
+    "completion_tokens": 563,
+    "prompt_tokens": 4716,
+    "total_tokens": 5279
+  }
+}

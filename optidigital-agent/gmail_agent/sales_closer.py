@@ -29,7 +29,6 @@ from .freelancehunt_private_message import (
 )
 from .quality_gate import (
     PROPOSAL_READY_QUALITY_STATUSES,
-    QualityStatus,
     approved_evidence_text,
     contains_external_contact,
     contains_unsupported_case_or_capability_claim,
@@ -516,6 +515,10 @@ def reply_quality_errors(
         errors.append("unsupported_commitment")
     money_mentions = _MONEY_RE.findall(text)
     allowed_money = {_normalize_term(opportunity.actual_submitted_price)}
+    versions = json.loads(opportunity.lifecycle_json or '{}').get('terms', [])
+    current_sent_terms = versions[-1]['values'] if versions and versions[-1].get('sent') else {}
+    if current_sent_terms.get('price'):
+        allowed_money.add(_normalize_term(current_sent_terms['price']))
     if human_decision and human_decision.canonical_money_json:
         from .commercial_terms import money_terms_from_json
 
@@ -526,6 +529,8 @@ def reply_quality_errors(
         errors.append("price_mismatch")
     timeline_mentions = _TIMELINE_RE.findall(text)
     allowed_timelines = {_normalize_term(opportunity.actual_submitted_timeline)}
+    if current_sent_terms.get('timeline'):
+        allowed_timelines.add(_normalize_term(current_sent_terms['timeline']))
     if human_decision and human_decision.canonical_timeline_json:
         from .commercial_terms import timeline_terms_from_json
 
@@ -692,15 +697,109 @@ class SalesCloserService:
         openai_client: Any | None = None,
         reply_generator: ReplyGenerator | None = None,
         now: Callable[[], datetime] = utc_now,
+        followup_enabled: bool = False,
+        followup_policy: dict | None = None,
     ) -> None:
         self.repository = repository
         self._openai_client = openai_client
         self._reply_generator = reply_generator or generate_sales_reply
         self._now = now
+        self.followup_enabled = followup_enabled
+        self.followup_policy = followup_policy or {'first_hours': 12, 'second_hours': 24, 'max_count': 2}
+
+    async def lifecycle_action(self, opportunity_id: str, action: str, payload: dict,
+                               *, event_id: str, actor_role: str, actor_telegram_user_id: int,
+                               operator_mode: str = 'SEPARATE_ROLES',
+                               identity_assurance: str = SEPARATE_ROLE_IDENTITY_ASSURANCE,
+                               claimed_actor_role: str = '', attestation_version: str = '',
+                               claimed_at: datetime | None = None) -> SalesOpportunity:
+        from .sales_lifecycle import OWNER_ACTIONS, TEAM_ACTIONS
+
+        if action not in OWNER_ACTIONS | TEAM_ACTIONS:
+            raise SalesCloserError('Unknown operator lifecycle action')
+        _validate_operator_audit(actor_role=actor_role, actor_telegram_user_id=actor_telegram_user_id,
+            operator_mode=operator_mode, identity_assurance=identity_assurance,
+            claimed_actor_role=claimed_actor_role, attestation_version=attestation_version,
+            claimed_at=claimed_at, required_attestation_version=(OWNER_ATTESTATION_VERSION
+                if action in OWNER_ACTIONS else FACT_SOURCE_ATTESTATION_VERSION))
+        if not event_id or len(event_id) > 180:
+            raise SalesCloserError('Stable event identity is required')
+        return await self.repository.apply_lifecycle_event(opportunity_id, {
+            'id': event_id, 'action': action, 'payload': payload, 'at': self._now(),
+            'actor': {'ADULT_OWNER': 'adult_owner', 'ARTEM': 'Artem', 'VADIM': 'Vadim'}.get(actor_role, ''),
+            'actor_role': actor_role, 'actor_telegram_user_id': actor_telegram_user_id,
+            'operator_mode': operator_mode, 'identity_assurance': identity_assurance,
+            'attestation_version': attestation_version, 'policy': self.followup_policy})
+
+    async def followup_tick(self) -> list[SalesOpportunity]:
+        if not self.followup_enabled:
+            return []
+        result = []
+        for op in await self.repository.list_opportunities():
+            if not op.bid_submitted_at:
+                continue
+            current = await self.repository.apply_lifecycle_event(op.id, {
+                'id': 'tick', 'action': 'tick', 'payload': {}, 'at': self._now(),
+                'actor': 'system', 'actor_role': 'SYSTEM', 'actor_telegram_user_id': None,
+                'identity_assurance': 'APPLICATION', 'policy': self.followup_policy})
+            result.append(current)
+        return result
+
+    async def deliver_followup_notifications(self, bot, chat_id: int, opportunities) -> None:
+        """Existing team transport only. Durable claim/recheck, then acknowledge success.
+
+        A crash after Telegram accepts but before the local ack can duplicate a send;
+        the two-minute lease is crash recovery, not network exactly-once semantics.
+        """
+        from .sales_lifecycle import load
+        from .telegram_notifier import send_followup_task
+
+        if not self.followup_enabled or notification_due_at(self._now()) > self._now():
+            return
+        for op in opportunities:
+            for ident, notice in load(op).get('followup_notifications', {}).items():
+                if notice['status'] != 'PENDING':
+                    continue
+                lease = uuid4().hex
+                async def event(action, payload):
+                    return await self.repository.apply_lifecycle_event(op.id, {
+                        'id': action + ':' + lease, 'action': action, 'payload': payload, 'at': self._now(),
+                        'actor': 'system', 'actor_role': 'SYSTEM', 'actor_telegram_user_id': None,
+                        'identity_assurance': 'APPLICATION', 'policy': self.followup_policy})
+                payload = {'notice_id': ident, 'lease': lease}
+                turns = await self.repository.list_turns(op.id)
+                current = await event('notification_claim', payload)
+                claimed = load(current).get('followup_notifications', {}).get(ident, {})
+                if claimed.get('lease') != lease or claimed['status'] != 'PENDING':
+                    continue
+                success = await send_followup_task(bot, chat_id, current, claimed, turns)
+                await event('notification_result', dict(payload, outcome='DELIVERED' if success else 'FAILED'))
+
+    async def observe_platform_event(self, email: EmailMessage) -> None:
+        """A status/contract notification pauses follow-up, never proves a win/payment."""
+        if not trusted_freelancehunt_sender(email.sender):
+            return
+        identity = extract_message_identity(email)
+        if not identity.project_id and not identity.thread_id:
+            return  # No title/client-only guess between two deals.
+        resolution = await self.repository.resolve_opportunity(
+            project_id=identity.project_id, thread_id=identity.thread_id)
+        if resolution.opportunity is None or resolution.ambiguous:
+            return
+        if resolution.opportunity.lifecycle_json in ('', '{}') and resolution.opportunity.follow_up_status == 'DISABLED_5A':
+            return  # No inactive 5A opportunity is implicitly enrolled by a notification.
+        await self.repository.apply_lifecycle_event(resolution.opportunity.id, {
+            'id': 'platform:' + identity.canonical_turn_identity, 'action': 'platform_notice',
+            'payload': {'reference': 'Freelancehunt notification ' + email.id}, 'at': self._now(),
+            'actor': 'system', 'actor_role': 'SYSTEM', 'actor_telegram_user_id': None,
+            'identity_assurance': 'INGESTED_NOTIFICATION', 'operator_mode': 'APPLICATION',
+            'attestation_version': '', 'policy': self.followup_policy})
 
     async def ensure_from_validated_job(self, job: Any) -> SalesOpportunity | None:
         quality = str(getattr(job, "analysis_quality_status", "") or "")
-        if quality not in PROPOSAL_READY_QUALITY_STATUSES | {QualityStatus.MANUAL_REVIEW.value}:
+        # Stage 5A starts only from an exact validated TAKE package. ASK, SKIP
+        # and technical/manual states must never allocate an opportunity.
+        if quality not in PROPOSAL_READY_QUALITY_STATUSES:
             return None
         project_id = str(getattr(job, "project_id", "") or "").strip()
         project_url = safe_freelancehunt_url(str(getattr(job, "url", "") or ""))
@@ -765,7 +864,7 @@ class SalesCloserService:
             reason="validated project discovered by the application-owned quality gate",
             actor="system",
         )
-        if not created and stored.state not in {
+        if not created and not stored.bid_submitted_at and stored.state not in {
             OpportunityState.BID_SUBMITTED.value,
             OpportunityState.CLIENT_REPLIED.value,
             OpportunityState.NEEDS_CONTEXT.value,
@@ -774,6 +873,10 @@ class SalesCloserService:
             OpportunityState.WAITING_CLIENT.value,
             OpportunityState.SELECTED.value,
             OpportunityState.HANDOFF_READY.value,
+            OpportunityState.IN_DELIVERY.value,
+            OpportunityState.SELECTION_REVIEW.value,
+            OpportunityState.CONTRACT_REVIEW.value,
+            OpportunityState.MERGED.value,
             OpportunityState.LOST.value,
             OpportunityState.CLOSED.value,
         }:
@@ -2134,6 +2237,7 @@ class SalesCloserService:
             "actual_submitted_price": opportunity.actual_submitted_price,
             "actual_submitted_timeline": opportunity.actual_submitted_timeline,
             "confirmed_conversation": confirmed,
+            "terms_versions_and_confirmation_status": json.loads(opportunity.lifecycle_json or '{}').get('terms', []),
             "client_constraints": _json_list(opportunity.client_constraints_json),
             "decisions": _json_list(opportunity.decisions_json),
             "unresolved_questions": _json_list(opportunity.unresolved_questions_json),

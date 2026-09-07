@@ -144,8 +144,7 @@ def _project_summary_lines(analysis: JobAnalysis) -> list[str]:
     )
     lines = [
         (
-            f"{_score_emoji(analysis.score)} <b>{decision} — AI SALES CLOSER BID PACKAGE</b> "
-            f"{_urgency_emoji(analysis.urgency)}"
+            f"✅ <b>Подаёмся: предложение готово</b> {_urgency_emoji(analysis.urgency)}"
             if bid_ready
             else f"{_score_emoji(analysis.score)} <b>New Job Match</b> {_urgency_emoji(analysis.urgency)}"
         ),
@@ -303,6 +302,12 @@ def _other_summary_lines(analysis: JobAnalysis) -> list[str]:
 def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
     """Return a complete action card as one or more valid Telegram messages."""
 
+    from .quality_gate import ask_basis
+    if analysis.commercial_decision == 'ASK' and ask_basis(analysis).get('owner') == 'TEAM':
+        apply_validation(analysis, validate_analysis(analysis))
+        if analysis.analysis_quality_status == QualityStatus.NEEDS_CLARIFICATION.value:
+            return [_format_ask_card(analysis)]
+
     if (
         analysis.event_type
         in {
@@ -328,6 +333,15 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
         and not analysis.analysis_quality_status
     ):
         apply_validation(analysis, validate_analysis(analysis))
+
+    if analysis.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value:
+        return [_format_skip_card(analysis)]
+
+    if analysis.analysis_quality_status == QualityStatus.NEEDS_CLARIFICATION.value:
+        # Cached quality is not current permission for a client action.
+        apply_validation(analysis, validate_analysis(analysis))
+        if analysis.analysis_quality_status == QualityStatus.NEEDS_CLARIFICATION.value:
+            return [_format_ask_card(analysis)]
 
     if (
         analysis.event_type
@@ -418,6 +432,53 @@ def format_job_card_parts(analysis: JobAnalysis) -> list[str]:
         total = len(parts)
         parts = [f"<b>Card {index}/{total}</b>\n{part}" for index, part in enumerate(parts, 1)]
     return parts
+
+
+def _format_skip_card(analysis: JobAnalysis) -> str:
+    """Render a source-grounded commercial SKIP without diagnostics."""
+
+    safe_url = safe_http_url(analysis.url)
+    lines = [
+        "⛔ <b>Ставку не тратим</b>",
+        f"<b>Название:</b> {escape_html(_short(analysis.title))}",
+        "<b>Решение:</b> SKIP",
+        f"<b>Причина:</b> {escape_html(_short(analysis.decision_reason or analysis.reason, 700))}",
+        f"<b>Бюджет из источника:</b> {escape_html(_short(analysis.budget or '—'))}",
+        "<b>Предложение:</b> отсутствует",
+        "<b>Следующее действие:</b> ставку не подавать.",
+    ]
+    if safe_url:
+        lines.append(f'🔗 <a href="{escape_html(safe_url)}">Открыть проект</a>')
+    return "\n".join(lines)
+
+
+def _format_ask_card(analysis: JobAnalysis) -> str:
+    """Render one exact missing fact; never expose a speculative proposal."""
+
+    from .quality_gate import ask_basis
+    basis = ask_basis(analysis)
+    internal = basis.get('owner') == 'TEAM'
+    safe_url = safe_http_url(analysis.url)
+    question = (
+        analysis.quality_clarification_question
+        or analysis.clarification_question
+        or analysis.next_action
+    )
+    lines = [
+        "🟡 <b>Нужно уточнение</b>",
+        f"<b>Название:</b> {escape_html(_short(analysis.title))}",
+        "<b>Решение:</b> ASK",
+        f"<b>Не хватает факта:</b> {escape_html(_short(analysis.decision_reason or analysis.reason, 700))}",
+        f"<b>Адресат:</b> {'команда' if internal else 'клиент (через взрослую владелицу)'}",
+        f"<b>Действие:</b> {escape_html(_short(analysis.next_action, 700))}",
+        f"<b>{'Внутренний вопрос — не отправлять клиенту' if internal else 'Вопрос клиенту'}:</b> {escape_html(_short(question, 700))}",
+        "<b>Предложение:</b> отсутствует до получения ответа",
+    ]
+    if internal:
+        lines.append('<b>Статус проекта:</b> внутренний разбор не разрешает клиентское действие.')
+    if safe_url:
+        lines.append(f'🔗 <a href="{escape_html(safe_url)}">Открыть проект</a>')
+    return "\n".join(lines)
 
 
 def format_job_card(analysis: JobAnalysis) -> str:
@@ -777,14 +838,19 @@ def format_pipeline_counts(counts: dict[str, int]) -> str:
         ("SELECTION_REVIEW", "selection review"),
         ("CONTRACT_REVIEW", "contract review"),
         ("SELECTED", "selected"),
+        ("HANDOFF_READY", "пакет ждёт получения командой"),
+        ("IN_DELIVERY", "пакет получен командой"),
+        ("FOLLOW_UP_DRAFT_AWAITING_OWNER", "follow-up: черновик ждёт владелицу"),
+        ("FOLLOW_UP_NEEDS_DIALOGUE_SYNC", "follow-up: нужен свежий просмотр/синхронизация"),
+        ("FOLLOW_UP_PAUSED_PLATFORM_EVENT", "follow-up: проверить событие платформы"),
         ("LOST", "lost"),
     )
-    lines = ["📊 <b>Sales pipeline · Stage 5A</b>"]
+    lines = ["📊 <b>Sales pipeline · A→B</b>"]
     lines.extend(
         f"<b>{escape_html(label)}:</b> {int(counts.get(state, 0) or 0)}"
         for state, label in labels
     )
-    lines.append("<i>Follow-up scheduler: disabled in Release 5A.</i>")
+    lines.append("<i>5B/5C opt-in; follow-up — только черновик. /lead показывает следующее действие.</i>")
     return "\n".join(lines)
 
 
@@ -799,7 +865,7 @@ def format_lead_timeline(
         f"<b>Opportunity:</b> <code>{escape_html(opportunity.id)}</code>",
         f"<b>Project:</b> {escape_html(_short(opportunity.title, 600))}",
         f"<b>Current state:</b> {escape_html(opportunity.state)}",
-        f"<b>Actual terms:</b> {escape_html(_short(opportunity.actual_submitted_price))} · "
+        f"<b>Исходная отправленная ставка (история):</b> {escape_html(_short(opportunity.actual_submitted_price))} · "
         f"{escape_html(_short(opportunity.actual_submitted_timeline))}",
     ]
     for transition in transitions:
@@ -827,15 +893,154 @@ def format_lead_timeline(
         "NEEDS_CONTEXT": "Open and sync the exact Freelancehunt thread.",
         "NEEDS_HUMAN_INPUT": "Answer the one open human-information request.",
         "NEGOTIATING": "Adult owner manually sends the exact validated reply and confirms its version.",
-        "WAITING_CLIENT": "Wait for the client; no automatic follow-up runs in 5A.",
+        "WAITING_CLIENT": "Ждём клиента. При сроке follow-up подтвердите свежий просмотр точного диалога через /deal.",
         "SELECTION_REVIEW": "Adult owner urgently reviews selection; no acceptance was performed.",
         "CONTRACT_REVIEW": "Adult owner urgently reviews contract terms; no acceptance was performed.",
-        "SELECTED": "Review the contract step manually; Release 5C handoff is not active.",
+        "SELECTED": "Проверить и зафиксировать окончательные условия; одно название состояния не доказывает готовность.",
         "LOST": "No action; the opportunity is retained for audit.",
+        "HANDOFF_READY": "Артём/Вадим: подтвердите получение текущего пакета через /deal received.",
+        "IN_DELIVERY": "Выполнить первый шаг из пакета; продажи остановлены, последующие сообщения сохраняются.",
     }.get(opportunity.state, "Review the current state manually.")
+    if opportunity.state in {'HANDOFF_READY', 'IN_DELIVERY'}:
+        from .sales_lifecycle import load, handoff_errors, current_handoff_errors
+        data = load(opportunity)
+        blockers = (current_handoff_errors(opportunity, data, requests) if opportunity.state == 'HANDOFF_READY'
+                    else handoff_errors(opportunity, data, requests))
+        if blockers:
+            action = 'Проверить изменившиеся условия старта; текущая готовность не подтверждена. Историческое получение не отменяется.'
     lines.append(f"<b>Next action (one):</b> {escape_html(action)}")
+    lines.extend(_lifecycle_lines(opportunity, turns, requests))
     parts = _pack_html_lines(lines)
     if len(parts) > 1:
         total = len(parts)
         parts = [f"<b>Lead {index}/{total}</b>\n{part}" for index, part in enumerate(parts, 1)]
     return parts
+
+
+def format_lifecycle_help(op_id: str) -> str:
+    from .sales_lifecycle import TERM_FIELDS
+    return (f'<b>Локальный оператор сделки</b> /lead {escape_html(op_id)}\n'
+        'Формат: <code>/deal ' + escape_html(op_id) + ' действие\nполе=значение\n'
+        'reference=где лично проверено | OWNER_CONFIRMS</code>\n'
+        'Без OWNER_CONFIRMS — только предпросмотр. Никакой отправки на платформу.\n'
+        '• dialogue: thread=точный URL; status=AVAILABLE_SYNCED_NO_NEW_REPLY, READ_FAILED, '
+        'UNAVAILABLE или NEW_REPLY_SYNC_REQUIRED. sales_status=OPEN_WAITING_NO_SELECTION_NO_CONTRACT '
+        'только если нет выбора/договора/закрытия. Сначала открыть диалог и синхронизировать пропуски; свежесть 120 сек.\n'
+        '• stop: запрет follow-up.\n'
+        '• terms: ' + escape_html(', '.join(TERM_FIELDS)) + '. Только фактические согласуемые условия. '
+        'start_requirements — точный список условий; payment_required_to_start=NONE/RESERVED/RECEIVED.\n'
+        '• accept: version, turn, statement=CLIENT_ACCEPTED_EXACT_TERMS.\n'
+        '• select: version, turn, statement=CLIENT_SELECTED_OUR_TEAM.\n'
+        '• capacity: version, statement=TEAM_CAN_DELIVER_THIS_VERSION | ARTEM или | VADIM.\n'
+        '• payment: version, status=UNKNOWN/PROMISED/RESERVED/RECEIVED/REFUNDED.\n'
+        '• start: version, requirements=точный согласованный список, statement=START_REQUIREMENTS_SATISFIED.\n'
+        '• handoff: version. • received: version, hash=hash пакета | ARTEM или | VADIM.\n'
+        '• followup_sent: version=версия черновика, hash=hash текста, только после личной отправки.\n'
+        'Ни пароль, ни токен здесь не вводить; access_location — только безопасное место получения доступа.')
+
+
+def _followup_action(opportunity, draft):
+    return ('/deal ' + opportunity.id + ' followup_sent\nversion=' + draft.reply_version +
+            '\nhash=' + draft.content_sha256 + ' | OWNER_CONFIRMS')
+
+
+def format_followup_task(opportunity, notice, turns):
+    """One bounded internal task card, not a client delivery or a hidden /lead read."""
+    lines = ['<b>Внутренняя задача FOLLOW-UP</b>', '<b>Проект:</b> ' + escape_html(_short(opportunity.title, 240)),
+             '<b>Opportunity:</b> <code>' + escape_html(opportunity.id) + '</code>']
+    link = safe_http_url(opportunity.thread_url or opportunity.project_url)
+    if not link:
+        raise ValueError('Exact safe dialogue/project location required')
+    lines.append('<b>Точный диалог / проект:</b> ' + escape_html(link))
+    if notice['kind'] == 'NEEDS_DIALOGUE_SYNC':
+        lines.append('Срок follow-up наступил. Откройте этот диалог, синхронизируйте пропущенные ответы '
+            'и подтвердите свежий просмотр через /deal dialogue. Молчание клиента не установлено.')
+        lines.append('<code>/deal ' + escape_html(opportunity.id) + '</code> — поля проверки диалога; '
+            'AVAILABLE_SYNCED_NO_NEW_REPLY допустим только после личной проверки.')
+    else:
+        from .sales_lifecycle import digest
+        draft = next((t for t in turns if t.intent == 'FOLLOW_UP' and t.direction == 'OUTGOING_DRAFT'
+                      and t.reply_version == notice['version'] and t.content_sha256 == notice['hash']), None)
+        if not draft or digest(draft.content) != notice['hash']:
+            raise ValueError('Follow-up changed before internal notification')
+        lines.extend(['<b>Черновик для личной отправки владелицей:</b>', escape_html(draft.content),
+            '<b>После отправки — шаг 1:</b> <code>' + escape_html(_followup_action(opportunity, draft)) + '</code>',
+            'Шаг 2: бот запросит ваше конкретное reference. Если прошло 120 секунд, снова проверьте диалог.'])
+    lines.append('Клиенту ничего автоматически не отправлено.')
+    text = '\n'.join(lines)
+    if len(text) > 4096:
+        raise ValueError('Internal follow-up card exceeds one Telegram message')
+    return text
+
+
+async def send_followup_task(bot, chat_id, opportunity, notice, turns):
+    try:
+        await bot.send_message(chat_id=chat_id, text=format_followup_task(opportunity, notice, turns),
+                               parse_mode='HTML', disable_web_page_preview=True)
+        return True
+    except Exception:
+        # No exception text/headers: the existing bot transport may contain credentials.
+        logger.warning('Internal follow-up remains pending: opportunity=%s', opportunity.id)
+        return False
+
+
+def _lifecycle_lines(opportunity, turns, requests):
+    from .sales_lifecycle import load, handoff_errors, current_handoff_errors
+    data = load(opportunity)
+    if not data and opportunity.follow_up_status == 'DISABLED_5A':
+        return []
+    lines = [f'<b>Follow-up:</b> {escape_html(opportunity.follow_up_status)}; '
+             f'{opportunity.follow_up_count}/2; срок {escape_html(str(opportunity.next_follow_up_at or "—"))}',
+             f'<b>Действия:</b> <code>/deal {escape_html(opportunity.id)}</code> (покажет поля и подтверждения)']
+    for terms in data.get('terms', []):
+        stages = ', '.join(k for k in ('proposed', 'sent', 'accepted', 'capacity', 'selection', 'start') if terms.get(k))
+        lines.append(f'<b>Условия v{terms["version"]}:</b> {escape_html(stages)}; '
+                     f'reply {escape_html(terms["reply_version"])}; hash {terms["proposal_hash"]}')
+    incoming = [t for t in turns if t.direction == 'INCOMING']
+    if incoming:
+        latest = max(incoming, key=lambda t: (t.created_at, t.id))
+        lines.append(f'<b>Текущий ответ клиента (turn):</b> <code>{latest.id}</code>')
+    for draft in turns:
+        if draft.direction == 'OUTGOING_DRAFT' and draft.intent in {'FOLLOW_UP', 'FINAL_TERMS'}:
+            lines.append(f'<b>Черновик {escape_html(draft.reply_version)} · {escape_html(draft.intent)}</b>')
+            lines.extend(escape_html(line) for line in draft.content.splitlines())
+            command = ('/deal ' + opportunity.id + ' followup_sent\nversion=' + draft.reply_version +
+                       '\nhash=' + draft.content_sha256 if draft.intent == 'FOLLOW_UP' else
+                       '/mark_reply_sent ' + opportunity.id + ' ' + draft.reply_version)
+            lines.append('<b>После личной отправки владелицей:</b> <code>' + escape_html(command) + ' | OWNER_CONFIRMS</code>')
+            if draft.intent == 'FOLLOW_UP':
+                lines.append('Шаг 1: эта команда запросит reference. Шаг 2: повторите её с вашим конкретным '
+                    'основанием личного подтверждения отправки; бот не подставляет источник за вас.')
+    handoff = data.get('handoff')
+    if handoff:
+        current_errors = current_handoff_errors(opportunity, data, requests)
+        status = 'RECEIVED · историческое получение' if handoff.get('receipts') else 'NOT_READY' if current_errors else 'READY'
+        lines.extend(['<b>ПЕРЕДАЧА В РАБОТУ · ' + status + '</b>',
+                      'ID: ' + escape_html(handoff['id']), 'Version/hash: ' + str(handoff['version']) + '/' + handoff['terms_hash']])
+        lines.append('<b>Текущая оплата:</b> ' + escape_html(data['terms'][-1].get('payment', {}).get('status', 'UNKNOWN')))
+        lines.append('<b>Исторический snapshot подготовленного пакета (не текущая проверка):</b>')
+        lines.extend('<b>' + escape_html(k) + ':</b> ' + escape_html(v) for k, v in handoff['values'].items())
+        lines.append('<b>Оплата на момент подготовки:</b> ' + escape_html(handoff['payment']['status']) +
+                     ' (reserve ≠ received revenue; promise ≠ payment)')
+        lines.append('<b>Источники:</b> OWNER/TEAM_SELF_ATTESTED; не независимая проверка платформы.')
+        terms = handoff.get('confirmation_snapshot', {})
+        for name in ('accepted', 'capacity', 'selection', 'start'):
+            evidence = terms.get(name, {})
+            lines.append(escape_html(name + ': ' + evidence.get('actor_role', 'NOT_SNAPSHOTTED') +
+                ' · ' + evidence.get('reference', 'старый пакет: источник см. в историческом audit, не восстановлен догадкой')))
+        lines.append('<b>Нерешённые вопросы:</b> ' + escape_html(opportunity.unresolved_questions_json or '[]'))
+        lines.append('<b>Получили:</b> ' + escape_html(', '.join(handoff.get('receipts', {})) or 'ещё никто'))
+        lines.append('<b>История диалога:</b> сохранена в этой /lead; доступы — только в указанном безопасном месте.')
+    if opportunity.state != 'IN_DELIVERY':
+        blockers = current_handoff_errors(opportunity, data, requests) if handoff else handoff_errors(opportunity, data, requests)
+        if blockers:
+            lines.append('<b>До передачи:</b> ' + escape_html('; '.join(blockers)))
+        elif handoff:
+            lines.append('<b>Следующее:</b> Артём/Вадим подтверждает полученный version/hash через /deal received.')
+    else:
+        current_errors = handoff_errors(opportunity, data, requests)
+        if current_errors:
+            lines.append('<b>Новые обстоятельства после получения (receipt сохранён):</b> ' + escape_html('; '.join(current_errors)))
+        lines.append('<b>Следующее:</b> ' + ('согласовать новые обстоятельства до продолжения работы.' if current_errors else
+            'выполнить first_action из пакета.') + ' Продажи/follow-up остановлены; новые сообщения сохраняются.')
+    return lines

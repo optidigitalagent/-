@@ -394,6 +394,42 @@ class FreelancehuntLiveStatusChecker:
         self._ttl_cache[cache_key] = (time.monotonic(), result)
         return result
 
+    async def fetch_public_page(self, url: str) -> _PageResponse:
+        """Fetch one anonymous public project page for source enrichment.
+
+        This shares the checker's bounded HTTP/Playwright resources but does
+        not use RSS membership as a substitute for page contents. Protected or
+        failed responses are returned to the caller and must never be labelled
+        as a complete project specification.
+        """
+
+        if self._scan_depth == 0:
+            async with self.scan():
+                return await self.fetch_public_page(url)
+        clean_url = clean_project_url(url)
+        if not clean_url:
+            return _PageResponse(0, "")
+        try:
+            response = await asyncio.wait_for(
+                self._http_fetcher(clean_url), timeout=self._http_timeout_seconds
+            )
+            if response.status_code == 200 and not self._is_protected(response.html):
+                return response
+        except Exception as exc:
+            logger.info(
+                "Freelancehunt source HTTP fetch failed: %s", type(exc).__name__
+            )
+        try:
+            return await asyncio.wait_for(
+                self._playwright_fetcher(clean_url),
+                timeout=self._playwright_timeout_seconds,
+            )
+        except Exception as exc:
+            logger.info(
+                "Freelancehunt source browser fetch failed: %s", type(exc).__name__
+            )
+            return _PageResponse(0, "")
+
     async def batch_check(self, urls: list[str]) -> dict[str, LiveStatusResult]:
         """Check unique URLs concurrently inside one deadline/resource scope."""
 

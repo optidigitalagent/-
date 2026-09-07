@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -14,7 +17,10 @@ from typing import Any, Awaitable, Callable
 import httpx
 from bs4 import BeautifulSoup
 
-from .digest_parser import DigestJobCandidate
+from .digest_parser import (
+    DigestJobCandidate,
+    enrich_candidate_scope as enrich_candidate_scope,
+)
 from .live_status import FreelancehuntLiveStatusChecker
 from .processor import GmailJobProcessor, ProcessorStats
 from .project_identity import (
@@ -32,7 +38,9 @@ DISCOVERY_TRIGGER = "freelancehunt_rss"
 MAX_FEED_BYTES = 2_000_000
 
 _BUDGET_PATTERN = re.compile(
-    r"(?i)(?:\d[\d\s.,]*(?:\s*[-–]\s*\d[\d\s.,]*)?\s*"
+    r"(?i)(?:(?:UAH|USD|EUR|PLN|грн|₴|\$|€|zł)\s*"
+    r"\d[\d\s.,]*(?:\s*[-–]\s*\d[\d\s.,]*)?|"
+    r"\d[\d\s.,]*(?:\s*[-–]\s*\d[\d\s.,]*)?\s*"
     r"(?:UAH|USD|EUR|PLN|грн|₴|\$|€|zł))"
 )
 _CURRENCY_PATTERN = re.compile(r"(?i)UAH|USD|EUR|PLN|грн|₴|\$|€|zł")
@@ -47,6 +55,19 @@ class FeedBatch:
     candidates: list[DigestJobCandidate]
     fetched_at: datetime
     source_feed_timestamp: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class PublicScopeResult:
+    description: str
+    fetched_at: datetime
+    source_url: str
+    content_sha256: str
+    materials_status: str
+    scope_sufficiency: str
+    evidence: str
+    budget: str
+    budget_currency: str
 
 
 def _local_name(tag: str) -> str:
@@ -81,13 +102,157 @@ def _budget_fields(value: str) -> tuple[str, str]:
     match = _BUDGET_PATTERN.search(value or "")
     if match is None:
         return "", ""
-    budget = " ".join(match.group(0).split())
+    budget = " ".join(match.group(0).split()).rstrip(".,")
     currency_match = _CURRENCY_PATTERN.search(budget)
     currency = currency_match.group(0).upper() if currency_match else ""
     currency = {"ГРН": "UAH", "₴": "UAH", "$": "USD", "€": "EUR", "ZŁ": "PLN"}.get(
         currency, currency
     )
     return budget, currency
+
+
+def rss_candidate_sha256(candidate: DigestJobCandidate) -> str:
+    """Hash stable public RSS facts without volatile fetch timestamps."""
+
+    payload = {
+        "budget": candidate.budget,
+        "budget_currency": candidate.budget_currency,
+        "description": candidate.description,
+        "project_id": candidate.project_id,
+        "published_at": (
+            candidate.source_publication_at.isoformat()
+            if candidate.source_publication_at is not None
+            else ""
+        ),
+        "title": candidate.title,
+        "url": candidate.url,
+    }
+    encoded = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def parse_freelancehunt_public_scope(
+    html: str,
+    *,
+    project_id: str,
+    source_url: str,
+    fetched_at: datetime | None = None,
+) -> PublicScopeResult:
+    """Extract only the project-owned description from a verified public page."""
+
+    payload = str(html or "")
+    normalized = payload.casefold()
+    if not payload or any(marker in normalized for marker in (
+        "cf-challenge",
+        "challenges.cloudflare.com",
+        "just a moment",
+        "verify you are human",
+        "captcha",
+    )):
+        raise FeedParseError("public project page is empty or protected")
+    source_project_id = freelancehunt_project_id(source_url)
+    if source_project_id != project_id:
+        raise FeedParseError("public page source URL identity does not match RSS")
+    soup = BeautifulSoup(payload, "html.parser")
+    page_ids = {
+        str(tag.get("data-project-id") or "").strip()
+        for tag in soup.find_all(attrs={"data-project-id": True})
+    }
+    for tag in soup.find_all(("link", "meta")):
+        reference = str(tag.get("href") or tag.get("content") or "")
+        observed = freelancehunt_project_id(reference)
+        if observed:
+            page_ids.add(observed)
+    if project_id not in page_ids:
+        raise FeedParseError("public page project identity does not match RSS")
+
+    descriptions: list[str] = []
+    selectors = (
+        '[itemprop="description"]',
+        '[data-role="project-description"]',
+        "#project-description",
+        "#description .assignment-description",
+        ".assignment-description-container .assignment-description",
+        ".project-description",
+        ".project__description",
+        ".task-description",
+        ".b-description",
+        ".b-post-text",
+    )
+    for selector in selectors:
+        for node in soup.select(selector):
+            for hidden in node.find_all(("script", "style", "noscript", "template")):
+                hidden.decompose()
+            text = " ".join(node.get_text(" ", strip=True).replace("\xa0", " ").split())
+            if 30 <= len(text) <= 16_000:
+                descriptions.append(text)
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            value = json.loads(script.string or script.get_text() or "null")
+        except (TypeError, json.JSONDecodeError):
+            continue
+        pending = [value]
+        while pending:
+            item = pending.pop()
+            if isinstance(item, list):
+                pending.extend(item)
+                continue
+            if not isinstance(item, dict):
+                continue
+            pending.extend(item.values())
+            description = item.get("description")
+            if isinstance(description, str):
+                text = " ".join(
+                    BeautifulSoup(description, "html.parser")
+                    .get_text(" ", strip=True)
+                    .replace("\xa0", " ")
+                    .split()
+                )
+                if 30 <= len(text) <= 16_000:
+                    descriptions.append(text)
+    if not descriptions:
+        raise FeedParseError("public page project description was not found")
+    description = max(descriptions, key=len)
+    budget, budget_currency = _budget_fields(description)
+
+    attachment_nodes = soup.select(
+        ".attachments, .project-attachments, [data-role='attachments'], "
+        "[data-testid='attachments']"
+    )
+    visible = " ".join(soup.stripped_strings)
+    attachment_count_match = re.search(
+        r"(?i)(?:attachments?|applications?|приложения|вкладення|додатки)\s*[:(]?\s*([1-9]\d*)",
+        visible,
+    )
+    has_attachments = bool(attachment_nodes or attachment_count_match)
+    materials_status = (
+        "UNAVAILABLE_SCOPE_RELEVANT" if has_attachments else "NOT_REFERENCED"
+    )
+    scope_sufficiency = (
+        "INSUFFICIENT_FOR_FIXED_TERMS" if has_attachments else "UNKNOWN"
+    )
+    observed_at = fetched_at or datetime.now(timezone.utc)
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    content_sha256 = hashlib.sha256(description.encode("utf-8")).hexdigest()
+    return PublicScopeResult(
+        description=description,
+        fetched_at=observed_at.astimezone(timezone.utc),
+        source_url=source_url,
+        content_sha256=content_sha256,
+        materials_status=materials_status,
+        scope_sufficiency=scope_sufficiency,
+        evidence=(
+            "public page references attachments; contents were not opened"
+            if has_attachments
+            else "no project attachments were referenced in the public page"
+        ),
+        budget=budget,
+        budget_currency=budget_currency,
+    )
 
 
 def parse_freelancehunt_rss(
@@ -150,7 +315,11 @@ def parse_freelancehunt_rss(
         category = ", ".join(categories)[:500]
         budget, currency = _budget_fields(f"{title}\n{description}")
         publication_at = _parse_rfc822(_child_text(item, "pubDate"))
-        completeness = "FULL" if len(description) >= 240 else "PARTIAL"
+        # The public RSS description is a preview, not the authoritative
+        # project page. Length must never upgrade a feed excerpt to FULL; in
+        # particular, project 1651611 exceeded the old threshold while ending
+        # in an ellipsis and silently lost requirements.
+        completeness = "PARTIAL"
         candidates.append(
             DigestJobCandidate(
                 source_email_id=f"rss:{project_id}",
@@ -215,6 +384,67 @@ class FreelancehuntFeedClient:
         )
 
 
+class FreelancehuntPublicScopeClient:
+    """Bounded page-to-candidate enrichment with no model or platform action."""
+
+    def __init__(
+        self,
+        *,
+        page_fetcher: Callable[[str], Awaitable[Any]],
+        max_concurrency: int = 3,
+    ) -> None:
+        self._page_fetcher = page_fetcher
+        self._max_concurrency = min(max(int(max_concurrency), 1), 4)
+
+    async def enrich(self, candidate: DigestJobCandidate) -> DigestJobCandidate:
+        response = await self._page_fetcher(candidate.url)
+        status_code = int(getattr(response, "status_code", 0) or 0)
+        html = str(getattr(response, "html", "") or "")
+        if status_code != 200:
+            return candidate
+        try:
+            scope = parse_freelancehunt_public_scope(
+                html,
+                project_id=candidate.project_id,
+                source_url=candidate.url,
+            )
+        except FeedParseError:
+            return candidate
+        enriched = enrich_candidate_scope(
+            candidate,
+            description=scope.description,
+            source_kind="PUBLIC_PAGE_VERIFIED",
+            main_text_completeness="FULL",
+            materials_status=scope.materials_status,
+            scope_sufficiency=scope.scope_sufficiency,
+        )
+        if not enriched.budget and scope.budget:
+            enriched = replace(
+                enriched,
+                budget=scope.budget,
+                budget_currency=scope.budget_currency,
+            )
+        return enriched
+
+    async def enrich_many(
+        self, candidates: list[DigestJobCandidate]
+    ) -> list[DigestJobCandidate]:
+        semaphore = asyncio.Semaphore(self._max_concurrency)
+
+        async def one(candidate: DigestJobCandidate) -> DigestJobCandidate:
+            async with semaphore:
+                try:
+                    return await self.enrich(candidate)
+                except Exception as exc:
+                    logger.info(
+                        "Freelancehunt public scope enrichment failed: %s",
+                        type(exc).__name__,
+                    )
+                    return candidate
+
+        return await asyncio.gather(*(one(candidate) for candidate in candidates))
+
+
 class _NoopProvider:
     async def mark_as_processed(self, _email_id: str) -> None:
         return None
@@ -232,6 +462,7 @@ class FreelancehuntDiscoveryPipeline:
         feed_client: FreelancehuntFeedClient | None = None,
         openai_client: Any | None = None,
         live_status_checker: FreelancehuntLiveStatusChecker | None = None,
+        public_scope_client: FreelancehuntPublicScopeClient | None = None,
         max_new_projects_per_scan: int = 10,
     ) -> None:
         self._repository = repository
@@ -239,6 +470,16 @@ class FreelancehuntDiscoveryPipeline:
         self._max_new_projects_per_scan = min(
             max(int(max_new_projects_per_scan), 1), 50
         )
+        self._live_status_checker = (
+            live_status_checker or FreelancehuntLiveStatusChecker()
+        )
+        self._public_scope_client = public_scope_client
+        if self._public_scope_client is None and hasattr(
+            self._live_status_checker, "fetch_public_page"
+        ):
+            self._public_scope_client = FreelancehuntPublicScopeClient(
+                page_fetcher=self._live_status_checker.fetch_public_page
+            )
         self._processor = GmailJobProcessor(
             provider=_NoopProvider(),
             bot=bot,
@@ -250,9 +491,7 @@ class FreelancehuntDiscoveryPipeline:
             max_cards_per_scan=self._max_new_projects_per_scan,
             digest_enabled=True,
             openai_client=openai_client,
-            live_status_checker=(
-                live_status_checker or FreelancehuntLiveStatusChecker()
-            ),
+            live_status_checker=self._live_status_checker,
         )
 
     async def _bounded_workset(
@@ -293,12 +532,30 @@ class FreelancehuntDiscoveryPipeline:
             logger.exception("Freelancehunt official RSS discovery failed")
             return stats
         selected = await self._bounded_workset(batch.candidates)
-        return await self._processor.run_candidates(
-            selected,
-            trigger=DISCOVERY_TRIGGER,
-            source_alias="official-public-rss",
-            source_candidates_found=len(batch.candidates),
-        )
+        enrichable: list[DigestJobCandidate] = []
+        positions: list[int] = []
+        for index, candidate in enumerate(selected):
+            if await self._repository.is_processed(candidate.stable_key):
+                continue
+            if await self._repository.get_job(candidate.stable_key) is not None:
+                continue
+            positions.append(index)
+            enrichable.append(candidate)
+        async def process_selected() -> ProcessorStats:
+            if enrichable and self._public_scope_client is not None:
+                enriched = await self._public_scope_client.enrich_many(enrichable)
+                for index, candidate in zip(positions, enriched, strict=True):
+                    selected[index] = candidate
+            return await self._processor.run_candidates(
+                selected,
+                trigger=DISCOVERY_TRIGGER,
+                source_alias="official-public-rss",
+                source_candidates_found=len(batch.candidates),
+            )
+        if hasattr(self._live_status_checker, "scan"):
+            async with self._live_status_checker.scan():
+                return await process_selected()
+        return await process_selected()
 
 
 async def check_freelancehunt_projects(bot: Any) -> None:

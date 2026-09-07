@@ -1,5 +1,151 @@
 # Decision Log
 
+Current amendment: explicit production rollout authorization, 2026-09-07.
+Preserve prior work; current gate passed 552 full offline tests (0 failures,
+errors or skips), including 283 targeted tests, isolated PG migrations/restart.
+R1/R2/R3 and freshness corrections are accepted local mechanics. Publish one
+complete checkpoint because splitting intertwined changes risks content loss.
+Production preflight, zero-overlap rollout and activation verification still
+must pass before tagging a freeze baseline. Prior phase prohibitions below
+are historical; only the latest user's explicit scope supersedes them.
+No controlled model calls; ledger 8/8 and reserve $0.03262905 unchanged.
+Sales Brain begins offline only after successful production freeze checkpoint.
+Live sales quality NOT_VALIDATED; live client cycle NOT_RUN; issues stay open.
+
+## 2026-09-07 — Explicit local A→B scope: minimal 5B/5C
+
+- Latest user instruction authorizes local follow-up/handoff, superseding the
+  earlier sequencing prohibition only. Issue #15 reused; issue #20 stays open.
+- Extend the existing SalesCloserService/PostgresSalesRepository/opportunity,
+  Telegram role guards and APScheduler. One additive lifecycle_json column;
+  no second CRM/service, no platform-send or financial capability.
+- Timers recover from confirmed sends: 12h, then 24h after first actual follow-up,
+  maximum two. Fresh owner-self-attested exact dialogue read (120s) is required
+  before preparing/confirming use; read failure is not silence. Incoming insert
+  atomically cancels drafts. Platform status events pause, never prove a win.
+- Terms versions distinguish proposed/sent/client accepted/team confirmed.
+  New incoming messages invalidate unreceived readiness; changed terms inherit
+  no acceptance. Handoff requires selected-our-team, scope/price/payment/deadline,
+  team capacity and explicit start evidence. Payment UNKNOWN/PROMISED/RESERVED/
+  RECEIVED are separate; reserve is not received revenue. Receipt enters IN_DELIVERY.
+- SYNTHETIC PostgreSQL mechanical A→B passes with service/repository restarts,
+  real handlers/renderer/scheduler, and negative controls. No live-client cycle
+  or model-quality improvement claimed. Local 5B/5C defaults off.
+- Related 175-test run had four freshness subtest failures in one pre-existing
+  import-timestamp fixture; isolated fresh-process rerun passes all 13 controls.
+  Original failure retained, application freshness guard unchanged.
+- Ledger unchanged at 8/8 and $0.03262905 reserve; model calls zero. No secrets,
+  billing, production, Railway, OAuth, git publication or external messages.
+- Next: review artifacts/private/a_to_b/a_to_b_review.zip with RESULT_RU.md.
+
+## 2026-09-07 — Authorized continuation 7/8, stop at 8/8
+
+- User accepted the prior delta for next validation and explicitly expanded the
+  persistent call ceiling 6→8, same $1 total; all six prior entries/reserves kept.
+- Only runner allowance constants/test expectations changed. After completion 7,
+  the diagnostic repair allowlist gained its observed ask_source_perspective_mismatch
+  code; the existing gate already classifies it as model-repairable. No analyzer,
+  prompt, schema or accepted gate rewrite.
+- Existing RSS/public path: 10 items, 1651774 absent; public status_code=0,
+  no fresh full text. Used the authorized unchanged HISTORICAL_REAL_SNAPSHOT.
+- Calls 7 and 8 (one targeted repair) returned identical raw ASK content. Gate
+  rejects the invented client-reference dependency. Manual source/claim findings
+  were attached to targeted repair, with no predetermined decision/scores/terms.
+- MODEL_ON_REAL_SNAPSHOT=FAIL; LIVE_MODEL_E2E=NOT_RUN; CURRENT_BID_READY=NO.
+  Ledger 8/8, reserves $0.03262905; new usage cost estimate $0.00237195.
+- Stop model calls. No DB was started, no downstream 5A/delivery or production.
+  Next action: review artifacts/private/issue20/validation_7_8/RESULT_RU.md
+  and result_review.zip. IMPLEMENTED_WITH_VALIDATION_BLOCKERS remains.
+
+## 2026-09-07 — Three false refusals, pure gate correction
+
+- Bind ASK addressee to the leading action recipient, not later participant mentions.
+- Bind known quantities to the same deliverable/attribute in the source clause;
+  model absence_reason cannot overrule that source. No new schema or model judge.
+- Replace arbitrary evidence word overlap with bounded approved capability aliases,
+  including Telegram/телеграм. Explicit unrelated audio controls remain rejected;
+  absence of vocabulary alone is not a mismatch. Registry claims are unchanged.
+- 13 synthetic/mutation controls pass through full validate_analysis; 141 related
+  tests, 140 pass and 1 expected PostgreSQL skip, including previous 16 targeted.
+- No new model calls; ledger 6/6, reserve $0.02232975 unchanged. No PG rerun, API,
+  secrets, production or git writes. IMPLEMENTED_WITH_VALIDATION_BLOCKERS remains.
+- Review: artifacts/private/issue20/FALSE_REFUSAL_REPORT_RU.md and
+  false_refusal_fix_20260907.zip (delta against review_fix_20260907.zip).
+
+## 2026-09-07 — Independent-review corrections, offline only
+
+- Add a compact ASK dependency to existing model_output_json: missing fact,
+  owner, category, source/absence basis, necessity and estimate impact. No new DB
+  columns, agent or model stage. Preserve TAKE/ASK/SKIP and genuine score states.
+- Distinguish executor portfolio preference from mandatory client reference and
+  start inputs. 'Will send privately' does not establish 'after selection'; old
+  raw artifacts stay unchanged. No manufactured portfolio or free sample promise.
+- Require a concrete action addressed to the fact owner, show it separately from
+  the question, and reuse the 120-second freshness guard before client ASK display.
+  Internal TEAM questions are explicitly not client messages or bid permission.
+- Repair may change model evidence selection; validate new selection and use only
+  registry text. One rejected response plus field diagnostics, no recursive copies.
+- TAKE wire constrains finite 0..10 scores and nonempty offers; independent gate
+  still blocks genuine zero readiness without changing zero to a positive value.
+- Offline proof: 11 initial tests / 18 failures including subtests; final 16 new
+  tests pass, related group 209 tests with 1 expected skip; isolated PostgreSQL
+  ASK/TAKE roundtrip passes separately. Zero external connection attempts in the
+  guarded offline run. No model calls, ledger/reserve unchanged at 6/6 / $0.02232975.
+- IMPLEMENTED_WITH_VALIDATION_BLOCKERS. New model behavior/live E2E not validated.
+  Next action is review of artifacts/private/issue20/REVIEW_FIX_REPORT_RU.md and
+  review_fix_20260907.zip; a future live test needs separate explicit permission.
+
+## 2026-09-07 — ASK contract correction; final authorized calls 5/6
+
+- Replace conflicting forced offer examples with coherent TAKE/ASK/SKIP prompts
+  and supported nested-anyOf strict SDK wire schema; retain flat storage adapter.
+  ASK/SKIP never compose an offer. Source budget and genuine zero semantics remain.
+- Repair receives model-correctable errors only; immutable source/live errors
+  still block actionability. Unsupported claims are checked on ASK as well.
+- After failing-before/passing-after tests, isolated PostgreSQL round-trip and
+  diff review, use the user's new 4->6 authorization on historical real 1651774.
+  Current public enrichment returned no usable full text (helper status 0).
+- Actual calls 5/6 have no contradictory offer fields but fail truthful/useful
+  content; manual source-perspective review was explicitly supplied to repair.
+  No forced TAKE/score/price, no gate relaxation, no further model calls.
+- Ledger 6/6, reserves $0.02232975; preserve all previous entries. New estimated
+  cost $0.00223575. ACCOUNT_IDENTITY/BILLING=NOT_VERIFIED, key use EXPLICIT.
+- MODEL_ON_REAL_SNAPSHOT=FAIL; LIVE_MODEL_E2E=NOT_RUN; CURRENT_BID_READY=NO;
+  IMPLEMENTED_WITH_VALIDATION_BLOCKERS. Real-model downstream was not run.
+  Next action is review of the sanitized package, not deployment or paid retries.
+- Evidence: artifacts/private/issue20/ASK_CONTRACT_IMPLEMENTATION_REPORT.md.
+
+## 2026-09-07 — Issue #20 historical-source model diagnostic
+
+- Use explicitly authorized current key with existing analyzer/prompts/schema,
+  provider/budget and unchanged gate on exact historical source. No /me or billing
+  requirement, current-source claim, database, delivery or 5A creation.
+- Two completions consumed step permission: ledger 4/6. Repair did not correct
+  ASK price/timeline/proposal conflicts. No further model request authorized.
+- Preserve original replies/report; separate offline replay corrects only the
+  harness repair-count metadata, not readiness status or errors.
+- MODEL_ON_REAL_SNAPSHOT=FAIL, LIVE_MODEL_E2E=NOT_RUN, CURRENT_BID_READY=NO.
+  IMPLEMENTED_WITH_VALIDATION_BLOCKERS. Next work is offline diagnosis from saved
+  output, not another paid retry or weakened readiness requirements.
+
+## 2026-09-06 — Issue #20 explicit current-key authorization supersedes /me gate
+
+- The user explicitly authorizes the current local key despite the prior `/me`
+  HTTP 404. Preserve `ACCOUNT_IDENTITY=NOT_VERIFIED`; do not require a screenshot
+  or another identity request. The executed prior command used the literal
+  `https://api.openai.com/v1/me`, without a duplicated `/v1`.
+- The current authorized step starts at persistent 2/6 and ends at no more than
+  4/6: one real analyzer request and one targeted validation repair only after
+  completion. Existing reservations stay intact; API/transport failure closes
+  the step. Official-host-only transport, TLS verification and no redirects or
+  retries are enforced by the runner.
+- Fresh 1651774 RSS evidence is active, but public full-text retrieval is
+  protected (HTTP 403). Three plausible alternatives within a ten-project RSS
+  sample also remain PARTIAL/UNKNOWN after enrichment. No model was called.
+- Result: `LIVE_MODEL_E2E=NOT_RUN`, ledger 2/6, reserves `$0.00522225`, status
+  `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`. Do not reuse the previous full scope
+  as current. Existing explicit key-use authorization persists.
+
 ## 2026-08-31 — Brand and delivery team
 
 - Use the public brand Antonov Digital.
@@ -467,3 +613,125 @@
   traceback or SQL details. No Freelancehunt write capability is added.
 - Merge, deployment, Railway variable changes and production migrations remain
   outside this correction authorization.
+
+## 2026-09-05 — Issue #20 decision-first revenue card contract
+
+- Treat the normalized public candidate as source authority for project ID,
+  URL, budget/currency and completeness. A model may analyze those facts but
+  may not replace them. An RSS preview is always `PARTIAL`; character count is
+  not evidence that the full project specification was observed.
+- Require OpenAI Structured Outputs (`json_schema`, strict) and local Pydantic
+  validation. Persist provider outcome, actual model, finish reason and token
+  usage. Refusal, truncated/empty content, schema failure and API failure are
+  technical states and never commercial SKIP decisions.
+- Make `TAKE`, `ASK` and `SKIP` explicit durable decisions. TAKE alone may
+  contain canonical price/timeline/proposal and create a Stage 5A opportunity;
+  ASK contains exactly one source-fact question and no proposal; SKIP contains
+  a source-grounded mismatch reason and no proposal. Normal cards do not expose
+  quality error codes; `/job_diagnostics` is admin-only.
+- Apply a deterministic no-model SKIP only when the public source itself both
+  requires a logo specialist and explicitly excludes AI. The decision says
+  that compliance with the mandatory delivery mode is unconfirmed; it does
+  not invent a claim that the team has no designer. Low budget alone remains
+  forbidden as a rejection reason.
+- Retry Gmail metadata/full reads only for 500/502/503/504, at most three
+  attempts with exponential jitter and no event-loop blocking. Persist each
+  exhausted message ID in PostgreSQL, retry it after restart without losing
+  neighboring messages, resolve it on success, and emit one alert only from
+  the third failed scan onward. Authentication, permission and rate-limit
+  categories fail immediately and remain distinct.
+- The issue #20 live runner must load only `.env.issue20.local`, set SDK retries
+  to zero, fix the model to `gpt-4o-mini`, use an ignored persistent six-call/
+  $1 ledger, isolated PostgreSQL and a fake Telegram transport. A rerun never
+  resets its allowance.
+- The first and only model attempt reached OpenAI but returned `RateLimitError`;
+  API usage was not returned and no candidate/proposal/5A row or Telegram
+  message was produced. Further paid attempts stopped. Status is
+  `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`, not deployment-ready.
+
+## 2026-09-05 — Issue #20 offline diagnostics, scope and Gmail correction
+
+- Preserve API failures through one allowlisted diagnostic envelope and write a
+  machine-readable failure report before PostgreSQL reload. Unknown usage and
+  cost remain `NOT_RETURNED` / `UNKNOWN`; reserved upper bound is separate.
+  Never infer the historical 429 cause from synthetic fixtures.
+- Bind every future result to HEAD, dirty state and SHA-256 of the runner and
+  relevant source files. Never hash or report env/artifact content as source.
+- Require auditable scope enrichment for RSS `FULL`. Treat main-text
+  completeness, materials availability and fixed-term sufficiency separately.
+  Scope-relevant missing materials produce deterministic `ASK`; execution-input
+  materials may permit `TAKE` only with an application-owned start condition.
+- Classify Gmail 403 from structured `error.errors[].reason`; missing,
+  conflicting or unknown reasons remain `UNKNOWN`. Resolve durable fetch
+  pending only after a stored job/processed handoff, not immediately on fetch.
+- Restrict the future runner to the dedicated loopback issue20e2e database,
+  explicit disabled external delivery and a private verified current-candidate
+  scope snapshot. Keep model `gpt-4o-mini`, SDK retries 0 and the existing 6/$1
+  ledger contract.
+- Offline acceptance does not establish the exact cause of two historical
+  production `INVALID` states and is not live-model E2E. Status remains
+  `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`.
+
+## 2026-09-06 — Issue #20 current RSS candidate and live failure boundary
+
+- Use project `1651774` from the current official RSS sample as the bounded
+  real candidate. Its verified public scope is three simple photo-based Canva
+  product reels, up to 16 seconds, with product/brand assets supplied after
+  selection. Treat the source budget as `NOT_SPECIFIED` and do not claim a
+  directly matching production case.
+- Mark the private snapshot's scope/material judgment as manual. Production
+  enrichment may identity-bind a fetched public page, but protected/ambiguous
+  pages fail closed and runtime does not autonomously prove fixed-term
+  sufficiency.
+- Enrich new RSS candidates before analyzer dispatch through the existing
+  discovery pipeline; never promote an RSS excerpt, protected page or missing
+  attachment to verified `FULL`.
+- Apply the existing additive database migrations in the isolated runner
+  before repository use. Preserve a new provider failure report and do not
+  replace it with a generic missing-row error.
+- The one authorized new request returned HTTP 429,
+  `credit_balance_exhausted` / `insufficient_quota`, with no completion or
+  usage. Stop all further step calls and repairs. This classifies only the new
+  attempt; the first historical 429 remains `UNKNOWN`.
+- Persistent ledger is 2/6, actual API-derived cost is `UNKNOWN`, billing is
+  `NOT_VERIFIED`, and reserved total is `$0.00522225`. No financial setting may
+  be changed by the agent.
+- `LIVE_MODEL_E2E=FAIL`; overall status stays
+  `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`.
+## 2026-09-07 — R1–R3 review delta (local mechanics only)
+
+- First receipt must atomically recheck current prerequisites, current terms
+  version and packet/proposal hashes, not rely on a legacy valid flag.
+  Loss of a required reserve invalidates unreceived readiness. NONE does not
+  require advance payment. Preserve earlier packets/receipts/evidence.
+- Persist internal follow-up notification state in the same opportunity JSON;
+  reuse existing scheduler/notifier/bot/chat and Kyiv office hours. A locked
+  claim rechecks cancellation/current draft before transport. Mark delivered
+  only after transport success; keep pending/recovery lease across restart.
+  Do not claim external network exactly-once semantics.
+- Literal followup_sent card action requests reference as an explicit second
+  step. Never infer the owner's checked source or remove owner/version/hash guards.
+- No new model calls, ledger 8/8 and reserve $0.03262905 unchanged. Default
+  SALES_LIFECYCLE_ENABLED remains false; no production activation.
+- Preserve historical 175-test FAIL and failed live responses #7/#8.
+  Overall status remains IMPLEMENTED_WITH_VALIDATION_BLOCKERS.
+- Review only the new artifacts/private/a_to_b_r1_r3/a_to_b_r1_r3_delta.zip;
+  original a_to_b_review.zip is retained byte-for-byte.
+## 2026-09-07 — narrow R2 restart/freshness continuation
+
+- Independent review accepted R1/R3; fix only the reproduced R2 renewal gap.
+- Reconcile eligibility uses the actual freshness result, not the stale status
+  string while awaiting the next tick. Fresh checks cancel pending sync notices.
+- Expired checks bind sync identity to persisted dialogue event_id (legacy
+  fallback: at). Repeated ticks/restarts reuse that identity. Original initial
+  sync and draft identities, working hours, leases, cancellation and delivery
+  acknowledgement remain unchanged. No new service, scheduler or table.
+- Exact registered-callback scenario fails before (1 instead of 2 cards) and
+  passes after, including two expired generations and timely draft. Nine
+  targeted R1/R2/R3 tests PASS; no full-suite rerun or historic FAIL relabeling.
+- MECHANICAL_A_TO_B_CANDIDATE_FOR_FREEZE=YES only within this mechanics scope;
+  LIVE_SALES_QUALITY=NOT_VALIDATED; LIVE_CLIENT_CYCLE=NOT_RUN.
+- Model calls 0; ledger 8/8/reserve $0.03262905 and both prior review archives
+  preserved. Production/default enablement and external delivery unchanged.
+- Next action: separately scoped sales-quality evaluation using saved material.
+  Evidence: artifacts/private/a_to_b_r2_freshness/RESULT_RU.md.

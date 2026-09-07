@@ -397,8 +397,8 @@ class TestExactResponseDraftProtection(unittest.IsolatedAsyncioTestCase):
 
 
 class TestRepairInputAndImmutability(unittest.IsolatedAsyncioTestCase):
-    async def test_full_original_package_errors_evidence_and_source_reach_repair_prompt(self):
-        original = analysis(model_output_json='{"sentinel":"original-package"}')
+    async def test_single_original_response_diagnostics_and_source_reach_repair_prompt(self):
+        original = analysis(model_output_json='{"reason":"original-package"}')
         choice = MagicMock()
         choice.message.content = json.dumps({})
         completion = MagicMock(choices=[choice])
@@ -412,13 +412,16 @@ class TestRepairInputAndImmutability(unittest.IsolatedAsyncioTestCase):
         )
 
         prompt = client.chat.completions.create.await_args.kwargs["messages"][1]["content"]
-        self.assertIn('"sentinel":"original-package"', prompt)
-        self.assertIn("Normalized original analysis", prompt)
+        context = json.loads(prompt.split('Repair context JSON:\n')[1])
+        self.assertEqual(context['rejected_response'], {'reason': 'original-package'})
+        self.assertEqual(prompt.count('original-package'), 1)
+        self.assertNotIn("Normalized original analysis", prompt)
         self.assertIn("proposal_language_mismatch", prompt)
-        self.assertIn(EVIDENCE_REGISTRY["GMAIL_JOB_AGENT"], prompt)
+        self.assertEqual(context['diagnostics'][0]['path'], 'proposal_draft')
+        self.assertEqual(context['source_facts']['budget'], original.budget)
         self.assertIn(original.full_description, prompt)
 
-    async def test_repair_cannot_change_source_language_budget_evidence_or_live_status(self):
+    async def test_repair_keeps_source_but_can_correct_model_evidence_selection(self):
         original = analysis()
         model_repair = analysis(
             title="Invented title",
@@ -441,7 +444,6 @@ class TestRepairInputAndImmutability(unittest.IsolatedAsyncioTestCase):
             "title",
             "language",
             "budget",
-            "evidence_case_id",
             "live_status",
             "live_status_evidence",
             "biddable",
@@ -449,8 +451,9 @@ class TestRepairInputAndImmutability(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(getattr(repaired, field_name), getattr(original, field_name))
         self.assertEqual(
             repaired.selected_evidence,
-            EVIDENCE_REGISTRY[original.evidence_case_id],
+            EVIDENCE_REGISTRY['BELLA_DENT'],
         )
+        self.assertEqual(repaired.evidence_case_id, 'BELLA_DENT')
 
 
 class TestScoreSemantics(unittest.IsolatedAsyncioTestCase):

@@ -58,6 +58,9 @@ async def on_startup() -> None:
     state.playwright_ok = await _check_playwright()
     logger.info("Antonov Digital Revenue Agent started ✅")
     _scheduler = setup_scheduler(bot)
+    from gmail_agent.scheduler import register_sales_followup_job
+    register_sales_followup_job(_scheduler, enabled=settings.SALES_LIFECYCLE_ENABLED,
+                               bot=bot, chat_id=settings.TELEGRAM_CHAT_ID)
 
     # Register Gmail job if enabled
     if settings.GMAIL_ENABLED:
