@@ -39,6 +39,7 @@ TERMINAL_JOB_STATUSES = frozenset(
         "live_status_active_manual",
         "quality_manual_review",
         "quality_non_executable",
+        "needs_clarification",
     }
 )
 DEFAULT_CLAIMABLE_STATUSES = (
@@ -80,6 +81,22 @@ class ProcessedItem:
 
 
 @dataclass(frozen=True, slots=True)
+class GmailFetchRetryState:
+    message_id: str
+    stage: str
+    status_code: int | None
+    category: str
+    attempt_count: int
+    cycle_count: int
+    first_failed_at: datetime
+    last_failed_at: datetime
+    next_retry_at: datetime
+    resolved_at: datetime | None = None
+    alerted_at: datetime | None = None
+    safe_error: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class StoredGmailJob:
     stable_key: str
     source_email_id: str
@@ -97,6 +114,10 @@ class StoredGmailJob:
     event_type: str = "PROJECT_SINGLE"
     full_description: str = ""
     description_completeness: str = "PARTIAL"
+    materials_status: str = "UNKNOWN"
+    scope_sufficiency: str = "UNKNOWN"
+    scope_enrichment_source: str = ""
+    scope_enrichment_sha256: str = ""
     language: str = "uk"
     category: str = ""
     skills: str = ""
@@ -164,6 +185,18 @@ class StoredGmailJob:
     fit_score_valid: bool = False
     fit_score_raw: str = ""
     fit_score_state: str = "MISSING"
+    analysis_succeeded: bool = True
+    commercial_decision: str = ""
+    decision_reason: str = ""
+    clarification_question: str = ""
+    budget_provenance: str = "MODEL"
+    provider_outcome: str = ""
+    provider_model: str = ""
+    provider_finish_reason: str = ""
+    provider_prompt_tokens: int = 0
+    provider_completion_tokens: int = 0
+    provider_total_tokens: int = 0
+    provider_error_code: str = ""
 
 
 # Short public name for callers; the longer name makes its persistence role
@@ -336,6 +369,36 @@ class GmailRepository(Protocol):
 
     async def delete_processed(self, stable_key: str) -> None: ...
 
+    async def record_gmail_fetch_failure(
+        self,
+        *,
+        message_id: str,
+        stage: str,
+        status_code: int | None,
+        category: str,
+        attempts: int,
+        safe_error: str,
+        now: datetime | None = None,
+    ) -> GmailFetchRetryState: ...
+
+    async def list_due_gmail_fetch_retries(
+        self, limit: int = 100, *, now: datetime | None = None
+    ) -> list[GmailFetchRetryState]: ...
+
+    async def list_pending_gmail_fetch_retries(
+        self, limit: int = 100
+    ) -> list[GmailFetchRetryState]: ...
+
+    async def resolve_gmail_fetch_retry(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None: ...
+
+    async def mark_gmail_fetch_retry_alerted(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None: ...
+
+    async def has_durable_gmail_handoff(self, message_id: str) -> bool: ...
+
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob: ...
 
     async def get_job(self, stable_key: str) -> StoredGmailJob | None: ...
@@ -396,6 +459,7 @@ class InMemoryGmailRepository:
         self._processed = state.setdefault("processed", {})
         self._jobs = state.setdefault("jobs", {})
         self._scan_runs = state.setdefault("scan_runs", [])
+        self._gmail_fetch_retries = state.setdefault("gmail_fetch_retries", {})
         state.setdefault("next_scan_id", 1)
         self._state = state
         self._lock = state.setdefault("lock", asyncio.Lock())
@@ -453,6 +517,15 @@ class InMemoryGmailRepository:
                 for item in self._processed.values()
             )
 
+    async def has_durable_gmail_handoff(self, message_id: str) -> bool:
+        async with self._lock:
+            return any(
+                item.source_email_id == message_id
+                for item in self._processed.values()
+            ) or any(
+                job.source_email_id == message_id for job in self._jobs.values()
+            )
+
     async def get_processed(self, stable_key: str) -> ProcessedItem | None:
         async with self._lock:
             item = self._processed.get(stable_key)
@@ -485,6 +558,85 @@ class InMemoryGmailRepository:
         async with self._lock:
             self._processed.pop(stable_key, None)
 
+    async def record_gmail_fetch_failure(
+        self,
+        *,
+        message_id: str,
+        stage: str,
+        status_code: int | None,
+        category: str,
+        attempts: int,
+        safe_error: str,
+        now: datetime | None = None,
+    ) -> GmailFetchRetryState:
+        failed_at = now or utc_now()
+        async with self._lock:
+            current = self._gmail_fetch_retries.get(message_id)
+            cycle_count = (current.cycle_count if current else 0) + 1
+            delay = timedelta(seconds=min(900, 60 * (2 ** (cycle_count - 1))))
+            stored = GmailFetchRetryState(
+                message_id=message_id,
+                stage=stage,
+                status_code=status_code,
+                category=category,
+                attempt_count=(current.attempt_count if current else 0) + max(1, attempts),
+                cycle_count=cycle_count,
+                first_failed_at=(current.first_failed_at if current else failed_at),
+                last_failed_at=failed_at,
+                next_retry_at=failed_at + delay,
+                resolved_at=None,
+                alerted_at=(current.alerted_at if current else None),
+                safe_error=safe_error,
+            )
+            self._gmail_fetch_retries[message_id] = stored
+            return replace(stored)
+
+    async def list_due_gmail_fetch_retries(
+        self, limit: int = 100, *, now: datetime | None = None
+    ) -> list[GmailFetchRetryState]:
+        due_at = now or utc_now()
+        async with self._lock:
+            rows = [
+                item
+                for item in self._gmail_fetch_retries.values()
+                if item.resolved_at is None and item.next_retry_at <= due_at
+            ]
+            rows.sort(key=lambda item: (item.next_retry_at, item.message_id))
+            return [replace(item) for item in rows[: max(0, limit)]]
+
+    async def list_pending_gmail_fetch_retries(
+        self, limit: int = 100
+    ) -> list[GmailFetchRetryState]:
+        async with self._lock:
+            rows = [
+                item for item in self._gmail_fetch_retries.values()
+                if item.resolved_at is None
+            ]
+            rows.sort(key=lambda item: (item.next_retry_at, item.message_id))
+            return [replace(item) for item in rows[: max(0, limit)]]
+
+    async def resolve_gmail_fetch_retry(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None:
+        async with self._lock:
+            current = self._gmail_fetch_retries.get(message_id)
+            if current is None:
+                return None
+            stored = replace(current, resolved_at=now or utc_now())
+            self._gmail_fetch_retries[message_id] = stored
+            return replace(stored)
+
+    async def mark_gmail_fetch_retry_alerted(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None:
+        async with self._lock:
+            current = self._gmail_fetch_retries.get(message_id)
+            if current is None:
+                return None
+            stored = replace(current, alerted_at=current.alerted_at or now or utc_now())
+            self._gmail_fetch_retries[message_id] = stored
+            return replace(stored)
+
     async def save_job(self, job: StoredGmailJob) -> StoredGmailJob:
         async with self._lock:
             job = _normalize_stored_job(job, strict_numeric=False)
@@ -507,6 +659,27 @@ class InMemoryGmailRepository:
                     # proposal when a retry/restart saves a thinner payload.
                     full_description=(
                         job.full_description or current.full_description
+                    ),
+                    description_completeness=(
+                        job.description_completeness
+                        if job.scope_enrichment_sha256
+                        else current.description_completeness
+                    ),
+                    materials_status=(
+                        job.materials_status
+                        if job.scope_enrichment_sha256
+                        else current.materials_status
+                    ),
+                    scope_sufficiency=(
+                        job.scope_sufficiency
+                        if job.scope_enrichment_sha256
+                        else current.scope_sufficiency
+                    ),
+                    scope_enrichment_source=(
+                        job.scope_enrichment_source or current.scope_enrichment_source
+                    ),
+                    scope_enrichment_sha256=(
+                        job.scope_enrichment_sha256 or current.scope_enrichment_sha256
                     ),
                     client_context=(job.client_context or current.client_context),
                     proposal_draft=(
@@ -597,6 +770,66 @@ class InMemoryGmailRepository:
                         current.model_output_json
                         if keep_existing_quality
                         else job.model_output_json
+                    ),
+                    analysis_succeeded=(
+                        current.analysis_succeeded
+                        if keep_existing_quality
+                        else job.analysis_succeeded
+                    ),
+                    commercial_decision=(
+                        current.commercial_decision
+                        if keep_existing_quality
+                        else job.commercial_decision
+                    ),
+                    decision_reason=(
+                        current.decision_reason
+                        if keep_existing_quality
+                        else job.decision_reason
+                    ),
+                    clarification_question=(
+                        current.clarification_question
+                        if keep_existing_quality
+                        else job.clarification_question
+                    ),
+                    budget_provenance=(
+                        current.budget_provenance
+                        if keep_existing_quality
+                        else job.budget_provenance
+                    ),
+                    provider_outcome=(
+                        current.provider_outcome
+                        if keep_existing_quality
+                        else job.provider_outcome
+                    ),
+                    provider_model=(
+                        current.provider_model
+                        if keep_existing_quality
+                        else job.provider_model
+                    ),
+                    provider_finish_reason=(
+                        current.provider_finish_reason
+                        if keep_existing_quality
+                        else job.provider_finish_reason
+                    ),
+                    provider_prompt_tokens=(
+                        current.provider_prompt_tokens
+                        if keep_existing_quality
+                        else job.provider_prompt_tokens
+                    ),
+                    provider_completion_tokens=(
+                        current.provider_completion_tokens
+                        if keep_existing_quality
+                        else job.provider_completion_tokens
+                    ),
+                    provider_total_tokens=(
+                        current.provider_total_tokens
+                        if keep_existing_quality
+                        else job.provider_total_tokens
+                    ),
+                    provider_error_code=(
+                        current.provider_error_code
+                        if keep_existing_quality
+                        else job.provider_error_code
                     ),
                     first_seen_at=(current.first_seen_at or job.first_seen_at),
                     discovery_source=(
@@ -813,6 +1046,7 @@ class PostgresGmailRepository:
 
     def __init__(self, session_factory: AsyncSessionFactory) -> None:
         from db.models import (
+            GmailFetchRetry,
             GmailJob,
             GmailProcessedItem,
             GmailScanRun,
@@ -822,6 +1056,7 @@ class PostgresGmailRepository:
 
         self._session_factory = session_factory
         self._job_model = GmailJob
+        self._fetch_retry_model = GmailFetchRetry
         self._processed_item_model = GmailProcessedItem
         self._scan_run_model = GmailScanRun
         self._order_model = Order
@@ -964,6 +1199,24 @@ class PostgresGmailRepository:
             )
             return result.scalar_one_or_none() is not None
 
+    async def has_durable_gmail_handoff(self, message_id: str) -> bool:
+        """Confirm fetch recovery only after a durable event/job handoff."""
+
+        async with self._session_factory() as session:
+            processed = await session.execute(
+                select(self._processed_item_model.stable_key)
+                .where(self._processed_item_model.source_email_id == message_id)
+                .limit(1)
+            )
+            if processed.scalar_one_or_none() is not None:
+                return True
+            job = await session.execute(
+                select(self._job_model.stable_key)
+                .where(self._job_model.source_email_id == message_id)
+                .limit(1)
+            )
+            return job.scalar_one_or_none() is not None
+
     async def get_processed(self, stable_key: str) -> ProcessedItem | None:
         async with self._session_factory() as session:
             model = await session.get(self._processed_item_model, stable_key)
@@ -1018,6 +1271,21 @@ class PostgresGmailRepository:
             excluded.analysis_quality_status.is_not(None),
             excluded.analysis_quality_status != "",
         )
+        scope_enrichment_incoming = and_(
+            excluded.scope_enrichment_sha256.is_not(None),
+            excluded.scope_enrichment_sha256 != "",
+        )
+        for field_name in (
+            "description_completeness",
+            "materials_status",
+            "scope_sufficiency",
+            "scope_enrichment_source",
+            "scope_enrichment_sha256",
+        ):
+            incoming[field_name] = case(
+                (scope_enrichment_incoming, getattr(excluded, field_name)),
+                else_=getattr(self._job_model, field_name),
+            )
         for field_name in (
             "proposal_draft",
             "selected_evidence",
@@ -1035,6 +1303,18 @@ class PostgresGmailRepository:
             "original_analysis_snapshot",
             "quality_clarification_question",
             "model_output_json",
+            "analysis_succeeded",
+            "commercial_decision",
+            "decision_reason",
+            "clarification_question",
+            "budget_provenance",
+            "provider_outcome",
+            "provider_model",
+            "provider_finish_reason",
+            "provider_prompt_tokens",
+            "provider_completion_tokens",
+            "provider_total_tokens",
+            "provider_error_code",
         ):
             incoming[field_name] = case(
                 (quality_incoming, getattr(excluded, field_name)),
@@ -1187,6 +1467,121 @@ class PostgresGmailRepository:
                 )
             )
             await session.commit()
+
+    async def record_gmail_fetch_failure(
+        self,
+        *,
+        message_id: str,
+        stage: str,
+        status_code: int | None,
+        category: str,
+        attempts: int,
+        safe_error: str,
+        now: datetime | None = None,
+    ) -> GmailFetchRetryState:
+        failed_at = now or utc_now()
+        async with self._session_factory() as session:
+            model = await session.get(
+                self._fetch_retry_model, message_id, with_for_update=True
+            )
+            if model is None:
+                model = self._fetch_retry_model(
+                    message_id=message_id,
+                    stage=stage,
+                    status_code=status_code,
+                    category=category,
+                    attempt_count=max(1, attempts),
+                    cycle_count=1,
+                    first_failed_at=failed_at,
+                    last_failed_at=failed_at,
+                    next_retry_at=failed_at + timedelta(seconds=60),
+                    resolved_at=None,
+                    alerted_at=None,
+                    safe_error=safe_error,
+                )
+                session.add(model)
+            else:
+                model.stage = stage
+                model.status_code = status_code
+                model.category = category
+                model.attempt_count += max(1, attempts)
+                model.cycle_count += 1
+                model.last_failed_at = failed_at
+                model.next_retry_at = failed_at + timedelta(
+                    seconds=min(900, 60 * (2 ** (model.cycle_count - 1)))
+                )
+                model.resolved_at = None
+                model.safe_error = safe_error
+            await session.flush()
+            stored = _gmail_fetch_retry_from_row(model)
+            await session.commit()
+            return stored
+
+    async def list_due_gmail_fetch_retries(
+        self, limit: int = 100, *, now: datetime | None = None
+    ) -> list[GmailFetchRetryState]:
+        due_at = now or utc_now()
+        statement = (
+            select(self._fetch_retry_model)
+            .where(
+                self._fetch_retry_model.resolved_at.is_(None),
+                self._fetch_retry_model.next_retry_at <= due_at,
+            )
+            .order_by(
+                self._fetch_retry_model.next_retry_at.asc(),
+                self._fetch_retry_model.message_id.asc(),
+            )
+            .limit(max(0, limit))
+        )
+        async with self._session_factory() as session:
+            result = await session.scalars(statement)
+            return [_gmail_fetch_retry_from_row(row) for row in result.all()]
+
+    async def list_pending_gmail_fetch_retries(
+        self, limit: int = 100
+    ) -> list[GmailFetchRetryState]:
+        statement = (
+            select(self._fetch_retry_model)
+            .where(self._fetch_retry_model.resolved_at.is_(None))
+            .order_by(
+                self._fetch_retry_model.next_retry_at.asc(),
+                self._fetch_retry_model.message_id.asc(),
+            )
+            .limit(max(0, limit))
+        )
+        async with self._session_factory() as session:
+            result = await session.scalars(statement)
+            return [_gmail_fetch_retry_from_row(row) for row in result.all()]
+
+    async def resolve_gmail_fetch_retry(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None:
+        async with self._session_factory() as session:
+            model = await session.get(
+                self._fetch_retry_model, message_id, with_for_update=True
+            )
+            if model is None:
+                return None
+            model.resolved_at = now or utc_now()
+            await session.flush()
+            stored = _gmail_fetch_retry_from_row(model)
+            await session.commit()
+            return stored
+
+    async def mark_gmail_fetch_retry_alerted(
+        self, message_id: str, *, now: datetime | None = None
+    ) -> GmailFetchRetryState | None:
+        async with self._session_factory() as session:
+            model = await session.get(
+                self._fetch_retry_model, message_id, with_for_update=True
+            )
+            if model is None:
+                return None
+            model.alerted_at = model.alerted_at or now or utc_now()
+            await session.flush()
+            stored = _gmail_fetch_retry_from_row(model)
+            await session.commit()
+            return stored
 
     async def apply_backfill_live_result(
         self,
@@ -1446,6 +1841,15 @@ def _merge_sources(*values: str) -> str:
 
 def _processed_values(item: ProcessedItem) -> dict[str, Any]:
     return {field: getattr(item, field) for field in ProcessedItem.__dataclass_fields__}
+
+
+def _gmail_fetch_retry_from_row(row: Any) -> GmailFetchRetryState:
+    return GmailFetchRetryState(
+        **{
+            field: _row_value(row, field)
+            for field in GmailFetchRetryState.__dataclass_fields__
+        }
+    )
 
 
 def _job_values(job: StoredGmailJob) -> dict[str, Any]:

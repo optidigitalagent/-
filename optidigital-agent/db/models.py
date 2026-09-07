@@ -182,6 +182,14 @@ class GmailJob(Base):
     description_completeness: Mapped[str] = mapped_column(
         String(20), default="PARTIAL", server_default="PARTIAL", nullable=False
     )
+    materials_status: Mapped[str] = mapped_column(
+        String(50), default="UNKNOWN", server_default="UNKNOWN", nullable=False
+    )
+    scope_sufficiency: Mapped[str] = mapped_column(
+        String(50), default="UNKNOWN", server_default="UNKNOWN", nullable=False
+    )
+    scope_enrichment_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scope_enrichment_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     language: Mapped[str | None] = mapped_column(String(10), nullable=True)
     category: Mapped[str | None] = mapped_column(String(500), nullable=True)
     skills: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -249,6 +257,41 @@ class GmailJob(Base):
     fit_score_valid: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     fit_score_raw: Mapped[str | None] = mapped_column(Text, nullable=True)
     fit_score_state: Mapped[str] = mapped_column(String(20), default="MISSING", server_default="MISSING", nullable=False)
+    analysis_succeeded: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true", nullable=False)
+    commercial_decision: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    decision_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
+    budget_provenance: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    provider_outcome: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    provider_model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    provider_finish_reason: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    provider_prompt_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    provider_completion_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    provider_total_tokens: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    provider_error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
+class GmailFetchRetry(Base):
+    """Durable read-only retry state for one Gmail message fetch."""
+
+    __tablename__ = "gmail_fetch_retries"
+
+    message_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    stage: Mapped[str] = mapped_column(String(30), nullable=False)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    category: Mapped[str] = mapped_column(String(50), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    cycle_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    first_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    next_retry_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    safe_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_gmail_fetch_retries_due", "resolved_at", "next_retry_at"),
+    )
 
 
 class SalesOpportunity(Base):
@@ -313,6 +356,7 @@ class SalesOpportunity(Base):
     last_owner_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_client_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     follow_up_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    lifecycle_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}", server_default="{}")
     next_follow_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     do_not_follow_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     follow_up_status: Mapped[str] = mapped_column(
@@ -582,6 +626,10 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS event_type TEXT NOT NULL DEFAULT 'PROJECT_SINGLE'",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS full_description TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS description_completeness TEXT NOT NULL DEFAULT 'PARTIAL'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS materials_status TEXT NOT NULL DEFAULT 'UNKNOWN'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS scope_sufficiency TEXT NOT NULL DEFAULT 'UNKNOWN'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS scope_enrichment_source TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS scope_enrichment_sha256 TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS language TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS category TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS skills TEXT",
@@ -652,6 +700,18 @@ _MIGRATIONS = [
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_valid BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_raw TEXT",
     "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS fit_score_state TEXT NOT NULL DEFAULT 'MISSING'",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS analysis_succeeded BOOLEAN NOT NULL DEFAULT TRUE",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS commercial_decision TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS decision_reason TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS clarification_question TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS budget_provenance TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_outcome TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_model TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_finish_reason TEXT",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_prompt_tokens INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_completion_tokens INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_total_tokens INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE gmail_jobs ADD COLUMN IF NOT EXISTS provider_error_code TEXT",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS duplicate_source_pairs TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_active INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE gmail_scan_runs ADD COLUMN IF NOT EXISTS live_status_non_actionable INTEGER NOT NULL DEFAULT 0",
@@ -675,6 +735,7 @@ _MIGRATIONS = [
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_owner_message_at TIMESTAMPTZ",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS last_client_message_at TIMESTAMPTZ",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_count INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS lifecycle_json TEXT NOT NULL DEFAULT '{}'",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS next_follow_up_at TIMESTAMPTZ",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS do_not_follow_up BOOLEAN NOT NULL DEFAULT FALSE",
     "ALTER TABLE sales_opportunities ADD COLUMN IF NOT EXISTS follow_up_status TEXT NOT NULL DEFAULT 'DISABLED_5A'",

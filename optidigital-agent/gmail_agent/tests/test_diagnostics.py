@@ -1,6 +1,5 @@
 """Tests for enhanced diagnostics: ProcessorStats samples, run_debug, scan history."""
 
-import asyncio
 import sys
 import tempfile
 import unittest
@@ -17,7 +16,6 @@ from gmail_agent.processor import GmailJobProcessor, ProcessorStats
 from gmail_agent.tests.mock_emails import (
     ALL_MOCK_EMAILS,
     EMAIL_FREELANCEHUNT_AI_BOT,
-    EMAIL_FREELANCEHUNT_LOW_BUDGET,
     EMAIL_SPAM_NEWSLETTER,
 )
 

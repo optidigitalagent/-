@@ -117,6 +117,9 @@ class ProcessorStats:
     repair_calls: int = 0
     repair_successes: int = 0
     proposal_versions_sent: int = 0
+    gmail_fetch_pending: int = 0
+    gmail_fetch_recovered: int = 0
+    gmail_fetch_alerts: int = 0
 
     @property
     def duplicates(self) -> int:
@@ -217,6 +220,78 @@ class GmailJobProcessor:
         self._dedup.mark_processed(email_id)
         await self._provider.mark_as_processed(email_id)
 
+    async def _prepare_durable_gmail_retries(self) -> None:
+        if self._repository is None:
+            return
+        if not hasattr(self._provider, "set_retry_message_ids"):
+            return
+        pending = await self._repository.list_pending_gmail_fetch_retries(limit=100)
+        due = await self._repository.list_due_gmail_fetch_retries(limit=100)
+        due_ids = {item.message_id for item in due}
+        self._provider.set_retry_message_ids(sorted(due_ids))
+        if hasattr(self._provider, "set_deferred_message_ids"):
+            self._provider.set_deferred_message_ids(
+                [item.message_id for item in pending if item.message_id not in due_ids]
+            )
+
+    async def _persist_gmail_fetch_outcomes(self, stats: ProcessorStats) -> list[str]:
+        if self._repository is None or not hasattr(self._provider, "drain_fetch_outcomes"):
+            return []
+        outcomes = self._provider.drain_fetch_outcomes()
+        if not outcomes:
+            return []
+        failures, completed_ids = outcomes
+        for failure in failures:
+            state = await self._repository.record_gmail_fetch_failure(
+                message_id=failure.message_id,
+                stage=failure.stage,
+                status_code=failure.status_code,
+                category=failure.category,
+                attempts=failure.attempts,
+                safe_error=failure.safe_error,
+            )
+            stats.gmail_fetch_pending += 1
+            # A one-off 5xx is durable and retryable, but not alert-worthy.
+            # The third failed scan emits exactly one scheduler-visible error.
+            if state.cycle_count >= 3 and state.alerted_at is None:
+                stats.errors += 1
+                stats.gmail_fetch_alerts += 1
+                stats.error_details.append(
+                    f"Gmail message fetch still failing after {state.cycle_count} cycles "
+                    f"stage={state.stage} status={state.status_code or 'unknown'}"
+                )
+                await self._repository.mark_gmail_fetch_retry_alerted(state.message_id)
+        # Successful fetch alone is not a durable handoff. Resolution happens
+        # after the processor has stored a job/decision for the recovered mail.
+        return list(dict.fromkeys(completed_ids))
+
+    async def _resolve_gmail_fetch_handoffs(
+        self,
+        stats: ProcessorStats,
+        completed_ids: list[str],
+        fetched_email_ids: set[str],
+    ) -> None:
+        if self._repository is None:
+            return
+        pending_ids = {
+            item.message_id
+            for item in await self._repository.list_pending_gmail_fetch_retries(limit=100)
+        }
+        for message_id in completed_ids:
+            if message_id not in pending_ids:
+                continue
+            # A successful metadata classification that did not yield an event
+            # is itself the complete handoff. Event messages require a durable
+            # processed item or stored job before their pending marker closes.
+            durable = message_id not in fetched_email_ids
+            if not durable:
+                durable = await self._repository.has_durable_gmail_handoff(message_id)
+            if not durable:
+                continue
+            resolved = await self._repository.resolve_gmail_fetch_retry(message_id)
+            if resolved is not None and resolved.resolved_at is not None:
+                stats.gmail_fetch_recovered += 1
+
     @staticmethod
     def _email_type(email: EmailMessage) -> EmailType:
         return classify_email(
@@ -311,10 +386,26 @@ class GmailJobProcessor:
             urgency=job.urgency,
             why_relevant=job.why_relevant,
             red_flags=[],
+            analysis_succeeded=job.analysis_succeeded,
+            commercial_decision=job.commercial_decision,
+            decision_reason=job.decision_reason,
+            clarification_question=job.clarification_question,
+            budget_provenance=job.budget_provenance,
+            provider_outcome=job.provider_outcome,
+            provider_model=job.provider_model,
+            provider_finish_reason=job.provider_finish_reason,
+            provider_prompt_tokens=job.provider_prompt_tokens,
+            provider_completion_tokens=job.provider_completion_tokens,
+            provider_total_tokens=job.provider_total_tokens,
+            provider_error_code=job.provider_error_code,
             event_type=job.event_type,
             source_email_id=job.source_email_id,
             full_description=job.full_description,
             description_completeness=job.description_completeness,
+            materials_status=job.materials_status,
+            scope_sufficiency=job.scope_sufficiency,
+            scope_enrichment_source=job.scope_enrichment_source,
+            scope_enrichment_sha256=job.scope_enrichment_sha256,
             language=job.language,
             category=job.category,
             skills=job.skills,
@@ -389,9 +480,25 @@ class GmailJobProcessor:
     @staticmethod
     def _analysis_fields(analysis: JobAnalysis) -> dict[str, Any]:
         fields = {
+            "analysis_succeeded": analysis.analysis_succeeded,
+            "commercial_decision": analysis.commercial_decision,
+            "decision_reason": analysis.decision_reason,
+            "clarification_question": analysis.clarification_question,
+            "budget_provenance": analysis.budget_provenance,
+            "provider_outcome": analysis.provider_outcome,
+            "provider_model": analysis.provider_model,
+            "provider_finish_reason": analysis.provider_finish_reason,
+            "provider_prompt_tokens": analysis.provider_prompt_tokens,
+            "provider_completion_tokens": analysis.provider_completion_tokens,
+            "provider_total_tokens": analysis.provider_total_tokens,
+            "provider_error_code": analysis.provider_error_code,
             "event_type": analysis.event_type,
             "full_description": analysis.full_description,
             "description_completeness": analysis.description_completeness,
+            "materials_status": analysis.materials_status,
+            "scope_sufficiency": analysis.scope_sufficiency,
+            "scope_enrichment_source": analysis.scope_enrichment_source,
+            "scope_enrichment_sha256": analysis.scope_enrichment_sha256,
             "language": analysis.language,
             "category": analysis.category,
             "skills": analysis.skills,
@@ -545,6 +652,10 @@ class GmailJobProcessor:
             discovery_source=job.discovery_source,
             event_type=job.event_type,
             description_completeness=job.description_completeness,
+            materials_status=job.materials_status,
+            scope_sufficiency=job.scope_sufficiency,
+            scope_enrichment_source=job.scope_enrichment_source,
+            scope_enrichment_sha256=job.scope_enrichment_sha256,
         )
 
     @staticmethod
@@ -830,12 +941,17 @@ class GmailJobProcessor:
         initial = validate_analysis(analysis)
         initial_errors = list(initial.errors)
         self._record_quality_errors(stats, initial_errors)
-        if initial.proposal_ready or initial.status == QualityStatus.NON_EXECUTABLE.value:
+        if initial.proposal_ready or initial.status in {
+            QualityStatus.NON_EXECUTABLE.value,
+            QualityStatus.NEEDS_CLARIFICATION.value,
+        }:
             apply_validation(analysis, initial)
             self._record_quality_status(stats, initial.status)
             return analysis, False
 
-        if not allow_repair or not analysis.analysis_succeeded:
+        from .quality_gate import model_repair_errors
+        repair_errors = model_repair_errors(initial_errors)
+        if not allow_repair or not analysis.analysis_succeeded or not repair_errors:
             apply_validation(analysis, initial)
             self._record_quality_status(stats, initial.status)
             stats.ai_calls_avoided += 1
@@ -847,7 +963,7 @@ class GmailJobProcessor:
         stats.repair_calls += 1
         repaired = await repair_analysis(
             analysis,
-            initial_errors,
+            repair_errors,
             client=self._openai_client,
         )
         repaired.original_analysis_snapshot = original_snapshot
@@ -1401,13 +1517,12 @@ class GmailJobProcessor:
 
         analysis = self._analysis_from_job(job)
         quality_required = self._quality_required(analysis)
-        manual_review = (
-            analysis.analysis_quality_status == QualityStatus.MANUAL_REVIEW.value
-        )
+        decision_card = analysis.analysis_quality_status in {
+            QualityStatus.NON_EXECUTABLE.value,
+            QualityStatus.NEEDS_CLARIFICATION.value,
+        }
         sales_tracking_failed = False
-        if self._sales_closer is not None and (
-            is_proposal_ready(analysis) or manual_review
-        ):
+        if self._sales_closer is not None and is_proposal_ready(analysis):
             try:
                 await self._sales_closer.ensure_from_validated_job(job)
             except Exception as exc:
@@ -1421,7 +1536,7 @@ class GmailJobProcessor:
                 sales_tracking_failed = True
                 analysis.sales_tracking_unavailable = True
         if quality_required and not is_proposal_ready(analysis):
-            if not manual_review:
+            if not decision_card:
                 # Legacy/invalid persisted rows cannot escape via restart queue.
                 errors = quality_errors(analysis) or ["quality_state_not_proposal_ready"]
                 await self._repository.update_job_fields(
@@ -1481,7 +1596,7 @@ class GmailJobProcessor:
         except Exception as exc:
             await self._repository.update_job_status(
                 candidate.stable_key,
-                "quality_review_pending" if manual_review else "send_failed",
+                "send_failed",
             )
             stats.errors += 1
             stats.error_details.append(f"{candidate.stable_key}: {exc}")
@@ -1491,7 +1606,7 @@ class GmailJobProcessor:
         if not sent_ok:
             await self._repository.update_job_status(
                 candidate.stable_key,
-                "quality_review_pending" if manual_review else "send_failed",
+                "send_failed",
             )
             stats.errors += 1
             stats.error_details.append(
@@ -1507,8 +1622,10 @@ class GmailJobProcessor:
                 published = published.replace(tzinfo=timezone.utc)
             latency = max(0.0, (telegram_sent_at - published).total_seconds())
         final_status = (
-            "quality_manual_review"
-            if manual_review
+            "skipped"
+            if analysis.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value
+            else "needs_clarification"
+            if analysis.analysis_quality_status == QualityStatus.NEEDS_CLARIFICATION.value
             else "sales_tracking_pending"
             if sales_tracking_failed
             else "sent"
@@ -1524,7 +1641,7 @@ class GmailJobProcessor:
         await self._repository.upsert_processed(
             self._processed_job_item(job, final_status)
         )
-        if quality_required and not manual_review:
+        if quality_required and is_proposal_ready(analysis):
             await self._repository.upsert_processed(
                 ProcessedItem(
                     stable_key=self._proposal_version_key(analysis),
@@ -1847,7 +1964,10 @@ class GmailJobProcessor:
                             analysis, live_result, live_retry_count
                         )
                     if analysis.analysis_succeeded:
-                        stats.ai_analyzed += 1
+                        if analysis.provider_outcome == "NOT_CALLED_DETERMINISTIC_POLICY":
+                            stats.ai_calls_avoided += 1
+                        else:
+                            stats.ai_analyzed += 1
                     else:
                         stats.errors += 1
                         stats.error_details.append(
@@ -1873,32 +1993,17 @@ class GmailJobProcessor:
                                 f"{candidate.stable_key}: quality repair provider failed"
                             )
                             continue
-                        if (
-                            analysis.analysis_quality_status
-                            == QualityStatus.NON_EXECUTABLE.value
-                        ):
-                            await self._repository.save_job(
-                                self._stored_job(
-                                    candidate, analysis, status="quality_non_executable"
-                                )
-                            )
-                            await self._repository.upsert_processed(
-                                self._processed_item(
-                                    candidate, "quality_non_executable", analysis.score
-                                )
-                            )
-                            stats.not_relevant += 1
-                            continue
-                        if (
-                            analysis.analysis_quality_status
-                            == QualityStatus.MANUAL_REVIEW.value
-                        ):
-                            stats.relevant += 1
+                        if analysis.analysis_quality_status in {
+                            QualityStatus.NON_EXECUTABLE.value,
+                            QualityStatus.NEEDS_CLARIFICATION.value,
+                        }:
                             job = await self._repository.save_job(
-                                self._stored_job(
-                                    candidate, analysis, status="quality_review_pending"
-                                )
+                                self._stored_job(candidate, analysis, status="queued")
                             )
+                            if analysis.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value:
+                                stats.not_relevant += 1
+                            else:
+                                stats.relevant += 1
                             if cards_sent_this_scan < self._max_cards_per_scan:
                                 attempted = await self.deliver_validated_proposal_version(
                                     candidate,
@@ -1908,6 +2013,16 @@ class GmailJobProcessor:
                                 )
                                 if attempted:
                                     cards_sent_this_scan += 1
+                            continue
+                        if (
+                            analysis.analysis_quality_status
+                            == QualityStatus.MANUAL_REVIEW.value
+                        ):
+                            await self._repository.save_job(
+                                self._stored_job(
+                                    candidate, analysis, status="quality_manual_review"
+                                )
+                            )
                             continue
 
                     if not analysis.is_relevant:
@@ -2192,6 +2307,11 @@ class GmailJobProcessor:
         allow_send: bool = True,
     ) -> bool:
         """Process a single-job email and report whether a card was attempted."""
+        if self._sales_closer is not None and self._email_type(email) in {
+            EmailType.PROJECT_STATUS_EVENT, EmailType.WORKSPACE_OR_CONTRACT_EVENT,
+        }:
+            # Persist the stop before any optional analysis/delivery can fail.
+            await self._sales_closer.observe_platform_event(email)
         if (
             self._sales_closer is not None
             and self._email_type(email) == EmailType.CLIENT_PRIVATE_MESSAGE
@@ -2570,41 +2690,22 @@ class GmailJobProcessor:
                         f"{stable_key}: quality repair provider failed"
                     )
                     return False
-                if (
-                    analysis.analysis_quality_status
-                    == QualityStatus.NON_EXECUTABLE.value
-                ):
-                    await self._repository.save_job(
-                        self._stored_single_job(
-                            email,
-                            analysis,
-                            status="quality_non_executable",
-                            stable_key=stable_key,
-                        )
-                    )
-                    await self._repository.upsert_processed(
-                        self._processed_single_item(
-                            email,
-                            analysis,
-                            "quality_non_executable",
-                            stable_key=stable_key,
-                        )
-                    )
-                    stats.not_relevant += 1
-                    return False
-                if (
-                    analysis.analysis_quality_status
-                    == QualityStatus.MANUAL_REVIEW.value
-                ):
-                    stats.relevant += 1
+                if analysis.analysis_quality_status in {
+                    QualityStatus.NON_EXECUTABLE.value,
+                    QualityStatus.NEEDS_CLARIFICATION.value,
+                }:
                     job = await self._repository.save_job(
                         self._stored_single_job(
                             email,
                             analysis,
-                            status="quality_review_pending",
+                            status="queued",
                             stable_key=stable_key,
                         )
                     )
+                    if analysis.analysis_quality_status == QualityStatus.NON_EXECUTABLE.value:
+                        stats.not_relevant += 1
+                    else:
+                        stats.relevant += 1
                     if not allow_send:
                         return False
                     return await self.deliver_validated_proposal_version(
@@ -2613,6 +2714,19 @@ class GmailJobProcessor:
                         stats,
                         live_status_already_checked=True,
                     )
+                if (
+                    analysis.analysis_quality_status
+                    == QualityStatus.MANUAL_REVIEW.value
+                ):
+                    await self._repository.save_job(
+                        self._stored_single_job(
+                            email,
+                            analysis,
+                            status="quality_manual_review",
+                            stable_key=stable_key,
+                        )
+                    )
+                    return False
 
             if not analysis.is_relevant:
                 await self._repository.upsert_processed(
@@ -2800,20 +2914,30 @@ class GmailJobProcessor:
             await self._drain_sales_escalations(stats)
             await self._drain_live_status_notices(stats)
             cards_sent_this_scan = sales_cards + await self._drain_retry_queue(stats)
+            await self._prepare_durable_gmail_retries()
             try:
                 emails = await self._provider.get_new_emails()
             except Exception as exc:
                 logger.exception("GmailJobProcessor: failed to fetch emails")
+                await self._persist_gmail_fetch_outcomes(stats)
                 stats.errors += 1
                 stats.error_details.append(str(exc))
                 return stats
+
+            completed_ids = await self._persist_gmail_fetch_outcomes(stats)
 
             stats.emails_fetched = len(emails)
             stats.mailbox_alias = str(
                 getattr(self._provider, "identity_alias", "mock") or "mock"
             )
             logger.info("GmailJobProcessor: fetched %d emails", stats.emails_fetched)
-            return await self._run_emails(emails, stats, cards_sent_this_scan)
+            result = await self._run_emails(emails, stats, cards_sent_this_scan)
+            await self._resolve_gmail_fetch_handoffs(
+                stats,
+                completed_ids,
+                {email.id for email in emails},
+            )
+            return result
 
         try:
             if (

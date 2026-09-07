@@ -1,5 +1,93 @@
 # GOAL PROGRESS — Gmail-based AI Job Notification Agent
 
+## Current authorized production checkpoint preparation — 2026-09-07
+
+CURRENT_DEPLOY_GATE=PASS: 552 full offline tests, no failures/errors/skips;
+283 targeted tests overlap this suite. Isolated PostgreSQL migrations twice,
+round-trip and restart/retry/dedup pass. Full gate repeated after 13 unused-import
+removals in six older files; runtime validators unchanged. Earlier local PG
+startup failure and historic 175-test FAIL retained, not relabeled green.
+Safety snapshot preserves all 44 pre-existing changed/untracked source files.
+Next action: complete explicitly authorized zero-overlap production rollout
+after read-only preflight; lifecycle activation/freeze not yet verified.
+Sales Brain V1 NOT_STARTED until verified production checkpoint. Controlled
+model calls 0; ledger 8/8; reserve $0.03262905 unchanged. Live sales quality
+NOT_VALIDATED and live client cycle NOT_RUN. Older statuses below historical.
+
+Current task: narrow R2 restart/freshness gap FIXED; R1/R3 accepted by review.
+Before: one reproduced FAIL (1 sync card instead of 2 after fresh/restart/121s).
+After: nine targeted tests PASS, no errors/skips; repeat stale ticks deduplicate,
+each new expired check renews once, timely check produces one draft card.
+Evidence: artifacts/private/a_to_b_r2_freshness/RESULT_RU.md and delta package.
+MECHANICAL_A_TO_B_CANDIDATE_FOR_FREEZE=YES; LIVE_SALES_QUALITY=NOT_VALIDATED;
+LIVE_CLIENT_CYCLE=NOT_RUN; PRODUCTION_CHANGED=NO. No new mechanical blocker
+found in scope. Global readiness NOT_MEASURED; historic 175-test FAIL preserved.
+Model calls 0; ledger 8/8, reserve $0.03262905 unchanged byte-for-byte.
+Next action: separately scoped sales-quality evaluation of saved real material.
+Older results/next-action statements below are historical, not current priorities.
+
+## Latest issue #20 authorized real-model continuation — 2026-09-07
+
+- Persistent limit explicitly extended 6→8, prior entries/reserves preserved.
+- Main 7 plus one targeted repair 8 on unchanged HISTORICAL_REAL_SNAPSHOT 1651774
+  returned identical invalid ASK. No client-ready proposal or useful ASK.
+- MODEL_ON_REAL_SNAPSHOT=FAIL; LIVE_MODEL_E2E=NOT_RUN; CURRENT_BID_READY=NO.
+- Ledger 8/8; reserve $0.03262905; new usage cost estimate $0.00237195.
+  Five focused budget tests pass. No repeated general suite, DB or external delivery.
+- IMPLEMENTED_WITH_VALIDATION_BLOCKERS. Next action: review
+  artifacts/private/issue20/validation_7_8/RESULT_RU.md and result_review.zip.
+
+## Latest issue #20 three false-refusal correction — 2026-09-07
+
+- Pure gate fix: actual leading-action recipient, quantity/deliverable binding,
+  normalized evidence capabilities; no prompts/schema/renderer/storage changes.
+- All 13 synthetic/mutation controls match expected full-gate outcomes. Related
+  group: 141 tests, 140 pass / 1 expected PG skip; previous 16 targeted preserved.
+- Model calls 0. Ledger 6/6 and $0.02232975 reserve unchanged; original responses
+  5/6 unchanged. No PostgreSQL run or external actions. Live behavior NOT_RUN.
+- IMPLEMENTED_WITH_VALIDATION_BLOCKERS. Next action: review
+  artifacts/private/issue20/false_refusal_fix_20260907.zip and its report.
+
+## Latest issue #20 independent-review correction — 2026-09-07
+
+- Offline ASK fact ownership/grounding and concrete operator action fixed;
+  repair no longer pins old evidence or recursively repeats the answer. TAKE wire
+  bounds and client-ASK freshness checks strengthened without changing scores.
+- 209 related tests, no failures/errors, 1 opt-in skip; isolated PostgreSQL
+  ASK/TAKE roundtrip PASS separately. Only synthetic positive controls.
+- Model calls 0. Ledger remains 6/6, reserve $0.02232975; historical artifacts
+  and production untouched. IMPLEMENTED_WITH_VALIDATION_BLOCKERS.
+- Next action: review artifacts/private/issue20/REVIEW_FIX_REPORT_RU.md and
+  review_fix_20260907.zip; new live testing requires separate authorization.
+
+## Latest issue #20 ASK-contract correction — 2026-09-07, ledger 6/6
+
+- ASK no longer carries forced example price/timeline/proposal: actual API
+  calls 5/6 verify the new serialized contract. Content still fails truthfulness
+  and usefulness after one targeted repair; no client-ready offer obtained.
+- Focused/related offline regression and isolated synthetic PostgreSQL ASK/TAKE
+  round-trip pass. Full suite and real-model downstream were not run.
+- New usage 11,908 tokens, estimated $0.00223575; persistent ledger 6/6 exhausted,
+  cumulative reserve $0.02232975. Historical entries/reserves preserved.
+- Historical source timestamps/hash retained after current enrichment returned
+  no usable full text. MODEL_ON_REAL_SNAPSHOT=FAIL; LIVE_MODEL_E2E=NOT_RUN;
+  CURRENT_BID_READY=NO. IMPLEMENTED_WITH_VALIDATION_BLOCKERS.
+- No production, keys/billing, delivery, commit/push/deploy or 5B/5C changes.
+- Next action: review artifacts/private/issue20/ASK_CONTRACT_IMPLEMENTATION_REPORT.md
+  and its sanitized review ZIP before any separate deployment decision.
+
+## Latest issue #20 diagnostic — 2026-09-07
+
+- MODEL_ON_REAL_SNAPSHOT=FAIL: real main completion and targeted repair retain
+  contradictory ASK terms/proposal. Gate remains QUALITY_MANUAL_REVIEW.
+- Ledger now 4/6, cumulative reserves $0.01211790; new usage 8,143 tokens,
+  estimated cost $0.00172635. Two-call step permission consumed.
+- Historical source and raw replies preserved. Separate zero-call replay fixes
+  only local repair-count metadata. No PostgreSQL, renderer, delivery or 5A.
+- LIVE_MODEL_E2E=NOT_RUN; CURRENT_BID_READY=NO; ACCOUNT_IDENTITY and BILLING
+  NOT_VERIFIED. IMPLEMENTED_WITH_VALIDATION_BLOCKERS.
+- Review: artifacts/private/issue20/historical_snapshot_review.md.
+
 ## Статус: PHASE 1-4 PARTIAL ✅ | Real Gmail Verification Pending
 
 Дата початку: 2026-06-04
@@ -712,3 +800,116 @@ token.json: ✅ знайдено
   production migration/backfill, real Telegram card or platform action was
   performed.
 - Status: `READY_FOR_SINGLE_SHARED_OPERATOR_ZERO_OVERLAP_REDEPLOY_V2`.
+
+## 2026-09-05 Issue #20 decision-first cards
+
+- Continued from `origin/main` `f640c5472e1b70c6a303e96e31d104e23aacb2cd`
+  on `fix/revenue-decision-first-cards-v1`.
+- Replaced the reported `Score/Fit INVALID` normal-card path with explicit
+  durable TAKE/ASK/SKIP decisions, strict Structured Outputs, source-owned
+  budget/completeness, deterministic quality/one-repair gating, Russian
+  decision-first rendering and TAKE-only Stage 5A creation.
+- Added restart-safe Gmail 5xx retry state and alert dedup in PostgreSQL. A
+  failed message no longer loses good messages around it; one recovered 5xx
+  does not alert.
+- Offline validation passes 477 tests plus 329 subtests; 14 PostgreSQL tests
+  plus 19 subtests pass separately on disposable local PostgreSQL 17.
+- The bounded live runner loaded the confirmed ignored env file and used
+  `gpt-4o-mini`, SDK retries 0 and a persistent 6-call/$1 ledger. Attempt 1/6
+  returned `RateLimitError`; API usage was not returned, actual cost is unknown
+  and billing was not verified (reserved upper bound `$0.00259860`). No live
+  proposal or 5A opportunity was created and no Telegram/platform message was
+  sent.
+- No merge, deployment, production database/secret, Railway, Gmail/OAuth,
+  backfill or Freelancehunt action occurred.
+- Status: `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`.
+
+## 2026-09-06 Issue #20 current real candidate / live attempt
+
+- Reviewed the current ten-entry official RSS sample and selected bounded real
+  project `1651774` (three photo-based Canva product reels, up to 16 seconds).
+  Saved verified scope, source hashes and fresh `ACTIVE_BIDDABLE` evidence in
+  ignored private artifacts; manual scope judgment is explicit.
+- Added the missing normal-runtime RSS → public-page enrichment connection and
+  targeted regression. Protected or ambiguous pages still fail closed.
+- Fixed isolated-runner additive migration, lifecycle and failure-reporting
+  defects. Targeted tests and static checks pass.
+- The only new `gpt-4o-mini` call returned HTTP 429,
+  `credit_balance_exhausted` / `insufficient_quota`; no completion or token
+  usage was returned and no repair was called. Ledger is 2/6, reserved total
+  `$0.00522225`, actual API-derived cost `UNKNOWN`, billing `NOT_VERIFIED`.
+- No proposal, DB reload, real Telegram render or Stage 5A opportunity was
+  produced. Production/external systems remain unchanged.
+- `LIVE_MODEL_E2E=FAIL`; status remains
+  `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`.
+
+## 2026-09-05 Issue #20 offline diagnostics/scope/Gmail correction
+
+- Added safe allowlisted provider diagnostics, failure report persistence and
+  reproducible source hashes. Real-SDK offline transports cover required HTTP,
+  quota, timeout/connection and redaction paths.
+- Added auditable RSS enrichment and separate main-text, materials and
+  fixed-terms sufficiency boundaries. Project 1651611 is deterministic `ASK`,
+  while the synthetic execution-input-only case is `QUALITY_VALID` after final
+  composition, reload and real renderer checks.
+- Gmail 403 follows structured reasons. The isolated PostgreSQL restart/no-loss
+  integration proves the requested three-cycle 503 recovery sequence with one
+  threshold alert, one logical recovered record, two surviving neighbours and
+  one fake delivery; this is not a universal exactly-once claim.
+- Full offline discovery passed 502 tests with 13 opt-in skips; isolated
+  PostgreSQL combined coverage passed 15 tests and the strengthened restart
+  scenario passed separately.
+- No model call was made; the ledger is unchanged at 1/6. No production or
+  external mutation occurred. Historical 429 remains `UNKNOWN`, the two
+  production INVALID causes remain unproved, and no positive live-model E2E
+  exists.
+- Status: `IMPLEMENTED_WITH_VALIDATION_BLOCKERS`.
+# Latest issue #20 continuation — 2026-09-06
+
+- Current-key use is EXPLICIT; ACCOUNT_IDENTITY and BILLING remain NOT_VERIFIED.
+- Updated bounded runner to preserve the 2/6 baseline and stop at 4/6, reject
+  non-official completion URLs and redirects, require a received completion for
+  targeted repair, and preserve response organization separately if returned.
+- Fresh official RSS shows 1651774 ACTIVE_BIDDABLE; its full public page returns
+  protected 403. Three plausible alternatives in ten items remain PARTIAL after
+  enrichment. No stale full text was relabelled current.
+- Sixteen focused offline runner tests and Ruff F/E9 pass. No full suite or live
+  model call ran. Ledger remains 2/6 and reservations remain $0.00522225.
+- LIVE_MODEL_E2E=NOT_RUN: CURRENT_FULL_SCOPE_UNAVAILABLE. No database writes,
+  external deliveries, proposal or Stage 5A opportunity were produced.
+- Evidence: artifacts/private/issue20/current_validation_report.json.
+- Next: refresh accessible current full scope and continue the existing explicit
+  two-call authorization with the dedicated local database.
+# Latest local A→B mechanics — 2026-09-07
+
+- Implemented explicitly authorized minimum 5B/5C in the existing SalesCloser,
+  PostgreSQL opportunity, Telegram operator and scheduler; no parallel CRM.
+- SYNTHETIC mechanical integration reaches handoff/team receipt with persistence,
+  restarts, follow-up cancellation, terms/evidence/payment distinctions and
+  negative controls. MECHANICAL_A_TO_B_TEST=PASS.
+- LIVE_SALES_QUALITY=NOT_VALIDATED; LIVE_CLIENT_CYCLE=NOT_RUN;
+  PRODUCTION_CHANGED=NO. Actual issue #20 calls #7/#8 still failed; no paid retry.
+- Ledger 8/8, reserve $0.03262905 unchanged. Source/model/delivery fixtures only;
+  core handlers, validation, scheduler hook, state/persistence and renderer real.
+- Related 175-test run retained four stale-fixture subtest failures in one test;
+  isolated rerun passed all 13 controls without weakening application freshness.
+- Next: review the single artifacts/private/a_to_b/a_to_b_review.zip package.
+## 2026-09-07 — local A→B R1–R3 correction
+
+- Three requested defects reproduced before edits (3 expected FAIL).
+  Receipt now checks current facts/version/hash; readiness invalidates without
+  rewriting prior snapshots/receipts. Required payment NONE is supported.
+- Existing scheduler now sends internal follow-up tasks through the existing
+  notifier/bot/chat with durable pending/success and bounded lease recovery.
+  Freshness, cancellation, manual client send and Kyiv hours remain enforced.
+- Literal renderer command prompts for explicit reference instead of failing
+  silently; owner and version/hash audit guards remain.
+- First corrected 5 controls, expanded 8 controls, 2 final presentation/guard
+  tests, 3 prior PostgreSQL scenarios and 55 neighbors pass. Dedicated cluster
+  stopped; generated schemas removed.
+  Expanded results/cards: artifacts/private/a_to_b_r1_r3/RESULT_RU.md.
+- Human-entered final terms; no automated negotiation/live-sales proof.
+  Ledger 8/8, reserve $0.03262905 and original review archive unchanged; model
+  calls 0. Historical 175-test FAIL preserved; no production/deploy/messages.
+  IMPLEMENTED_WITH_VALIDATION_BLOCKERS remains.
+- Next action: independently review the single new R1–R3 delta archive.

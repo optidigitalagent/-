@@ -12,15 +12,17 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from html import escape
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from gmail_agent.digest_parser import DigestJobCandidate
+from gmail_agent.digest_parser import DigestJobCandidate, enrich_candidate_scope
 from gmail_agent.email_analyzer import JobAnalysis, analyze_candidate
 from gmail_agent.email_classifier import EmailType
 from gmail_agent.freelancehunt_discovery import (
     FeedParseError,
     FreelancehuntDiscoveryPipeline,
     FreelancehuntFeedClient,
+    parse_freelancehunt_public_scope,
     parse_freelancehunt_rss,
     register_freelancehunt_discovery_job,
 )
@@ -97,6 +99,14 @@ def _candidate_analysis(
     score: float = 0.2,
     lane: str = "broad_online_service",
 ) -> JobAnalysis:
+    candidate = enrich_candidate_scope(
+        candidate,
+        description=candidate.description,
+        source_kind="SYNTHETIC_TEST",
+        main_text_completeness="FULL",
+        materials_status="NOT_REFERENCED",
+        scope_sufficiency="SUFFICIENT_FOR_FIXED_TERMS",
+    )
     relevant = executable != "no"
     return JobAnalysis(
         email_id=candidate.stable_key,
@@ -154,6 +164,10 @@ def _candidate_analysis(
         source_feed_timestamp=candidate.source_feed_timestamp,
         feed_fetched_at=candidate.feed_fetched_at,
         first_seen_at=candidate.first_seen_at,
+        materials_status=candidate.materials_status,
+        scope_sufficiency=candidate.scope_sufficiency,
+        scope_enrichment_source=candidate.scope_enrichment_source,
+        scope_enrichment_sha256=candidate.scope_enrichment_sha256,
         analysis_version=ANALYSIS_VERSION,
     )
 
@@ -222,6 +236,45 @@ class TestOfficialRssParsing(unittest.TestCase):
                 with self.assertRaises(FeedParseError):
                     parse_freelancehunt_rss(payload)
 
+    def test_public_page_scope_is_identity_bound_and_attachment_conservative(self):
+        html = """
+        <html><head>
+          <link rel="canonical" href="https://freelancehunt.com/project/synthetic/1700003.html">
+        </head><body><main data-project-id="1700003">
+          <div id="description"><div class="assignment-description-container">
+          <span class="unsafe-links-container assignment-description formatted-text">
+            Audit five pages and deliver a prioritized finding table with exact fixes for $8–18.
+          </span></div></div>
+          <section class="project-attachments">Attachments 1</section>
+        </main></body></html>
+        """
+        scope = parse_freelancehunt_public_scope(
+            html,
+            project_id="1700003",
+            source_url="https://freelancehunt.com/project/synthetic/1700003.html",
+        )
+        self.assertIn("Audit five pages", scope.description)
+        self.assertEqual(scope.materials_status, "UNAVAILABLE_SCOPE_RELEVANT")
+        self.assertEqual(
+            scope.scope_sufficiency, "INSUFFICIENT_FOR_FIXED_TERMS"
+        )
+        self.assertEqual(len(scope.content_sha256), 64)
+        self.assertEqual(scope.budget, "$8–18")
+        self.assertEqual(scope.budget_currency, "USD")
+        with self.assertRaisesRegex(FeedParseError, "identity"):
+            parse_freelancehunt_public_scope(
+                html,
+                project_id="1700999",
+                source_url="https://freelancehunt.com/project/synthetic/1700999.html",
+            )
+
+        with self.assertRaisesRegex(FeedParseError, "identity"):
+            parse_freelancehunt_public_scope(
+                '<div itemprop="description">A sufficiently long but unbound description.</div>',
+                project_id="1700003",
+                source_url="https://freelancehunt.com/project/synthetic/1700003.html",
+            )
+
 
 class TestInstantDiscoveryPipeline(unittest.IsolatedAsyncioTestCase):
     async def _pipeline(
@@ -277,6 +330,59 @@ class TestInstantDiscoveryPipeline(unittest.IsolatedAsyncioTestCase):
         self.assertLess(stored.publication_to_telegram_latency_seconds, 120)
         runs = await repository.list_scan_runs()
         self.assertLess(runs[0].max_publication_to_telegram_latency_seconds, 120)
+
+    async def test_normal_rss_runtime_enriches_from_public_page_before_analyzer(self):
+        class ScopeChecker(StaticChecker):
+            def __init__(self) -> None:
+                super().__init__(LiveStatus.ACTIVE_BIDDABLE)
+                self.page_calls: list[str] = []
+
+            async def fetch_public_page(self, url: str) -> SimpleNamespace:
+                self.page_calls.append(url)
+                return SimpleNamespace(
+                    status_code=200,
+                    html=(
+                        '<main data-project-id="1700019">'
+                        '<div itemprop="description">'
+                        'Audit five public pages and deliver a prioritized issue table.'
+                        '</div></main>'
+                    ),
+                )
+
+        checker = ScopeChecker()
+        repository = InMemoryGmailRepository()
+        xml = _rss(_rss_item(1700019, "SEO audit", description="RSS preview..."))
+        pipeline = FreelancehuntDiscoveryPipeline(
+            repository=repository,
+            bot=MagicMock(),
+            chat_id=123,
+            feed_client=FreelancehuntFeedClient(fetcher=AsyncMock(return_value=xml)),
+            live_status_checker=checker,
+        )
+        observed: list[DigestJobCandidate] = []
+
+        async def analyze(item: DigestJobCandidate, **_: object) -> JobAnalysis:
+            observed.append(item)
+            return _candidate_analysis(item)
+
+        with (
+            patch("gmail_agent.processor.analyze_candidate", side_effect=analyze),
+            patch(
+                "gmail_agent.processor.send_job_card",
+                AsyncMock(return_value=True),
+            ),
+        ):
+            stats = await pipeline.run()
+
+        self.assertEqual(stats.ai_analyzed, 1)
+        self.assertEqual(len(checker.page_calls), 1)
+        self.assertEqual(len(observed), 1)
+        self.assertIn("prioritized issue table", observed[0].description)
+        self.assertEqual(observed[0].description_completeness, "FULL")
+        self.assertEqual(
+            observed[0].scope_enrichment_source, "PUBLIC_PAGE_VERIFIED"
+        )
+        self.assertEqual(len(observed[0].scope_enrichment_sha256), 64)
 
     async def test_repeat_and_restart_dedup_avoid_ai_and_second_card(self):
         state: dict[str, object] = {}
@@ -644,10 +750,10 @@ class TestInstantDiscoveryPipeline(unittest.IsolatedAsyncioTestCase):
         with patch("gmail_agent.processor.send_job_card", send):
             stats = await pipeline.run()
         self.assertEqual(stats.not_relevant, 1)
-        self.assertEqual(stats.sent, 0)
-        send.assert_not_awaited()
+        self.assertEqual(stats.sent, 1)
+        send.assert_awaited_once()
         processed = await repository.get_processed(batch.candidates[0].stable_key)
-        self.assertEqual(processed.decision, "quality_non_executable")
+        self.assertEqual(processed.decision, "skipped")
 
     async def test_malformed_feed_records_failed_scan_without_project_actions(self):
         repository = InMemoryGmailRepository()

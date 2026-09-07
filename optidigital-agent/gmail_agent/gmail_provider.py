@@ -5,10 +5,11 @@ import base64
 import binascii
 import json
 import logging
+import random
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime
 from email.header import decode_header, make_header
 from email.utils import parseaddr
 from typing import Any
@@ -64,6 +65,22 @@ class EmailMatchDiagnostic:
     is_job_alert: bool
 
 
+@dataclass(frozen=True)
+class GmailFetchFailure:
+    """Safe per-message fetch failure suitable for durable retry state."""
+
+    message_id: str
+    stage: str
+    status_code: int | None
+    category: str
+    attempts: int
+    safe_error: str
+
+
+class GmailRequestError(RuntimeError):
+    """Sanitized scan-level Gmail failure (never embeds OAuth material)."""
+
+
 class GmailProvider(ABC):
     @abstractmethod
     async def get_new_emails(self) -> list[EmailMessage]:
@@ -84,6 +101,17 @@ class GmailProvider(ABC):
     ) -> list[EmailMessage]:
         """Read Freelancehunt digest emails from the requested lookback window."""
         raise NotImplementedError
+
+    def set_retry_message_ids(self, message_ids: list[str]) -> None:
+        """Supply durable pending IDs to include in the next read-only scan."""
+
+    def set_deferred_message_ids(self, message_ids: list[str]) -> None:
+        """Exclude durable pending IDs until their persisted retry time."""
+
+    def drain_fetch_outcomes(self) -> tuple[list[GmailFetchFailure], list[str]]:
+        """Return per-message failures and successful pending IDs once."""
+
+        return [], []
 
 
 # ── Mock provider ─────────────────────────────────────────────────────────────
@@ -258,6 +286,9 @@ class RealGmailProvider(GmailProvider):
         max_results: int = 100,
         expected_account: str | None = None,
         lookback_days: int = 7,
+        request_max_attempts: int = 3,
+        retry_base_seconds: float = 0.25,
+        retry_cap_seconds: float = 2.0,
     ):
         self._credentials_file = credentials_file
         self._token_file = token_file
@@ -267,6 +298,136 @@ class RealGmailProvider(GmailProvider):
         self._service: Any = None
         self._identity_verified = False
         self._identity_alias = "unverified"
+        self._request_max_attempts = min(max(int(request_max_attempts), 1), 5)
+        self._retry_base_seconds = max(0.0, float(retry_base_seconds))
+        self._retry_cap_seconds = max(
+            self._retry_base_seconds, float(retry_cap_seconds)
+        )
+        self._retry_message_ids: list[str] = []
+        self._deferred_message_ids: set[str] = set()
+        self._fetch_failures: list[GmailFetchFailure] = []
+        self._completed_message_ids: list[str] = []
+
+    def set_retry_message_ids(self, message_ids: list[str]) -> None:
+        self._retry_message_ids = list(dict.fromkeys(str(value) for value in message_ids if value))
+
+    def set_deferred_message_ids(self, message_ids: list[str]) -> None:
+        self._deferred_message_ids = {str(value) for value in message_ids if value}
+
+    def drain_fetch_outcomes(self) -> tuple[list[GmailFetchFailure], list[str]]:
+        failures = self._fetch_failures
+        completed = self._completed_message_ids
+        self._fetch_failures = []
+        self._completed_message_ids = []
+        return failures, completed
+
+    @staticmethod
+    def _gmail_error_reasons(exc: Exception) -> tuple[str, ...]:
+        """Extract Google ``error.errors[].reason`` without parsing prose."""
+
+        payloads: list[Any] = []
+        details = getattr(exc, "error_details", None)
+        if details:
+            payloads.append({"error": {"errors": details}})
+        body = getattr(exc, "body", None)
+        if body:
+            payloads.append(body)
+        content = getattr(exc, "content", None)
+        if isinstance(content, bytes):
+            try:
+                content = content.decode("utf-8")
+            except UnicodeDecodeError:
+                content = ""
+        if isinstance(content, str) and content.strip():
+            try:
+                payloads.append(json.loads(content))
+            except (TypeError, ValueError):
+                pass
+
+        reasons: list[str] = []
+        for payload in payloads:
+            if not isinstance(payload, dict):
+                continue
+            error = payload.get("error", payload)
+            if not isinstance(error, dict):
+                continue
+            errors = error.get("errors")
+            if not isinstance(errors, list):
+                continue
+            for item in errors:
+                reason = item.get("reason") if isinstance(item, dict) else None
+                if isinstance(reason, str) and reason.strip():
+                    reasons.append(reason.strip())
+        return tuple(dict.fromkeys(reasons))
+
+    @staticmethod
+    def _gmail_error_details(exc: Exception) -> tuple[int | None, str]:
+        response = getattr(exc, "resp", None)
+        status = getattr(response, "status", None)
+        status_code = status if isinstance(status, int) else None
+        if status_code == 401:
+            return status_code, "AUTH"
+        if status_code == 403:
+            reason_categories: set[str] = set()
+            for reason in RealGmailProvider._gmail_error_reasons(exc):
+                normalized = reason.casefold()
+                if normalized in {"ratelimitexceeded", "userratelimitexceeded"}:
+                    reason_categories.add("RATE_LIMIT")
+                elif normalized in {"autherror", "invalidcredentials"}:
+                    reason_categories.add("AUTH")
+                elif normalized in {
+                    "forbidden",
+                    "insufficientpermissions",
+                    "domainpolicy",
+                    "accessnotconfigured",
+                }:
+                    reason_categories.add("PERMISSION")
+                else:
+                    reason_categories.add("UNKNOWN")
+            if len(reason_categories) == 1:
+                return status_code, reason_categories.pop()
+            # Missing, conflicting or future Google reasons stay explicit.
+            return status_code, "UNKNOWN"
+        if status_code in {500, 502, 503, 504}:
+            return status_code, "TRANSIENT_SERVER"
+        return status_code, "NON_RETRYABLE"
+
+    async def _execute_request(
+        self,
+        request_factory: Any,
+        *,
+        stage: str,
+        message_id: str = "",
+    ) -> Any | None:
+        """Execute with bounded non-blocking jittered retry for Gmail 5xx."""
+
+        for attempt in range(1, self._request_max_attempts + 1):
+            try:
+                return await asyncio.to_thread(lambda: request_factory().execute())
+            except Exception as exc:
+                status_code, category = self._gmail_error_details(exc)
+                transient = category == "TRANSIENT_SERVER"
+                if transient and attempt < self._request_max_attempts:
+                    exponential = self._retry_base_seconds * (2 ** (attempt - 1))
+                    jitter = random.uniform(0.0, self._retry_base_seconds)
+                    await asyncio.sleep(min(self._retry_cap_seconds, exponential + jitter))
+                    continue
+                if message_id and transient:
+                    self._fetch_failures.append(
+                        GmailFetchFailure(
+                            message_id=message_id,
+                            stage=stage,
+                            status_code=status_code,
+                            category=category,
+                            attempts=attempt,
+                            safe_error=f"Gmail {stage} failed after bounded retry ({status_code})",
+                        )
+                    )
+                    return None
+                raise GmailRequestError(
+                    f"Gmail {stage} failed category={category} status={status_code or 'unknown'}"
+                ) from exc
+        return None
 
     def _build_service(self) -> Any:
         try:
@@ -685,9 +846,11 @@ class RealGmailProvider(GmailProvider):
         return await loop.run_in_executor(None, self._fetch_account_profile)
 
     async def get_new_emails(self) -> list[EmailMessage]:
-        def _sync_fetch() -> list[EmailMessage]:
-            svc = self.service
-            result = svc.users().messages().list(
+        self._fetch_failures = []
+        self._completed_message_ids = []
+        svc = self.service
+        result = await self._execute_request(
+            lambda: svc.users().messages().list(
                 userId="me",
                 q=(
                     "from:(freelancehunt.com OR work.ua OR robota.ua OR upwork.com) "
@@ -695,42 +858,65 @@ class RealGmailProvider(GmailProvider):
                 ),
                 includeSpamTrash=False,
                 maxResults=self._max_results,
-            ).execute()
+            ),
+            stage="list",
+        )
+        listed = [str(item.get("id")) for item in result.get("messages", []) if item.get("id")]
+        message_ids = list(
+            dict.fromkeys(
+                [
+                    *self._retry_message_ids,
+                    *(value for value in listed if value not in self._deferred_message_ids),
+                ]
+            )
+        )
+        self._retry_message_ids = []
+        self._deferred_message_ids = set()
+        emails: list[EmailMessage] = []
+        sender_matches = 0
+        subject_matches = 0
 
-            messages_meta = result.get("messages", [])
-            emails: list[EmailMessage] = []
-            sender_matches = 0
-            subject_matches = 0
-
-            for meta in messages_meta:
-                metadata = svc.users().messages().get(
+        for message_id in message_ids:
+            metadata = await self._execute_request(
+                lambda message_id=message_id: svc.users().messages().get(
                     userId="me",
-                    id=meta["id"],
+                    id=message_id,
                     format="metadata",
                     metadataHeaders=["From", "Subject", "Date"],
-                ).execute()
-                diagnostic = self._metadata_diagnostic(metadata)
-                sender_matches += int(diagnostic.sender_matched)
-                subject_matches += int(diagnostic.subject_matched)
-                if not diagnostic.is_job_alert:
-                    continue
-
-                raw = svc.users().messages().get(
-                    userId="me", id=meta["id"], format="full"
-                ).execute()
-                email = self._parse_message(raw)
-                if email:
-                    emails.append(email)
-
-            logger.info(
-                "RealGmailProvider: Inbox inspected: %d; Matched sender domain: %d; "
-                "Matched subject keyword: %d; Returned job alerts: %d",
-                len(messages_meta), sender_matches, subject_matches, len(emails),
+                ),
+                stage="metadata",
+                message_id=message_id,
             )
-            return emails
+            if metadata is None:
+                continue
+            diagnostic = self._metadata_diagnostic(metadata)
+            sender_matches += int(diagnostic.sender_matched)
+            subject_matches += int(diagnostic.subject_matched)
+            if not diagnostic.is_job_alert:
+                self._completed_message_ids.append(message_id)
+                continue
 
-        loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, _sync_fetch)
+            raw = await self._execute_request(
+                lambda message_id=message_id: svc.users().messages().get(
+                    userId="me", id=message_id, format="full"
+                ),
+                stage="full",
+                message_id=message_id,
+            )
+            if raw is None:
+                continue
+            email = self._parse_message(raw)
+            if email:
+                self._completed_message_ids.append(message_id)
+                emails.append(email)
+
+        logger.info(
+            "RealGmailProvider: Inbox inspected: %d; Matched sender domain: %d; "
+            "Matched subject keyword: %d; Returned job alerts: %d; pending=%d",
+            len(message_ids), sender_matches, subject_matches, len(emails),
+            len(self._fetch_failures),
+        )
+        return emails
 
     async def mark_as_processed(self, email_id: str) -> None:
         # We don't modify Gmail labels — dedup.py handles processed IDs locally

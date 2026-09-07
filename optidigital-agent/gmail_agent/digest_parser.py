@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Any
 
@@ -17,6 +20,23 @@ from .project_identity import (
 
 
 _PLATFORM = "Freelancehunt"
+MATERIALS_STATUSES = frozenset(
+    {
+        "UNKNOWN",
+        "NOT_REFERENCED",
+        "AVAILABLE",
+        "UNAVAILABLE_SCOPE_RELEVANT",
+        "UNAVAILABLE_EXECUTION_INPUTS_ONLY",
+    }
+)
+SCOPE_SUFFICIENCY_STATES = frozenset(
+    {"UNKNOWN", "INSUFFICIENT_FOR_FIXED_TERMS", "SUFFICIENT_FOR_FIXED_TERMS"}
+)
+SCOPE_ENRICHMENT_SOURCES = frozenset(
+    {"PUBLIC_PAGE_VERIFIED", "GMAIL_FULL_BODY", "SYNTHETIC_TEST"}
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DigestJobCandidate:
     source_email_id: str
@@ -42,6 +62,101 @@ class DigestJobCandidate:
     discovery_source: str = "gmail_digest"
     event_type: str = "PROJECT_DIGEST"
     description_completeness: str = "PARTIAL"
+    materials_status: str = "UNKNOWN"
+    scope_sufficiency: str = "UNKNOWN"
+    scope_enrichment_source: str = ""
+    scope_enrichment_sha256: str = ""
+
+
+def _scope_enrichment_digest(candidate: DigestJobCandidate) -> str:
+    payload = {
+        "stable_key": candidate.stable_key,
+        "url": candidate.url,
+        "description": candidate.description,
+        "description_completeness": candidate.description_completeness,
+        "materials_status": candidate.materials_status,
+        "scope_sufficiency": candidate.scope_sufficiency,
+        "scope_enrichment_source": candidate.scope_enrichment_source,
+    }
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def enrich_candidate_scope(
+    candidate: DigestJobCandidate,
+    *,
+    description: str,
+    source_kind: str,
+    main_text_completeness: str,
+    materials_status: str,
+    scope_sufficiency: str,
+) -> DigestJobCandidate:
+    """Create an auditable source enrichment instead of trusting a FULL label."""
+
+    source = str(source_kind or "").strip().upper()
+    completeness = str(main_text_completeness or "").strip().upper()
+    materials = str(materials_status or "").strip().upper()
+    sufficiency = str(scope_sufficiency or "").strip().upper()
+    if source not in SCOPE_ENRICHMENT_SOURCES:
+        raise ValueError("unsupported scope enrichment source")
+    if completeness not in {"FULL", "PARTIAL"} or not str(description or "").strip():
+        raise ValueError("scope enrichment requires non-empty bounded source text")
+    if materials not in MATERIALS_STATUSES:
+        raise ValueError("unsupported materials status")
+    if sufficiency not in SCOPE_SUFFICIENCY_STATES:
+        raise ValueError("unsupported scope sufficiency")
+    if (
+        materials == "UNAVAILABLE_SCOPE_RELEVANT"
+        and sufficiency != "INSUFFICIENT_FOR_FIXED_TERMS"
+    ):
+        raise ValueError("scope-relevant missing materials cannot authorize fixed terms")
+    if (
+        materials == "UNAVAILABLE_EXECUTION_INPUTS_ONLY"
+        and sufficiency != "SUFFICIENT_FOR_FIXED_TERMS"
+    ):
+        raise ValueError("execution-input condition requires sufficient main scope")
+    enriched = replace(
+        candidate,
+        description=" ".join(str(description).split())[:16_000],
+        description_completeness=completeness,
+        materials_status=materials,
+        scope_sufficiency=sufficiency,
+        scope_enrichment_source=source,
+        scope_enrichment_sha256="",
+    )
+    return replace(enriched, scope_enrichment_sha256=_scope_enrichment_digest(enriched))
+
+
+def normalize_candidate_scope(candidate: DigestJobCandidate) -> DigestJobCandidate:
+    """Fail RSS candidates back to PARTIAL unless enrichment proof is intact."""
+
+    discovery_sources = {
+        value.strip().casefold()
+        for value in str(candidate.discovery_source or "").split("+")
+        if value.strip()
+    }
+    if "rss" not in discovery_sources:
+        return candidate
+    expected = _scope_enrichment_digest(replace(candidate, scope_enrichment_sha256=""))
+    verified = bool(candidate.scope_enrichment_sha256) and hmac.compare_digest(
+        candidate.scope_enrichment_sha256,
+        expected,
+    )
+    if verified and candidate.scope_enrichment_source in SCOPE_ENRICHMENT_SOURCES:
+        return candidate
+    return replace(
+        candidate,
+        description_completeness="PARTIAL",
+        materials_status="UNKNOWN",
+        scope_sufficiency="UNKNOWN",
+        scope_enrichment_source="",
+        scope_enrichment_sha256="",
+    )
 
 
 def _clean_text(value: str) -> str:

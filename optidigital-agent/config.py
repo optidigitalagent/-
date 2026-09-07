@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     GMAIL_CHECK_INTERVAL_MINUTES: int = 1
     GMAIL_LOOKBACK_DAYS: int = 7
     GMAIL_DIGEST_ENABLED: bool = True
+    # Local-tested 5B/5C remains opt-in; no platform delivery is implemented.
+    SALES_LIFECYCLE_ENABLED: bool = False
+    SALES_FOLLOWUP_FIRST_HOURS: int = 12
+    SALES_FOLLOWUP_SECOND_HOURS: int = 24
+    SALES_FOLLOWUP_MAX_COUNT: int = 2
 
     # Dedicated official-feed discovery. Defaults are deploy-safe and require
     # no credential, cookie, OAuth, or platform-session variable.

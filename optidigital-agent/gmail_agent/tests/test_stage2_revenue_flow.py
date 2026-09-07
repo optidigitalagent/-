@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import ast
-import asyncio
-import logging
 import sys
 import tempfile
 import unittest
@@ -23,7 +20,7 @@ from gmail_agent.oauth_local import run_oauth
 from gmail_agent.processor import GmailJobProcessor
 from gmail_agent.reply_generator import generate_reply
 from gmail_agent.security import redact_security_event, redact_sensitive_content
-from gmail_agent.storage import InMemoryGmailRepository, StoredGmailJob
+from gmail_agent.storage import InMemoryGmailRepository
 from gmail_agent.telegram_notifier import TELEGRAM_TEXT_LIMIT, format_job_card_parts
 
 

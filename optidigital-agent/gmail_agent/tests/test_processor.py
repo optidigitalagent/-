@@ -1,6 +1,5 @@
 """Integration tests for GmailJobProcessor — full pipeline with mocks."""
 
-import asyncio
 import sys
 import tempfile
 import unittest
@@ -14,10 +13,8 @@ from gmail_agent.email_analyzer import JobAnalysis
 from gmail_agent.gmail_provider import MockGmailProvider
 from gmail_agent.processor import GmailJobProcessor
 from gmail_agent.tests.mock_emails import (
-    ALL_MOCK_EMAILS,
     EMAIL_FREELANCEHUNT_AI_BOT,
     EMAIL_SPAM_NEWSLETTER,
-    RELEVANT_EMAIL_IDS,
 )
 
 

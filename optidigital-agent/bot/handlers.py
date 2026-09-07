@@ -747,7 +747,11 @@ def _sales_closer_service():
     from gmail_agent.sales_closer import SalesCloserService
     from gmail_agent.sales_storage import PostgresSalesRepository
 
-    return SalesCloserService(PostgresSalesRepository(AsyncSessionLocal))
+    return SalesCloserService(PostgresSalesRepository(AsyncSessionLocal),
+        followup_enabled=settings.SALES_LIFECYCLE_ENABLED,
+        followup_policy={'first_hours': settings.SALES_FOLLOWUP_FIRST_HOURS,
+                         'second_hours': settings.SALES_FOLLOWUP_SECOND_HOURS,
+                         'max_count': settings.SALES_FOLLOWUP_MAX_COUNT})
 
 
 def _sales_actor(
@@ -1232,6 +1236,71 @@ async def cmd_pipeline(message: Message) -> None:
     await message.answer(format_pipeline_counts(counts))
 
 
+@router.message(Command("deal"))
+async def cmd_deal(message: Message) -> None:
+    """Local agreement/follow-up audit, using the existing operator identity guards."""
+    from gmail_agent.sales_lifecycle import OWNER_ACTIONS, TEAM_ACTIONS, safe_text
+    from gmail_agent.telegram_roles import (
+        TelegramRole, OWNER_ATTESTATION_VERSION, FACT_SOURCE_ATTESTATION_VERSION,
+    )
+    from gmail_agent.telegram_notifier import format_lifecycle_help, format_lead_timeline
+
+    if not settings.SALES_LIFECYCLE_ENABLED:
+        await message.answer('5B/5C выключены. Локальная реализация не активирует production.')
+        return
+    raw = (message.text or '').split('|')
+    lines = raw[0].strip().splitlines()
+    header = lines[0].split() if lines else []
+    if len(header) != 3:
+        await message.answer(format_lifecycle_help(header[1] if len(header) > 1 else 'opportunity_id'))
+        return
+    _, op_id, action = header
+    try:
+        if action not in OWNER_ACTIONS | TEAM_ACTIONS:
+            raise ValueError('Неизвестное действие; /deal ' + op_id)
+        payload = {}
+        for line in lines[1:]:
+            key, separator, value = line.partition('=')
+            if not separator or key.strip() in payload:
+                raise ValueError('Поля задаются по одному на строку: название=значение, без дублей.')
+            payload[key.strip()] = safe_text(value)
+        phrase = raw[1].strip() if len(raw) == 2 else ''
+        if action in OWNER_ACTIONS:
+            role, attestation = TelegramRole.ADULT_OWNER, OWNER_ATTESTATION_VERSION
+            if phrase != 'OWNER_CONFIRMS':
+                await message.answer('Предпросмотр: ' + escape_html(action) + '\n' +
+                    '\n'.join(escape_html(k + '=' + v) for k, v in payload.items()) +
+                    '\nТолько после личной проверки/совершённого действия повторите эту же команду '
+                    'с <code>| OWNER_CONFIRMS</code>. Платформенная отправка не выполняется.')
+                return
+        else:
+            if phrase not in {'ARTEM', 'VADIM'}:
+                raise ValueError('Укажите фактический источник: | ARTEM или | VADIM.')
+            role, attestation = TelegramRole(phrase), FACT_SOURCE_ATTESTATION_VERSION
+        actor = _sales_actor(message, allowed_roles=(role,), required_settings=(),
+                             claimed_role=role, attestation_version=attestation)
+        if action == 'followup_sent' and not payload.get('reference'):
+            await message.answer('Шаг 2 — укажите основание личного подтверждения отправки. '
+                'Пока ничего не записано. Повторите эту же команду с теми же version/hash, '
+                'добавив перед <code>| OWNER_CONFIRMS</code> отдельную строку '
+                '<code>reference=</code> и ваше конкретное описание проверенной отправки '
+                '(диалог, время или безопасная ссылка на сообщение; без секретов). '
+                'Источник за вас не подставляется. Проверка свежести диалога остаётся обязательной.')
+            return
+        service = _sales_closer_service()
+        await service.lifecycle_action(op_id, action, payload,
+            event_id=f'telegram:{message.chat.id}:{message.message_id}',
+            actor_role=actor.role.value, actor_telegram_user_id=actor.user_id,
+            **_actor_audit_kwargs(actor))
+        timeline = await service.lead_timeline(op_id)
+    except (ValueError, RuntimeError, KeyError) as exc:
+        await message.answer('Действие не записано: ' + escape_html(str(exc)))
+        return
+    await message.answer('Записано локальное подтверждение (SELF_ATTESTED). Внешних действий нет.')
+    for part in format_lead_timeline(*timeline):
+        await message.answer(part, disable_web_page_preview=True)
+
+
 @router.message(Command("lead"))
 async def cmd_lead(message: Message) -> None:
     raw = (message.text or "").strip().split(maxsplit=1)
@@ -1414,6 +1483,48 @@ async def cmd_quality_recheck(message: Message) -> None:
         await message.answer(
             "❌ Quality recheck failed closed: "
             f"<code>{escape_html(type(exc).__name__)}</code>. Ставку не надсилати."
+        )
+
+
+@admin_router.message(Command("job_diagnostics"))
+async def cmd_job_diagnostics(message: Message) -> None:
+    """Show safe internal analysis diagnostics only in the admin chat."""
+
+    raw = (message.text or "").strip().split(maxsplit=1)
+    if len(raw) < 2 or not raw[1].strip():
+        await message.answer(
+            "❌ Використання: <code>/job_diagnostics &lt;event_id&gt;</code>"
+        )
+        return
+    event_id = raw[1].strip()
+    try:
+        from gmail_agent.quality_gate import quality_errors
+        from gmail_agent.storage import PostgresGmailRepository
+
+        record = await PostgresGmailRepository(AsyncSessionLocal).get_job(event_id)
+        if record is None:
+            await message.answer("❌ Подію не знайдено.")
+            return
+        errors = quality_errors(record) or ["none"]
+        await message.answer(
+            "🛠 <b>Job diagnostics</b>\n\n"
+            f"Event: <code>{escape_html(event_id)}</code>\n"
+            f"Decision: <b>{escape_html(record.commercial_decision or 'UNSET')}</b>\n"
+            f"Quality: <b>{escape_html(record.analysis_quality_status or 'UNSET')}</b>\n"
+            f"Provider outcome: <b>{escape_html(record.provider_outcome or 'UNSET')}</b>\n"
+            f"Model: <code>{escape_html(record.provider_model or 'UNSET')}</code>\n"
+            f"Finish reason: <code>{escape_html(record.provider_finish_reason or 'UNSET')}</code>\n"
+            f"Usage: <code>{record.provider_prompt_tokens}+{record.provider_completion_tokens}="
+            f"{record.provider_total_tokens}</code>\n"
+            "Quality errors: <code>"
+            + escape_html(", ".join(errors[:12]))
+            + "</code>"
+        )
+    except Exception as exc:
+        logger.exception("Job diagnostics failed")
+        await message.answer(
+            "❌ Diagnostics unavailable: "
+            f"<code>{escape_html(type(exc).__name__)}</code>."
         )
 
 

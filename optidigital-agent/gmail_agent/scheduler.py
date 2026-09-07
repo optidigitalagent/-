@@ -164,3 +164,22 @@ def register_gmail_job(scheduler: Any, bot: Any, interval_minutes: int = 1) -> N
         coalesce=True,
     )
     logger.info("Gmail job registered: interval=%d min", interval_minutes)
+async def check_sales_followups(service=None, bot=None, chat_id=None):
+    """Persist follow-up work and notify the existing internal team chat, never clients."""
+    if service is None:
+        from config import settings
+        if not settings.SALES_LIFECYCLE_ENABLED:
+            return []
+        from bot.handlers import _sales_closer_service
+        service = _sales_closer_service()
+    opportunities = await service.followup_tick()
+    if bot is not None and chat_id is not None:
+        await service.deliver_followup_notifications(bot, chat_id, opportunities)
+    return opportunities
+
+
+def register_sales_followup_job(scheduler, *, enabled=False, service=None, bot=None, chat_id=None):
+    if enabled:
+        scheduler.add_job(check_sales_followups, 'interval', seconds=60,
+            kwargs={'service': service, 'bot': bot, 'chat_id': chat_id}, id='sales_followups', replace_existing=True,
+            max_instances=1, coalesce=True)

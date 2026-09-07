@@ -1,0 +1,32 @@
+{
+  "actual_model": "gpt-4o-mini-2024-07-18",
+  "content": "{\"analysis\":{\"is_relevant\":true,\"commercial_decision\":\"ASK\",\"decision_reason\":\"Missing specific examples of similar past work to provide a tailored proposal.\",\"clarification_question\":\"Чи можете надати приклади рілзів, які вам подобаються?\",\"title\":\"Створення сету з 3 коротких простих reels для товару вебсайту в Canva\",\"platform\":\"Freelancehunt\",\"score\":null,\"fit_score\":null,\"reason\":\"Проект вимагає створення коротких рілзів для товару, що відповідає нашій експертизі в області відео-контенту та графічного дизайну. Однак, для точного оцінювання та підготовки пропозиції нам потрібні приклади подібних робіт.\",\"budget\":\"\",\"url\":\"https://freelancehunt.com/project/stvorennya-korotkih-reels-dlya-tovaru/1651774.html\",\"urgency\":\"medium\",\"why_relevant\":\"Ми маємо досвід у створенні відео-контенту та графічного дизайну, що робить нас підходящими для цього проекту.\",\"red_flags\":[],\"language\":\"uk\",\"category\":\"Відео та анімація\",\"skills\":\"Canva, відео-контент, графічний дизайн\",\"deadline\":\"\",\"bid_count\":null,\"client_name\":\"\",\"client_profile_url\":\"\",\"client_context\":\"\",\"project_id\":\"1651774\",\"thread_id\":\"\",\"service_lane\":\"відео-контент\",\"executable\":\"maybe\",\"win_probability_signal\":\"medium\",\"scope_clarity\":\"Достатня інформація для початку, але потрібні приклади для точного розуміння вимог.\",\"estimated_effort\":\"10-15 годин\",\"delivery_risk\":\"Відсутність конкретних прикладів може призвести до непорозумінь у виконанні проекту.\",\"client_payment_risk\":\"Невідомий бюджет може вплинути на готовність клієнта до співпраці.\",\"project_mode\":\"REPUTATION\",\"project_mode_reason\":\"Цей проект може підвищити нашу репутацію в області відео-контенту.\",\"recommended_price\":\"\",\"realistic_timeline\":\"\",\"selected_evidence\":\"\",\"evidence_case_id\":\"DEMO_REQUIRED\",\"evidence\":\"\",\"proposal_draft\":\"\",\"needs_context\":true,\"next_action\":\"клієнт\"}}",
+  "finish_reason": "stop",
+  "ledger_sequence": 5,
+  "requested_model": "gpt-4o-mini",
+  "saved_at": "2026-09-07T07:24:13.097028+00:00",
+  "source_revision": {
+    "dirty": true,
+    "files": {
+      "optidigital-agent/db/models.py": "f9e7d6092839fd383a201be311ec5338560c5f4813afdc9d09e51ceae031f3f6",
+      "optidigital-agent/gmail_agent/digest_parser.py": "9ae7be2259e6d5d9dcd2e5dede5bb929ebef589faad17c5cb2ae87c985ac96e2",
+      "optidigital-agent/gmail_agent/email_analyzer.py": "bfac0990810901538e408ddee3a068b97c5895a513c8cdae64a2e7f4efd88b16",
+      "optidigital-agent/gmail_agent/freelancehunt_discovery.py": "5cec8f5eb66933bb4a771d067e6c25722c84fc753ac3e4dce36adddf0be5aa5f",
+      "optidigital-agent/gmail_agent/gmail_provider.py": "e65bf3463de59e5ca21db63ba1bf39ab4f647211457b498113c89075c2bf00bc",
+      "optidigital-agent/gmail_agent/processor.py": "027d6f7b604eff61605b1c3668b7a05c2c696b02ef19760ae7aa30688c6e5919",
+      "optidigital-agent/gmail_agent/quality_gate.py": "f59e5040c62cccb701cb74a2c067e68b5abb94a2321a2f041824b9b0b587fdcf",
+      "optidigital-agent/gmail_agent/sales_closer.py": "48544bcdf87049dc16aa61e82922a2cfb21b6401230a63e23de22f24a3f147d8",
+      "optidigital-agent/gmail_agent/storage.py": "ad60149a1a7ea40033263b67e446eaa26badb85ccfe28a0594594aeb2e1dd2fb",
+      "optidigital-agent/gmail_agent/telegram_notifier.py": "0a7c8ab28991b30055e7f38e010feb9fc0c2ada9d9906d88f769788627ed3358",
+      "optidigital-agent/ops/issue20_live_e2e.py": "44379ca0544d9729f7e52bb3ec5e6d186ac6ef50050d15ab15024fdda6a7042f",
+      "optidigital-agent/ops/issue20_snapshot_diagnostic.py": "893fae0345bf6da415a5598a224c5169f731a338cd5615e1910b530e02b31baa"
+    },
+    "head": "f640c5472e1b70c6a303e96e31d104e23aacb2cd",
+    "source_sha256": "a22e39a4ead0c9cca6c92232b13b7d23715db6f8bbb4359e1ab32525ed7a770d"
+  },
+  "usage": {
+    "completion_tokens": 497,
+    "prompt_tokens": 4117,
+    "total_tokens": 4614
+  }
+}

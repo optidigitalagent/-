@@ -17,7 +17,7 @@ from uuid import uuid4
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from gmail_agent.digest_parser import DigestJobCandidate
+from gmail_agent.digest_parser import DigestJobCandidate, enrich_candidate_scope
 from gmail_agent.email_analyzer import JobAnalysis
 from gmail_agent.email_classifier import EmailType
 from gmail_agent.freelancehunt_discovery import (
@@ -103,6 +103,14 @@ def _stored_job(stable_key: str, **overrides: object) -> StoredGmailJob:
 
 
 def _active_analysis(candidate: DigestJobCandidate) -> JobAnalysis:
+    candidate = enrich_candidate_scope(
+        candidate,
+        description=candidate.description,
+        source_kind="SYNTHETIC_TEST",
+        main_text_completeness="FULL",
+        materials_status="NOT_REFERENCED",
+        scope_sufficiency="SUFFICIENT_FOR_FIXED_TERMS",
+    )
     return JobAnalysis(
         email_id=candidate.stable_key,
         is_relevant=True,
@@ -151,6 +159,10 @@ def _active_analysis(candidate: DigestJobCandidate) -> JobAnalysis:
         source_feed_timestamp=candidate.source_feed_timestamp,
         feed_fetched_at=candidate.feed_fetched_at,
         first_seen_at=candidate.first_seen_at,
+        materials_status=candidate.materials_status,
+        scope_sufficiency=candidate.scope_sufficiency,
+        scope_enrichment_source=candidate.scope_enrichment_source,
+        scope_enrichment_sha256=candidate.scope_enrichment_sha256,
     )
 
 
